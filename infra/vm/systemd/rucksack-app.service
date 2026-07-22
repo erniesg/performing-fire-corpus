@@ -1,0 +1,19 @@
+[Unit]
+Description=Rucksack managed app
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rucksack-app
+EnvironmentFile=-/etc/default/rucksack-app
+ExecStart=/usr/bin/docker compose -f /opt/rucksack-app/compose.yaml up --remove-orphans
+ExecStop=/usr/bin/docker compose -f /opt/rucksack-app/compose.yaml down --timeout 30
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

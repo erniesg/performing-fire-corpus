@@ -1,0 +1,14 @@
+# Copy to /opt/rucksack-app/compose.yaml and set APP_IMAGE in a trusted deploy context.
+services:
+  app:
+    image: ${APP_IMAGE:?set APP_IMAGE to an immutable image tag}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - app-data:/var/lib/rucksack-app
+
+volumes:
+  app-data:

@@ -1,0 +1,295 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'usage: rucksack-agent-sandbox [--probe] [--trusted-script PATH] WORKTREE COMMON_GIT_DIR [COMMAND ...]' >&2
+  exit 2
+}
+
+probe=0
+trusted_script=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --probe) probe=1; shift ;;
+    --trusted-script) [ "$#" -ge 2 ] || usage; trusted_script="$2"; shift 2 ;;
+    --) shift; break ;;
+    -*) usage ;;
+    *) break ;;
+  esac
+done
+[ "$#" -ge 2 ] || usage
+worktree_input="$1"
+common_git_input="$2"
+shift 2
+if [ "$probe" -eq 0 ] && [ "$#" -eq 0 ]; then
+  usage
+fi
+case "$worktree_input:$common_git_input" in
+  /*:/*) ;;
+  *) printf '%s\n' 'Rucksack agent sandbox requires absolute worktree and Git paths.' >&2; exit 2 ;;
+esac
+command -v bwrap >/dev/null 2>&1 || {
+  printf '%s\n' 'Rucksack agent sandbox requires bubblewrap (bwrap).' >&2
+  exit 2
+}
+command -v git >/dev/null 2>&1 || {
+  printf '%s\n' 'Rucksack agent sandbox requires git.' >&2
+  exit 2
+}
+if [ -n "$trusted_script" ]; then
+  case "$trusted_script" in /*) ;; *) usage ;; esac
+  [ -f "$trusted_script" ] && [ ! -L "$trusted_script" ] || {
+    printf '%s\n' 'Rucksack agent sandbox refuses a missing or symlinked trusted script.' >&2
+    exit 2
+  }
+  trusted_script="$(readlink -f "$trusted_script")"
+fi
+[ -d "$worktree_input" ] && [ ! -L "$worktree_input" ] || {
+  printf '%s\n' 'Rucksack agent sandbox refuses a missing or symlinked worktree.' >&2
+  exit 2
+}
+if [ -L "$worktree_input/.git" ] || { [ ! -f "$worktree_input/.git" ] && [ ! -d "$worktree_input/.git" ]; }; then
+  printf '%s\n' 'Rucksack agent sandbox refuses an unsafe worktree Git entry.' >&2
+  exit 2
+fi
+[ -d "$common_git_input" ] && [ ! -L "$common_git_input" ] || {
+  printf '%s\n' 'Rucksack agent sandbox refuses a missing or symlinked common Git directory.' >&2
+  exit 2
+}
+worktree="$(cd "$worktree_input" && pwd -P)"
+expected_common_git="$(cd "$common_git_input" && pwd -P)"
+git_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN -u RUCKSACK_GITHUB_APP_CREDENTIAL \
+  git -C "$worktree" rev-parse --path-format=absolute --git-dir)"
+actual_common_git="$(env -u GH_TOKEN -u GITHUB_TOKEN -u RUCKSACK_GITHUB_APP_CREDENTIAL \
+  git -C "$worktree" rev-parse --path-format=absolute --git-common-dir)"
+git_dir="$(cd "$git_dir" && pwd -P)"
+actual_common_git="$(cd "$actual_common_git" && pwd -P)"
+if [ "$actual_common_git" != "$expected_common_git" ]; then
+  printf '%s\n' 'Rucksack agent sandbox Git common-directory verification failed.' >&2
+  exit 2
+fi
+if [ "$git_dir" = "$actual_common_git" ]; then
+  sandbox_git_dir=/mnt/repo.git
+else
+  case "$git_dir" in
+    "$actual_common_git"/worktrees/*) sandbox_git_dir="/mnt/repo.git/${git_dir#"$actual_common_git"/}" ;;
+    *) printf '%s\n' 'Rucksack agent sandbox refuses Git metadata outside the expected worktree namespace.' >&2; exit 2 ;;
+  esac
+fi
+
+sandbox_home=/home/rucksack
+real_home="$(readlink -f "$HOME")"
+resolv_file="$(readlink -f /etc/resolv.conf)"
+[ -f "$resolv_file" ] || {
+  printf '%s\n' 'Rucksack agent sandbox could not resolve DNS configuration.' >&2
+  exit 2
+}
+bwrap_args=(
+  --ro-bind / /
+  --tmpfs /home
+  --tmpfs /root
+  --tmpfs /run
+  --dir /run/systemd
+  --dir /run/systemd/resolve
+  --ro-bind "$resolv_file" "$resolv_file"
+  --tmpfs /tmp
+  --tmpfs /var/tmp
+  --tmpfs /mnt
+  --dev /dev
+  --proc /proc
+  --dir "$sandbox_home"
+  --dir /mnt/workspace
+  --dir /mnt/repo.git
+  --dir /mnt/trusted
+  --dir /mnt/provider-auth
+  --bind "$worktree" /mnt/workspace
+  --ro-bind "$worktree/.git" /mnt/workspace/.git
+  --ro-bind "$actual_common_git" /mnt/repo.git
+  --unshare-user
+  --unshare-pid
+  --unshare-ipc
+  --unshare-uts
+  --unshare-cgroup-try
+  --uid 65534
+  --gid 65534
+  --cap-drop ALL
+  --disable-userns
+  --die-with-parent
+  --new-session
+  --clearenv
+  --setenv HOME "$sandbox_home"
+  --setenv USER rucksack
+  --setenv LOGNAME rucksack
+  --setenv PATH "$sandbox_home/.npm-global/bin:$sandbox_home/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  --setenv LANG C.UTF-8
+  --setenv GIT_DIR "$sandbox_git_dir"
+  --setenv GIT_COMMON_DIR /mnt/repo.git
+  --setenv GIT_WORK_TREE /mnt/workspace
+  --setenv GIT_CONFIG_SYSTEM /dev/null
+  --setenv GIT_CONFIG_GLOBAL /dev/null
+  --setenv GIT_TERMINAL_PROMPT 0
+  --setenv GIT_ASKPASS /bin/false
+  --chdir /mnt/workspace
+)
+case "$real_home" in
+  ""|/|/home|/home/*|/root|/root/*) ;;
+  *) [ -d "$real_home" ] && bwrap_args+=(--tmpfs "$real_home") ;;
+esac
+if [ -n "$trusted_script" ]; then
+  bwrap_args+=(--ro-bind "$trusted_script" /mnt/trusted/agent-evidence)
+fi
+for hidden_path in /var/lib/docker /var/lib/lxd /var/snap/lxd /media; do
+  if [ -d "$hidden_path" ]; then
+    bwrap_args+=(--tmpfs "$hidden_path")
+  fi
+done
+for runtime_dir in .npm-global .local/bin; do
+  if [ -d "$HOME/$runtime_dir" ]; then
+    bwrap_args+=(--ro-bind "$HOME/$runtime_dir" "$sandbox_home/$runtime_dir")
+  fi
+done
+# The rucksack CLI usually resolves through ~/.local/bin into a pipx venv under
+# the real home, which the sandbox masks with tmpfs; re-expose that venv (or
+# bare executable) read-only at its real path so trusted in-sandbox steps such
+# as publication bundle-create can still exec rucksack.
+rucksack_cli_path="$(command -v rucksack 2>/dev/null || true)"
+if [ -n "$rucksack_cli_path" ]; then
+  rucksack_cli_real="$(readlink -f "$rucksack_cli_path" 2>/dev/null || true)"
+  case "$rucksack_cli_real" in
+    "$real_home"/*)
+      rucksack_cli_bin="${rucksack_cli_real%/*}"
+      rucksack_venv_root="${rucksack_cli_bin%/bin}"
+      if [ "$rucksack_venv_root" != "$rucksack_cli_bin" ] && [ ! -L "$rucksack_venv_root" ] && \
+        [ -f "$rucksack_venv_root/pyvenv.cfg" ]; then
+        bwrap_args+=(--ro-bind "$rucksack_venv_root" "$rucksack_venv_root")
+      elif [ -f "$rucksack_cli_real" ] && [ ! -L "$rucksack_cli_real" ]; then
+        bwrap_args+=(--ro-bind "$rucksack_cli_real" "$rucksack_cli_real")
+      fi
+      ;;
+  esac
+fi
+mount_provider_store() {
+  provider_dir="$1"
+  shift
+  provider_root="$HOME/$provider_dir"
+  if [ ! -d "$provider_root" ] || [ -L "$provider_root" ]; then
+    return
+  fi
+  bwrap_args+=(--dir "$sandbox_home/$provider_dir")
+  bwrap_args+=(--dir "/mnt/provider-auth/$provider_dir")
+  for provider_file in "$@"; do
+    source_path="$provider_root/$provider_file"
+    if [ -f "$source_path" ] && [ ! -L "$source_path" ]; then
+      bwrap_args+=(--ro-bind "$source_path" "/mnt/provider-auth/$provider_dir/$provider_file")
+    fi
+  done
+  for shared_dir in skills plugins; do
+    source_path="$provider_root/$shared_dir"
+    if [ -d "$source_path" ] && [ ! -L "$source_path" ]; then
+      bwrap_args+=(--ro-bind "$source_path" "/mnt/provider-auth/$provider_dir/$shared_dir")
+    fi
+  done
+}
+mount_provider_store .codex \
+  auth.json config.toml installation_id models_cache.json version.json .personality_migration
+mount_provider_store .claude \
+  .credentials.json settings.json remote-settings.json policy-limits.json \
+  mcp-needs-auth-cache.json .last-cleanup .last-update-result.json
+if [ -f "$HOME/.claude.json" ] && [ ! -L "$HOME/.claude.json" ]; then
+  bwrap_args+=(--ro-bind "$HOME/.claude.json" /mnt/provider-auth/.claude.json)
+fi
+
+if [ "$probe" -eq 1 ]; then
+  set -- /bin/sh -eu -c '
+    test "$(id -u)" = 65534
+    test "$HOME" = /home/rucksack
+    test -w /mnt/workspace
+    awk '\''$5 == "/mnt/workspace/.git" && $6 ~ /(^|,)ro(,|$)/ { found=1 } END { exit !found }'\'' /proc/self/mountinfo
+    test ! -r /etc/shadow
+    test ! -e "$HOME/.config/rucksack/github-app.json"
+    test ! -e "$HOME/.config/rucksack/github-app.pem"
+    for provider_root in /mnt/provider-auth/.codex /mnt/provider-auth/.claude; do
+      if [ -d "$provider_root" ]; then
+        find "$provider_root" -mindepth 1 -maxdepth 1 -printf "%f\n" |
+          while IFS= read -r provider_entry; do
+            case "$provider_root:$provider_entry" in
+              /mnt/provider-auth/.codex:auth.json|/mnt/provider-auth/.codex:config.toml|\
+              /mnt/provider-auth/.codex:installation_id|/mnt/provider-auth/.codex:models_cache.json|\
+              /mnt/provider-auth/.codex:version.json|/mnt/provider-auth/.codex:.personality_migration|\
+              /mnt/provider-auth/.codex:skills|/mnt/provider-auth/.codex:plugins|\
+              /mnt/provider-auth/.claude:.credentials.json|/mnt/provider-auth/.claude:settings.json|\
+              /mnt/provider-auth/.claude:remote-settings.json|/mnt/provider-auth/.claude:policy-limits.json|\
+              /mnt/provider-auth/.claude:mcp-needs-auth-cache.json|/mnt/provider-auth/.claude:.last-cleanup|\
+              /mnt/provider-auth/.claude:.last-update-result.json|/mnt/provider-auth/.claude:skills|\
+              /mnt/provider-auth/.claude:plugins) ;;
+              *) exit 47 ;;
+            esac
+          done
+      fi
+    done
+    for provider_path in "$HOME/.codex" "$HOME/.claude" "$HOME/.claude.json"; do
+      if [ -d "$provider_path" ]; then
+        touch "$provider_path/.rucksack-write-probe"
+        rm "$provider_path/.rucksack-write-probe"
+      fi
+      if [ -f "$provider_path" ]; then
+        cp "$provider_path" "$provider_path.rucksack-write-probe"
+        rm "$provider_path.rucksack-write-probe"
+      fi
+    done
+    test ! -S /run/docker.sock
+    test ! -S /var/run/docker.sock
+    test ! -S /run/lxd.socket
+    test ! -S /var/snap/lxd/common/lxd/unix.socket
+    if env | grep -Eq "^(GH_TOKEN|GITHUB_TOKEN|RUCKSACK_GITHUB_APP_CREDENTIAL|SSH_AUTH_SOCK|DOCKER_HOST)="; then exit 41; fi
+    if sudo -n true >/dev/null 2>&1; then exit 42; fi
+    if unshare --user true >/dev/null 2>&1; then exit 43; fi
+    git status --porcelain >/dev/null
+    command -v rucksack >/dev/null
+    getent hosts api.github.com >/dev/null
+    printf "%s\n" "Rucksack bubblewrap agent isolation proof passed."
+  '
+fi
+set -- /bin/sh -eu -c '
+  copy_provider_file() {
+    source_path="$1"
+    destination_path="$2"
+    if [ -f "$source_path" ] && [ ! -L "$source_path" ]; then
+      file_size="$(wc -c < "$source_path")"
+      case "$file_size" in ""|*[!0-9]*) exit 46 ;; esac
+      if [ "$file_size" -gt 1048576 ]; then exit 46; fi
+      cp -a "$source_path" "$destination_path"
+    fi
+  }
+  if [ -d /mnt/provider-auth/.codex ]; then
+    for provider_file in auth.json config.toml installation_id models_cache.json version.json .personality_migration; do
+      copy_provider_file "/mnt/provider-auth/.codex/$provider_file" "$HOME/.codex/$provider_file"
+    done
+    for shared_dir in skills plugins; do
+      if [ -d "/mnt/provider-auth/.codex/$shared_dir" ] && [ ! -L "/mnt/provider-auth/.codex/$shared_dir" ]; then
+        ln -s "/mnt/provider-auth/.codex/$shared_dir" "$HOME/.codex/$shared_dir"
+      fi
+    done
+    for runtime_dir in .tmp cache log mcp-oauth-locks sessions shell_snapshots tmp; do
+      mkdir -p "$HOME/.codex/$runtime_dir"
+    done
+  fi
+  if [ -d /mnt/provider-auth/.claude ]; then
+    for provider_file in .credentials.json settings.json remote-settings.json policy-limits.json mcp-needs-auth-cache.json .last-cleanup .last-update-result.json; do
+      copy_provider_file "/mnt/provider-auth/.claude/$provider_file" "$HOME/.claude/$provider_file"
+    done
+    for shared_dir in skills plugins; do
+      if [ -d "/mnt/provider-auth/.claude/$shared_dir" ] && [ ! -L "/mnt/provider-auth/.claude/$shared_dir" ]; then
+        ln -s "/mnt/provider-auth/.claude/$shared_dir" "$HOME/.claude/$shared_dir"
+      fi
+    done
+    for runtime_dir in backups cache projects session-env sessions shell-snapshots tasks; do
+      mkdir -p "$HOME/.claude/$runtime_dir"
+    done
+  fi
+  if [ -f /mnt/provider-auth/.claude.json ]; then
+    copy_provider_file /mnt/provider-auth/.claude.json "$HOME/.claude.json"
+  fi
+  exec "$@"
+' rucksack-auth-overlay "$@"
+exec bwrap "${bwrap_args[@]}" -- "$@"

@@ -1,0 +1,16 @@
+
+# Local rucksack outputs and generated artifacts
+.agent/evidence/
+.agent/submissions/
+.agent/harness-backups/
+.agent/harness-runs/
+.agent/vm-runs/
+**/.agent/submissions/
+**/.agent/harness-backups/
+**/.agent/harness-runs/
+**/.agent/vm-runs/
+.rucksack/secrets/
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]

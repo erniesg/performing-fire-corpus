@@ -1,0 +1,106 @@
+#!/bin/sh
+set -eu
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+managed_codex="$HOME/.npm-global/bin/codex"
+managed_claude="$HOME/.npm-global/bin/claude"
+publisher_config="$HOME/.config/rucksack/github-app.json"
+publisher_pem="$HOME/.config/rucksack/github-app.pem"
+lock_file="$HOME/.cache/rucksack/vm-agent-update.lock"
+permanent_exit=20
+temporary_exit=75
+
+permanent_error() {
+  printf '%s\n' "$1"
+  exit "$permanent_exit"
+}
+
+temporary_error() {
+  printf '%s\n' "$1"
+  exit "$temporary_exit"
+}
+
+if [ -e "$publisher_config" ] || [ -L "$publisher_config" ] || [ -e "$publisher_pem" ] || [ -L "$publisher_pem" ]; then
+  permanent_error "Agent update refused: this HOME still contains Rucksack GitHub App publisher credentials; move the App config and PEM to a separate publisher Unix identity before enabling automatic CLI updates"
+fi
+
+mkdir -p "$(dirname "$lock_file")"
+exec 9>"$lock_file"
+if ! command -v flock >/dev/null 2>&1; then
+  permanent_error "Agent update refused: flock is required for safe updater serialization"
+fi
+if ! command -v pgrep >/dev/null 2>&1; then
+  permanent_error "Agent update refused: pgrep is required for active CLI detection"
+fi
+if ! flock -n 9; then
+  temporary_error "Agent update deferred: a queue drain or another updater holds the lock"
+fi
+managed_agent_pattern='[.]npm-global/(bin/(codex|claude)([[:space:]]|$)|lib/node_modules/(@openai/codex|@anthropic-ai/claude-code)(/|[[:space:]]|$))'
+if pgrep -u "$(id -u)" -f "$managed_agent_pattern" >/dev/null 2>&1; then
+  temporary_error "Agent update deferred: Codex or Claude Code is currently running"
+fi
+if command -v tmux >/dev/null 2>&1 && tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -Eq '^rucksack-.+-issue-[0-9]+(-[0-9a-f]+)?$'; then
+  temporary_error "Agent update deferred: a Rucksack issue worker is active"
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  permanent_error "Agent update refused: npm is required to update managed CLIs"
+fi
+
+set --
+codex_before_state="unavailable"
+claude_before_state="unavailable"
+update_codex=0
+update_claude=0
+if [ -e "$managed_codex" ] || [ -L "$managed_codex" ]; then
+  codex_path="$(command -v codex 2>/dev/null || true)"
+  if [ -x "$managed_codex" ] && [ "$codex_path" != "$managed_codex" ]; then
+    permanent_error "Agent update refused: service PATH does not select $managed_codex"
+  fi
+  update_codex=1
+  if [ -x "$managed_codex" ]; then
+    codex_before_state="executable"
+  fi
+  set -- "$@" "@openai/codex@latest"
+fi
+if [ -e "$managed_claude" ] || [ -L "$managed_claude" ]; then
+  claude_path="$(command -v claude 2>/dev/null || true)"
+  if [ -x "$managed_claude" ] && [ "$claude_path" != "$managed_claude" ]; then
+    permanent_error "Agent update refused: service PATH does not select $managed_claude"
+  fi
+  update_claude=1
+  if [ -x "$managed_claude" ]; then
+    claude_before_state="executable"
+  fi
+  set -- "$@" "@anthropic-ai/claude-code@latest"
+fi
+if [ "$#" -eq 0 ]; then
+  permanent_error "Agent update refused: no managed Codex or Claude Code CLI is installed"
+fi
+
+set +e
+npm install --global --prefix "$HOME/.npm-global" "$@"
+npm_status=$?
+set -e
+if [ "$npm_status" -ne 0 ]; then
+  temporary_error "Agent update failed transiently: npm exited with status $npm_status"
+fi
+hash -r
+if [ "$update_codex" -eq 1 ]; then
+  codex_path="$(command -v codex 2>/dev/null || true)"
+  if [ ! -x "$managed_codex" ] || [ "$codex_path" != "$managed_codex" ]; then
+    temporary_error "Codex update verification failed: managed path changed"
+  fi
+  if ! "$managed_codex" --version >/dev/null 2>&1; then
+    temporary_error "Codex update verification failed: updated CLI cannot report its version"
+  fi
+  printf '%s\n' "Codex update verified (previous state: $codex_before_state; path: $managed_codex)"
+fi
+if [ "$update_claude" -eq 1 ]; then
+  claude_path="$(command -v claude 2>/dev/null || true)"
+  if [ ! -x "$managed_claude" ] || [ "$claude_path" != "$managed_claude" ]; then
+    temporary_error "Claude Code update verification failed: managed path changed"
+  fi
+  if ! "$managed_claude" --version >/dev/null 2>&1; then
+    temporary_error "Claude Code update verification failed: updated CLI cannot report its version"
+  fi
+  printf '%s\n' "Claude Code update verified (previous state: $claude_before_state; path: $managed_claude)"
+fi

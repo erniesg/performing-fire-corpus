@@ -1,0 +1,264 @@
+#!/usr/bin/env sh
+node - "$@" <<'NODE'
+const { mkdirSync, writeFileSync, existsSync, readFileSync, statSync } = require("node:fs");
+const { join } = require("node:path");
+const { spawnSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
+
+const allLanes = [];
+allLanes.push({
+  "id": "python-test",
+  "command": "python3 -m unittest discover -s tests",
+  "required": true
+});
+if (existsSync("scripts/check-harness-loop-product")) {
+  allLanes.push({
+    "id": "harness-loop-product",
+    "command": "scripts/check-harness-loop-product",
+    "required": true
+  });
+}
+const invocation = {
+  argv: process.argv.slice(2),
+  npm_config_e2e: process.env.npm_config_e2e || "",
+  npm_config_only: process.env.npm_config_only || "",
+};
+const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(".", "");
+const outDir = join(".agent", "evidence", stamp);
+mkdirSync(join(outDir, "logs"), { recursive: true });
+
+function sh(command) {
+  return spawnSync(command, { shell: true, encoding: "utf8", timeout: 900000 });
+}
+
+function safeRepository(value) {
+  const candidate = String(value || "").trim().replace(/\.git$/, "");
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(candidate) ? candidate : "";
+}
+
+function repositoryFromRemote(value) {
+  const match = String(value || "").trim().match(/github\.com[/:]([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\.git)?$/);
+  return match ? safeRepository(match[1]) : "";
+}
+
+function safeBranch(value) {
+  const candidate = String(value || "").trim();
+  return candidate && candidate.length <= 255 && !/[\u0000-\u001f\u007f]/.test(candidate) ? candidate : "";
+}
+
+function textHash(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function splitList(value) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseSelection(argv) {
+  let includeAll = false;
+  let includeE2e = ["1", "true", "yes"].includes(String(process.env.npm_config_e2e || "").toLowerCase());
+  const requestedOnly = [];
+  const unknownArgs = [];
+  const npmOnly = process.env.npm_config_only || "";
+  if (npmOnly) requestedOnly.push(...splitList(npmOnly));
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--all") {
+      includeAll = true;
+    } else if (arg === "--e2e") {
+      includeE2e = true;
+    } else if (arg === "--only") {
+      index += 1;
+      if (index >= argv.length) unknownArgs.push("--only=<missing>");
+      else requestedOnly.push(...splitList(argv[index]));
+    } else if (arg.startsWith("--only=")) {
+      requestedOnly.push(...splitList(arg.slice("--only=".length)));
+    } else {
+      unknownArgs.push(arg);
+    }
+  }
+
+  const known = new Set(allLanes.map((lane) => lane.id));
+  const unknownLanes = requestedOnly.filter((lane) => !known.has(lane));
+  if (unknownArgs.length || unknownLanes.length) {
+    return { error: `unknown selection: ${[...unknownArgs, ...unknownLanes].join(", ")}` };
+  }
+
+  if (requestedOnly.length) {
+    return { lanes: allLanes.filter((lane) => requestedOnly.includes(lane.id)) };
+  }
+  if (includeAll) return { lanes: allLanes };
+
+  const selected = allLanes.filter((lane) => lane.required);
+  if (includeE2e) {
+    for (const lane of allLanes) {
+      if (lane.id === "e2e" && !selected.some((selectedLane) => selectedLane.id === lane.id)) {
+        selected.push(lane);
+      }
+    }
+  }
+  return { lanes: selected };
+}
+
+const secretEntries = Object.entries(process.env)
+  .filter(([key, value]) => /(TOKEN|SECRET|KEY|PASSWORD|COOKIE|SESSION|AUTH|WEBHOOK|CREDENTIAL)/i.test(key) && value && value.length >= 8)
+  .sort((a, b) => b[1].length - a[1].length);
+
+function redact(value) {
+  let redacted = value || "";
+  for (const [key, secret] of secretEntries) {
+    redacted = redacted.split(secret).join(`[REDACTED:${key}]`);
+  }
+  return redacted;
+}
+
+function storagePolicy() {
+  const storagePath = join(".agent", "storage.yaml");
+  const defaultLimitMb = 10;
+  if (!existsSync(storagePath)) return { repo_limit_mb: defaultLimitMb, source: "default storage policy" };
+  const text = readFileSync(storagePath, "utf8");
+  const match = text.match(/repo_limit_mb:\s*([0-9]+(?:\.[0-9]+)?)/);
+  const parsed = match ? Number.parseFloat(match[1]) : defaultLimitMb;
+  const repoLimitMb = Number.isFinite(parsed) && parsed > 0 ? parsed : defaultLimitMb;
+  return { repo_limit_mb: repoLimitMb, source: storagePath };
+}
+
+function largeUntrackedEvidence() {
+  const policy = storagePolicy();
+  const limitBytes = Math.floor(policy.repo_limit_mb * 1024 * 1024);
+  const artifacts = [];
+  const caveats = [];
+  const proc = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (proc.status !== 0) {
+    const reason = proc.error ? `${proc.error.name}: ${proc.error.message}` : `exit ${proc.status ?? 1}`;
+    caveats.push(`large-file scan skipped: git ls-files failed with ${reason}`);
+    return { artifacts, caveats };
+  }
+
+  for (const rawPath of (proc.stdout || "").split(/\r?\n/)) {
+    const path = rawPath.trim();
+    if (!path || path.startsWith(".agent/evidence/")) continue;
+    let stats;
+    try {
+      stats = statSync(path);
+    } catch (_error) {
+      continue;
+    }
+    if (!stats.isFile() || stats.size <= limitBytes) continue;
+    artifacts.push({
+      kind: "large-untracked-file",
+      path,
+      size_bytes: stats.size,
+      repo_limit_mb: policy.repo_limit_mb,
+      storage: "object-storage-or-git-lfs",
+    });
+    caveats.push(
+      `large untracked file ${path} (${stats.size} bytes) exceeds ${policy.source} repo_limit_mb ${policy.repo_limit_mb}; move it to object storage/Git LFS or ignore it before commit`
+    );
+  }
+  return { artifacts, caveats };
+}
+
+function writeManifest(data, exitCode) {
+  writeFileSync(join(outDir, "manifest.json"), `${JSON.stringify(data, null, 2)}\n`);
+  console.log(`[agent-evidence] ${data.result}: ${join(outDir, "manifest.json")}`);
+  process.exit(exitCode);
+}
+
+const gitCommit = process.env.GITHUB_HEAD_SHA || sh("git rev-parse --verify HEAD").stdout.trim() || "unknown";
+const evidenceRepo = safeRepository(process.env.GITHUB_REPOSITORY)
+  || repositoryFromRemote(sh("git config --get remote.origin.url").stdout)
+  || "performing-fire-corpus";
+const gitBranch = safeBranch(process.env.GITHUB_HEAD_REF)
+  || safeBranch(process.env.GITHUB_REF_NAME)
+  || safeBranch(sh("git branch --show-current").stdout);
+const dirty = sh("git status --short").stdout.trim().length > 0;
+const startedAt = new Date();
+const results = [];
+const selection = parseSelection(invocation.argv);
+const largeFiles = largeUntrackedEvidence();
+
+if (selection.error || !selection.lanes || selection.lanes.length === 0) {
+  const endedAt = new Date();
+  writeManifest({
+    schema_version: "1",
+    run_id: `agent-evidence-${stamp}`,
+    repo: evidenceRepo,
+    branch: gitBranch,
+    commit: gitCommit,
+    dirty,
+    started_at: startedAt.toISOString(),
+    ended_at: endedAt.toISOString(),
+    duration_ms: endedAt.getTime() - startedAt.getTime(),
+    agent_version: textHash(JSON.stringify(allLanes)),
+    invocation,
+    lanes_run: [],
+    runner: {
+      provider: process.env.AGENT_PROVIDER || (process.env.GITHUB_ACTIONS ? "github-actions" : "local"),
+      os: process.platform,
+      node: process.version,
+    },
+    lanes: [],
+    artifacts: [{ kind: "manifest", path: join(outDir, "manifest.json") }, ...largeFiles.artifacts],
+    caveats: largeFiles.caveats,
+    result: "blocked",
+    blocked_reason: selection.error || "no validation lanes selected",
+    required_failures: [],
+  }, 2);
+}
+
+const lanes = selection.lanes;
+
+for (const lane of lanes) {
+  const laneStart = Date.now();
+  const proc = sh(lane.command);
+  const output = redact(`${proc.stdout || ""}${proc.stderr || ""}`);
+  const logPath = join(outDir, "logs", `${lane.id}.log`);
+  writeFileSync(logPath, output);
+  results.push({
+    ...lane,
+    status: proc.status === 0 ? "passed" : "failed",
+    exit_code: proc.status ?? 1,
+    duration_ms: Date.now() - laneStart,
+    log_path: logPath,
+  });
+}
+
+const requiredFailures = results
+  .filter((lane) => lane.required && lane.exit_code !== 0)
+  .map((lane) => lane.id);
+const endedAt = new Date();
+const manifest = {
+  schema_version: "1",
+  run_id: `agent-evidence-${stamp}`,
+  repo: evidenceRepo,
+  branch: gitBranch,
+  commit: gitCommit,
+  dirty,
+  started_at: startedAt.toISOString(),
+  ended_at: endedAt.toISOString(),
+  duration_ms: endedAt.getTime() - startedAt.getTime(),
+  agent_version: textHash(JSON.stringify(allLanes)),
+  invocation,
+  lanes_run: lanes.map((lane) => lane.id),
+  runner: {
+    provider: process.env.AGENT_PROVIDER || (process.env.GITHUB_ACTIONS ? "github-actions" : "local"),
+    os: process.platform,
+    node: process.version,
+  },
+  lanes: results,
+  artifacts: [{ kind: "manifest", path: join(outDir, "manifest.json") }, ...largeFiles.artifacts],
+  caveats: largeFiles.caveats,
+  result: requiredFailures.length === 0 ? "passed" : "failed",
+  required_failures: requiredFailures,
+};
+
+writeManifest(manifest, requiredFailures.length === 0 ? 0 : 1);
+NODE
