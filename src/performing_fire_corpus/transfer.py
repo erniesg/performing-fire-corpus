@@ -265,6 +265,10 @@ def transfer_approved_asset(
             if (
                 existing_receipt.get("object_key") != key
                 or existing_receipt.get("byte_size") != byte_size
+                or _normalize_media_type(
+                    str(existing_receipt.get("media_type", ""))
+                )
+                != media_type
                 or existing_receipt.get("sha256") != sha256
             ):
                 _fail("receipt_conflict", "The immutable receipt conflicts with this transfer.")

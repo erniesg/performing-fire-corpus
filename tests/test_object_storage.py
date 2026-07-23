@@ -444,6 +444,41 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(1, storage.uploads)
         self.assert_cache_empty()
 
+    def test_existing_receipt_media_type_conflict_blocks_reuse(self) -> None:
+        plan = make_plan()
+        content = b"receipt-conflict"
+        digest = hashlib.sha256(content).hexdigest()
+        key = immutable_object_key(plan, digest)
+        self.ledger.upsert(
+            {
+                "schema_version": 1,
+                "record_type": "object",
+                "object_id": f"object_{digest}",
+                "asset_id": plan.asset_id,
+                "source_id": plan.source_id,
+                "public_url": plan.public_url,
+                "object_key": key,
+                "byte_size": len(content),
+                "media_type": "image/jpeg",
+                "sha256": digest,
+                "attempt_state": "reused",
+                "evidence_ref": plan.evidence_ref,
+            }
+        )
+        storage = FakeStorage()
+        storage.objects[key] = {
+            "byte_size": len(content),
+            "media_type": "video/mp4",
+            "sha256": digest,
+        }
+
+        with self.assertRaises(TransferError) as conflict:
+            self.run_transfer(FakeResponse([content]), storage=storage, plan=plan)
+
+        self.assertEqual("receipt_conflict", conflict.exception.code)
+        self.assertEqual(0, storage.uploads)
+        self.assert_cache_empty()
+
     def test_matching_existing_object_without_receipt_records_reuse(self) -> None:
         plan = make_plan()
         content = b"existing"
