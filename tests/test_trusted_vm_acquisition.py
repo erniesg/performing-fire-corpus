@@ -186,6 +186,36 @@ class FakeStorage:
         return True
 
 
+class LostCreateResponseStorage(FakeStorage):
+    def __init__(self, *, state: str) -> None:
+        super().__init__()
+        self.state = state
+
+    def create_file_if_absent(
+        self,
+        key: str,
+        path: Path,
+        *,
+        byte_size: int,
+        media_type: str,
+        sha256: str,
+    ) -> bool:
+        self.uploads.append(key)
+        self.uploaded_body = path.read_bytes()
+        if self.state == "conflict":
+            self.objects[key] = {
+                "byte_size": byte_size,
+                "media_type": media_type,
+                "sha256": "f" * 64,
+            }
+        elif self.state != "absent":
+            raise AssertionError("unsupported synthetic create state")
+        raise StorageError(
+            "r2_create_failed",
+            "Retry the bounded exact-key operation safely.",
+        )
+
+
 class TrustedVMAcquisitionTests(unittest.TestCase):
     def setUp(self) -> None:
         guards = (
@@ -452,6 +482,59 @@ class TrustedVMAcquisitionTests(unittest.TestCase):
         self.assertTrue((output / "cleanup.json").is_file())
         manifest = json.loads((output / "manifest.json").read_text())
         self.assertEqual("blocked", manifest["status"])
+
+    def test_lost_create_response_absent_records_attempt_without_object_claim(self) -> None:
+        storage = LostCreateResponseStorage(state="absent")
+        robots = FakeRobots()
+        asset = FakeAssetHTTP()
+
+        with self.assertRaises(TrustedVMRunError) as raised:
+            self.run_acquisition(
+                storage=storage,
+                robots=robots,
+                asset_http=asset,
+            )
+
+        self.assertEqual("transfer_interrupted", raised.exception.code)
+        self.assertEqual({}, storage.objects)
+        self.assertEqual([], storage.deletes)
+        self.assertEqual(1, len(robots.calls))
+        self.assertEqual([PUBLIC_URL], asset.calls)
+        output = self.root / "receipts"
+        self.assertFalse((output / "object.json").exists())
+        self.assertFalse((output / "verification.json").exists())
+        self.assertFalse((output / "cleanup.json").exists())
+        attempt = json.loads((output / "upload-attempt.json").read_text())
+        self.assertEqual("absent_after_unknown_create", attempt["outcome_code"])
+        self.assertEqual("absent", attempt["state"])
+
+    def test_lost_create_response_conflict_records_attempt_without_delete(self) -> None:
+        storage = LostCreateResponseStorage(state="conflict")
+        robots = FakeRobots()
+        asset = FakeAssetHTTP()
+
+        with self.assertRaises(TrustedVMRunError) as raised:
+            self.run_acquisition(
+                storage=storage,
+                robots=robots,
+                asset_http=asset,
+            )
+
+        self.assertEqual("transfer_interrupted", raised.exception.code)
+        self.assertEqual(1, len(storage.objects))
+        self.assertEqual([], storage.deletes)
+        self.assertEqual(1, len(robots.calls))
+        self.assertEqual([PUBLIC_URL], asset.calls)
+        output = self.root / "receipts"
+        self.assertFalse((output / "object.json").exists())
+        self.assertFalse((output / "verification.json").exists())
+        self.assertFalse((output / "cleanup.json").exists())
+        attempt = json.loads((output / "upload-attempt.json").read_text())
+        self.assertEqual(
+            "metadata_conflict_after_unknown_create",
+            attempt["outcome_code"],
+        )
+        self.assertEqual("conflict", attempt["state"])
 
     def test_success_uploads_verifies_deletes_and_emits_sanitized_artifacts(self) -> None:
         manifest, storage, robots, asset = self.run_acquisition()

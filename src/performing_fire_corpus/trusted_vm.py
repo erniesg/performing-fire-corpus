@@ -498,6 +498,44 @@ def _verification_receipt(
     }
 
 
+def _upload_attempt_fact(
+    plan: TransferPlan,
+    receipt: Mapping[str, object],
+    *,
+    state: str,
+    recorded_at: datetime,
+) -> dict[str, object]:
+    outcomes = {
+        "absent": "absent_after_unknown_create",
+        "conflict": "metadata_conflict_after_unknown_create",
+        "unknown": "head_failed_after_unknown_create",
+    }
+    try:
+        expected_key = immutable_object_key(plan, str(receipt["sha256"]))
+        matches = (
+            state in outcomes
+            and receipt.get("asset_id") == plan.asset_id
+            and receipt.get("source_id") == plan.source_id
+            and receipt.get("object_key") == expected_key
+        )
+    except Exception:
+        matches = False
+    if not matches:
+        raise TrustedVMRunError("exact_key_verification_conflict")
+    return {
+        "schema_version": 1,
+        "record_type": "exact_key_upload_attempt",
+        "asset_id": plan.asset_id,
+        "object_key": expected_key,
+        "byte_size": receipt["byte_size"],
+        "mime_type": receipt["media_type"],
+        "sha256": receipt["sha256"],
+        "recorded_at": utc_text(recorded_at),
+        "outcome_code": outcomes[state],
+        "state": state,
+    }
+
+
 def _load_json(path: Path) -> dict[str, object] | None:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -696,6 +734,75 @@ def acquire_one_to_r2(
                             cleanup,
                             environ,
                         )
+                    else:
+                        attempted = error.attempted_object_receipt
+                        if attempted is not None:
+                            try:
+                                metadata = storage_client.head_object(
+                                    str(attempted["object_key"])
+                                )
+                            except Exception:
+                                attempt = _upload_attempt_fact(
+                                    plan,
+                                    attempted,
+                                    state="unknown",
+                                    recorded_at=current,
+                                )
+                                _write_artifact(
+                                    output,
+                                    "upload-attempt.json",
+                                    attempt,
+                                    environ,
+                                )
+                                raise error from None
+                            try:
+                                verification = _verification_receipt(
+                                    plan,
+                                    attempted,
+                                    metadata,
+                                    current,
+                                )
+                            except TrustedVMRunError:
+                                attempt = _upload_attempt_fact(
+                                    plan,
+                                    attempted,
+                                    state=(
+                                        "absent"
+                                        if metadata is None
+                                        else "conflict"
+                                    ),
+                                    recorded_at=current,
+                                )
+                                _write_artifact(
+                                    output,
+                                    "upload-attempt.json",
+                                    attempt,
+                                    environ,
+                                )
+                                raise error from None
+                            _write_artifact(
+                                output,
+                                "object.json",
+                                attempted,
+                                environ,
+                            )
+                            _write_artifact(
+                                output,
+                                "verification.json",
+                                verification,
+                                environ,
+                            )
+                            cleanup = _cleanup(
+                                receipt=attempted,
+                                storage_client=storage_client,
+                                recorded_at=current,
+                            )
+                            _write_artifact(
+                                output,
+                                "cleanup.json",
+                                cleanup,
+                                environ,
+                            )
                     raise
             _write_artifact(output, "object.json", receipt, environ)
             verification = _verification_receipt(

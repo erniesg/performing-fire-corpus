@@ -75,13 +75,16 @@ mismatch, conflicting metadata, and cleanup failure all stop closed.
 
 The receipt directory contains only atomic sanitized JSON facts: readiness,
 the robots request fact, the object receipt, exact-key verification, exact-key
-cleanup, and the versioned run manifest. A blocked run records a stable outcome
-code and next safe action. Source bytes, bodies, headers, cookies, signed URLs,
-credentials, account identifiers, provider errors, and local paths are never
-receipt fields. Every cache file created by the run is removed after success or
-failure, and a completed run resumes without another public or storage request.
-A cleanup retry is allowed only when the durable object and verification
-receipts identify the same exact key.
+cleanup, and the versioned run manifest. If an R2 create response is lost, an
+`upload-attempt` fact records the exact content-addressed key and whether the
+follow-up exact-key `HEAD` found it absent, conflicting, or unverifiable. It is
+not an object receipt and never authorizes deletion. A blocked run records a
+stable outcome code and next safe action. Source bytes, bodies, headers,
+cookies, signed URLs, credentials, account identifiers, provider errors, and
+local paths are never receipt fields. Every cache file created by the run is
+removed after success or failure, and a completed run resumes without another
+public or storage request. A cleanup retry is allowed only when the durable
+object and verification receipts identify the same exact key.
 
 Run `infra/vm/verify.sh` immediately before and after the held command. Do not
 run it from portable CI or a hosted runner. Do not commit `.local/r2-proof/`,

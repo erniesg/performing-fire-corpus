@@ -39,6 +39,7 @@ class TransferError(RuntimeError):
         reason: str,
         *,
         created_object_receipt: Mapping[str, object] | None = None,
+        attempted_object_receipt: Mapping[str, object] | None = None,
     ) -> None:
         self.code = code
         self.reason = str(sanitize(reason, environ={}))
@@ -46,6 +47,11 @@ class TransferError(RuntimeError):
             None
             if created_object_receipt is None
             else dict(created_object_receipt)
+        )
+        self.attempted_object_receipt = (
+            None
+            if attempted_object_receipt is None
+            else dict(attempted_object_receipt)
         )
         super().__init__(f"{code}: {self.reason}")
 
@@ -79,11 +85,13 @@ def _fail(
     reason: str,
     *,
     created_object_receipt: Mapping[str, object] | None = None,
+    attempted_object_receipt: Mapping[str, object] | None = None,
 ) -> None:
     raise TransferError(
         code,
         reason,
         created_object_receipt=created_object_receipt,
+        attempted_object_receipt=attempted_object_receipt,
     )
 
 
@@ -227,6 +235,7 @@ def transfer_approved_asset(
     )
     temporary_path: Path | None = None
     created_object_receipt: dict[str, object] | None = None
+    attempted_object_receipt: dict[str, object] | None = None
     try:
         response = http_client.open(checked.public_url)
         final_url = getattr(response, "final_url", checked.public_url)
@@ -304,7 +313,7 @@ def transfer_approved_asset(
         created = False
         if existing_object is None:
             expected["attempt_state"] = "uploaded"
-            created_object_receipt = dict(expected)
+            attempted_object_receipt = dict(expected)
             created = storage_client.create_file_if_absent(
                 key,
                 temporary_path,
@@ -316,10 +325,11 @@ def transfer_approved_asset(
                 _fail(
                     "object_conflict",
                     "The immutable create result could not be verified.",
-                    created_object_receipt=created_object_receipt,
+                    attempted_object_receipt=attempted_object_receipt,
                 )
-            if not created:
-                created_object_receipt = None
+            if created:
+                created_object_receipt = attempted_object_receipt
+            attempted_object_receipt = None
         final_object = storage_client.head_object(key)
         if final_object is None or not _matching_metadata(
             final_object,
@@ -352,6 +362,7 @@ def transfer_approved_asset(
             "transfer_interrupted",
             "The bounded transfer was interrupted.",
             created_object_receipt=created_object_receipt,
+            attempted_object_receipt=attempted_object_receipt,
         )
     finally:
         if temporary_path is not None:
