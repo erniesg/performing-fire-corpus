@@ -35,6 +35,11 @@ _DEDICATED_PREFIX = re.compile(
 class StorageError(RuntimeError):
     """A storage-boundary failure safe to include in durable evidence."""
 
+    def __init__(self, code: str, next_action: str) -> None:
+        self.code = code
+        self.next_action = next_action
+        super().__init__(f"{code}: {next_action}")
+
 
 @dataclass(frozen=True)
 class R2Config:

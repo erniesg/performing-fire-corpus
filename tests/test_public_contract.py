@@ -100,6 +100,20 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, proof)
 
+    def test_r2_runbook_documents_the_low_level_held_transfer_boundary(self) -> None:
+        runbook = (ROOT / "docs" / "r2-object-storage.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "r2 transfer-approved",
+            "--plan",
+            "--ledger",
+            "--cache-directory",
+            "--output",
+            "does not authorize a live transfer",
+        ):
+            self.assertIn(value, runbook)
+
 
 if __name__ == "__main__":
     unittest.main()
