@@ -33,9 +33,20 @@ _CHUNK_SIZE = 64 * 1024
 class TransferError(RuntimeError):
     """A sanitized, durable transfer failure."""
 
-    def __init__(self, code: str, reason: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        reason: str,
+        *,
+        created_object_receipt: Mapping[str, object] | None = None,
+    ) -> None:
         self.code = code
         self.reason = str(sanitize(reason, environ={}))
+        self.created_object_receipt = (
+            None
+            if created_object_receipt is None
+            else dict(created_object_receipt)
+        )
         super().__init__(f"{code}: {self.reason}")
 
 
@@ -63,8 +74,17 @@ class HTTPClient(Protocol):
     def open(self, url: str) -> HTTPResponse: ...
 
 
-def _fail(code: str, reason: str) -> None:
-    raise TransferError(code, reason)
+def _fail(
+    code: str,
+    reason: str,
+    *,
+    created_object_receipt: Mapping[str, object] | None = None,
+) -> None:
+    raise TransferError(
+        code,
+        reason,
+        created_object_receipt=created_object_receipt,
+    )
 
 
 def plan_transfer(
@@ -206,6 +226,7 @@ def transfer_approved_asset(
         evidence_ref=plan.evidence_ref,
     )
     temporary_path: Path | None = None
+    created_object_receipt: dict[str, object] | None = None
     try:
         response = http_client.open(checked.public_url)
         final_url = getattr(response, "final_url", checked.public_url)
@@ -294,6 +315,9 @@ def transfer_approved_asset(
                     "object_conflict",
                     "The immutable create result could not be verified.",
                 )
+            if created:
+                expected["attempt_state"] = "uploaded"
+                created_object_receipt = dict(expected)
         final_object = storage_client.head_object(key)
         if final_object is None or not _matching_metadata(
             final_object,
@@ -304,6 +328,7 @@ def transfer_approved_asset(
             _fail(
                 "object_conflict",
                 "The immutable object is absent or has conflicting metadata.",
+                created_object_receipt=created_object_receipt,
             )
         expected["attempt_state"] = "uploaded" if created else "reused"
         try:
@@ -313,11 +338,19 @@ def transfer_approved_asset(
             )
         except LedgerError as error:
             del error
-            _fail("receipt_conflict", "The immutable receipt could not be recorded safely.")
+            _fail(
+                "receipt_conflict",
+                "The immutable receipt could not be recorded safely.",
+                created_object_receipt=created_object_receipt,
+            )
     except TransferError:
         raise
     except Exception:
-        _fail("transfer_interrupted", "The bounded transfer was interrupted.")
+        _fail(
+            "transfer_interrupted",
+            "The bounded transfer was interrupted.",
+            created_object_receipt=created_object_receipt,
+        )
     finally:
         if temporary_path is not None:
             try:

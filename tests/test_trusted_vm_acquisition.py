@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from performing_fire_corpus.acquisition import HTTPResponse
 from performing_fire_corpus.cli import main
+from performing_fire_corpus.ledger import Ledger, LedgerError
 from performing_fire_corpus.storage import R2Config, StorageError
 from performing_fire_corpus.trusted_vm import (
     TrustedVMRunError,
@@ -398,6 +399,36 @@ class TrustedVMAcquisitionTests(unittest.TestCase):
             self.assertEqual([], list((self.root / f"{code}-cache").glob("*")))
             rendered = (output / "manifest.json").read_text()
             self.assertNotIn("private signed response body", rendered)
+            if code == "object_conflict":
+                self.assertTrue((output / "object.json").is_file())
+                self.assertEqual([], storage.deletes)
+
+    def test_ledger_failure_after_upload_verifies_and_cleans_exact_key(self) -> None:
+        original_upsert = Ledger.upsert
+
+        def fail_object_receipt(ledger, record, *, operation_id=None):
+            if record.get("record_type") == "object":
+                raise LedgerError("synthetic receipt failure")
+            return original_upsert(
+                ledger,
+                record,
+                operation_id=operation_id,
+            )
+
+        storage = FakeStorage()
+        with patch.object(Ledger, "upsert", new=fail_object_receipt):
+            with self.assertRaises(TrustedVMRunError) as raised:
+                self.run_acquisition(storage=storage)
+
+        self.assertEqual("receipt_conflict", raised.exception.code)
+        self.assertEqual(storage.uploads, storage.deletes)
+        self.assertEqual({}, storage.objects)
+        output = self.root / "receipts"
+        self.assertTrue((output / "object.json").is_file())
+        self.assertTrue((output / "verification.json").is_file())
+        self.assertTrue((output / "cleanup.json").is_file())
+        manifest = json.loads((output / "manifest.json").read_text())
+        self.assertEqual("blocked", manifest["status"])
 
     def test_success_uploads_verifies_deletes_and_emits_sanitized_artifacts(self) -> None:
         manifest, storage, robots, asset = self.run_acquisition()

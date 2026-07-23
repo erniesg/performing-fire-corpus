@@ -656,13 +656,47 @@ def acquire_one_to_r2(
                 raise TrustedVMRunError("proof_window_stale")
             with Ledger(ledger_path) as ledger:
                 _seed_ledger(ledger, plan)
-                receipt = transfer_approved_asset(
-                    plan,
-                    http_client=asset_http_client,
-                    storage_client=storage_client,
-                    ledger=ledger,
-                    cache_directory=cache_directory,
-                )
+                try:
+                    receipt = transfer_approved_asset(
+                        plan,
+                        http_client=asset_http_client,
+                        storage_client=storage_client,
+                        ledger=ledger,
+                        cache_directory=cache_directory,
+                    )
+                except TransferError as error:
+                    receipt = error.created_object_receipt
+                    if receipt is not None:
+                        _write_artifact(output, "object.json", receipt, environ)
+                        try:
+                            verification = _verification_receipt(
+                                plan,
+                                receipt,
+                                storage_client.head_object(
+                                    str(receipt["object_key"])
+                                ),
+                                current,
+                            )
+                        except TrustedVMRunError:
+                            raise error from None
+                        _write_artifact(
+                            output,
+                            "verification.json",
+                            verification,
+                            environ,
+                        )
+                        cleanup = _cleanup(
+                            receipt=receipt,
+                            storage_client=storage_client,
+                            recorded_at=current,
+                        )
+                        _write_artifact(
+                            output,
+                            "cleanup.json",
+                            cleanup,
+                            environ,
+                        )
+                    raise
             _write_artifact(output, "object.json", receipt, environ)
             verification = _verification_receipt(
                 plan,
