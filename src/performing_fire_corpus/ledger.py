@@ -327,6 +327,10 @@ class Ledger:
                     raise InvalidTransition(f"unknown asset {asset_id}")
                 current = str(row["state"])
                 if current == new_state:
+                    result = {"asset_id": asset_id, "state": current}
+                    self._record_operation(
+                        operation_id, "transition", asset_id, request, result, now
+                    )
                     self._connection.commit()
                     return current
                 resume_state: str | None = None
@@ -412,6 +416,14 @@ class Ledger:
                 ).fetchone()
                 if existing is not None:
                     result = json.loads(existing["body"])
+                    self._record_operation(
+                        operation_id,
+                        "create_job",
+                        str(value["job_id"]),
+                        value,
+                        result,
+                        now,
+                    )
                     self._connection.commit()
                     return result
                 self._connection.execute(

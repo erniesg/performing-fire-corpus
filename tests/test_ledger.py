@@ -242,6 +242,43 @@ class LedgerTests(unittest.TestCase):
                 now=T0 + timedelta(seconds=7),
             )
 
+    def test_noop_transition_binds_its_operation_id(self) -> None:
+        self.seed_asset()
+        self.assertEqual(
+            "discovered",
+            self.ledger.transition_asset(
+                self.asset["asset_id"],
+                "discovered",
+                operation_id="op_noop_transition",
+            ),
+        )
+
+        with self.assertRaises(LedgerError):
+            self.ledger.transition_asset(
+                self.asset["asset_id"],
+                "metadata_verified",
+                operation_id="op_noop_transition",
+            )
+
+    def test_duplicate_job_creation_binds_its_operation_id(self) -> None:
+        self.seed_asset()
+        self.ledger.create_job(self.job)
+        self.assertEqual(
+            self.job,
+            self.ledger.create_job(
+                self.job,
+                operation_id="op_duplicate_job",
+            ),
+        )
+
+        changed_job = copy.deepcopy(self.job)
+        changed_job["max_attempts"] = 4
+        with self.assertRaises(LedgerError):
+            self.ledger.create_job(
+                changed_job,
+                operation_id="op_duplicate_job",
+            )
+
     def test_built_wheel_validates_records_outside_the_source_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = Path(temporary)
