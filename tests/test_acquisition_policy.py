@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from performing_fire_corpus.policy import (
+    AcquisitionPolicyError,
+    require_transfer_rights,
+    validate_public_url,
+    validate_redirect,
+)
+
+
+class AcquisitionPolicyTests(unittest.TestCase):
+    def test_checked_in_public_hosts_are_allowed_and_normalized(self) -> None:
+        cases = {
+            "https://NJPVIDEO.GGCF.KR/item?id=1": "njpvideo.ggcf.kr",
+            "https://njp.ggcf.kr:443/pages/videoarchive": "njp.ggcf.kr",
+            "https://www.youtube.com/@NamJunePaikArtCenter/videos": "www.youtube.com",
+            "https://antiegg.kr/25502/": "antiegg.kr",
+        }
+        for url, expected_host in cases.items():
+            with self.subTest(url=url):
+                validated = validate_public_url(url)
+                self.assertEqual(expected_host, validated.hostname)
+                self.assertEqual(443, validated.port)
+
+    def test_url_confusion_and_credentials_fail_closed(self) -> None:
+        rejected = (
+            "http://njp.ggcf.kr/",
+            "https://user:pass@njp.ggcf.kr/",
+            "https://njp.ggcf.kr/#payload",
+            "https://njp.ggcf.kr:444/",
+            "https://njp.ggcf.kr.evil.invalid/",
+            "https://njp.ggcf.kr./",
+            "https://127.0.0.1/",
+            "https://[::1]/",
+            "https://njp.ggcf.kr\\@evil.invalid/",
+            "https://njp.ggcf.kr/%0aheader",
+            "https://njp.ggcf.kr/?signature=synthetic-secret",
+            "https://njp.ggcf.kr/?X-Amz-Credential=synthetic-account",
+        )
+        for url in rejected:
+            with self.subTest(url=url):
+                with self.assertRaises(AcquisitionPolicyError):
+                    validate_public_url(url)
+
+    def test_redirects_are_revalidated_before_following(self) -> None:
+        validated = validate_redirect(
+            "https://njp.ggcf.kr/pages/videoarchive",
+            "https://njpvideo.ggcf.kr/synthetic/item",
+        )
+        self.assertEqual("njpvideo.ggcf.kr", validated.hostname)
+        with self.assertRaises(AcquisitionPolicyError):
+            validate_redirect(
+                "https://njp.ggcf.kr/pages/videoarchive",
+                "https://login.invalid/session",
+            )
+
+    def test_transfer_requires_a_complete_matching_approval(self) -> None:
+        approved = {
+            "schema_version": 1,
+            "record_type": "rights",
+            "rights_id": "rights_synthetic",
+            "asset_id": "asset_synthetic",
+            "state": "approved",
+            "decision_reason": "Synthetic approval.",
+            "decision_at": "2026-01-01T00:00:00Z",
+        }
+        require_transfer_rights("asset_synthetic", approved)
+
+        for rights in (
+            None,
+            {},
+            {"asset_id": "asset_synthetic", "state": "pending"},
+            {"asset_id": "asset_synthetic", "state": "blocked"},
+            {"asset_id": "asset_other", "state": "approved"},
+            {"asset_id": "asset_synthetic", "state": "approved"},
+            {
+                **approved,
+                "decision_at": "not-a-timestamp",
+            },
+            {
+                **approved,
+                "unexpected": "field",
+            },
+        ):
+            with self.subTest(rights=rights):
+                with self.assertRaises(AcquisitionPolicyError) as caught:
+                    require_transfer_rights("asset_synthetic", rights)
+                self.assertEqual("rights_not_approved", caught.exception.code)
+                self.assertNotIn("None", caught.exception.reason)
+
+    def test_policy_errors_do_not_echo_rejected_inputs(self) -> None:
+        synthetic_secret = "synthetic-query-value"
+        with self.assertRaises(AcquisitionPolicyError) as caught:
+            validate_public_url(
+                f"https://njp.ggcf.kr/?token={synthetic_secret}"
+            )
+        self.assertNotIn(synthetic_secret, str(caught.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
