@@ -603,10 +603,16 @@ def _parse_robots_observation(
         or record.get("public_references") != [ROBOTS_URL]
         or not isinstance(observation, dict)
         or set(observation) != {"catalogue_allowed", "outcome", "status"}
-        or observation.get("catalogue_allowed") is not True
-        or observation.get("outcome") not in {"allowed", "not_found"}
-        or observation.get("status")
-        != (200 if observation.get("outcome") == "allowed" else 404)
+        or (
+            observation.get("catalogue_allowed"),
+            observation.get("outcome"),
+            observation.get("status"),
+        )
+        not in {
+            (True, "allowed", 200),
+            (True, "not_found", 404),
+            (False, "denied", 200),
+        }
     ):
         return None
     return observation
@@ -659,6 +665,7 @@ def _fresh_robots_observation(
         return None
     if (
         observation is None
+        or observation.get("catalogue_allowed") is not True
         or checked_at > current
         or current - checked_at > ROBOTS_OBSERVATION_TTL
     ):
@@ -696,7 +703,7 @@ def _record_robots_observation(
     recorded_at: str,
 ) -> dict[str, object]:
     observation: dict[str, object] = {
-        "catalogue_allowed": True,
+        "catalogue_allowed": outcome != "denied",
         "outcome": outcome,
         "status": status,
     }
@@ -878,6 +885,13 @@ def inventory_public_source(
                     except UnicodeDecodeError:
                         allowed = False
                     if not allowed:
+                        _record_robots_observation(
+                            ledger,
+                            outcome="denied",
+                            status=robots.status,
+                            request_index=len(runner.requests),
+                            recorded_at=str(runner.requests[-1]["recorded_at"]),
+                        )
                         manifest = _finish_blocked(
                             ledger,
                             "robots_denied",

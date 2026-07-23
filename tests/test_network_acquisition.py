@@ -266,6 +266,22 @@ class NetworkAcquisitionTests(unittest.TestCase):
             self.assertEqual([ROBOTS_URL], [call[1] for call in transport.calls])
             self.assertEqual("robots_denied", manifest["blocker"]["code"])
             self.assertEqual(2, manifest["record_counts"]["requests"])
+            self.assertEqual(
+                {
+                    "catalogue_allowed": False,
+                    "outcome": "denied",
+                    "status": 200,
+                },
+                manifest["robots_observation"],
+            )
+            with Ledger(root / "ledger.sqlite3") as ledger:
+                observation = ledger.get_record(
+                    "evidence", "evidence_antiegg_fluxus_robots_observation_002"
+                )
+                request = ledger.get_record(
+                    "evidence", "evidence_antiegg_fluxus_request_002"
+                )
+                self.assertEqual(request["recorded_at"], observation["recorded_at"])
 
     def test_malformed_or_orphaned_robots_checkpoint_is_revalidated(self) -> None:
         now = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
