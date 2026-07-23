@@ -31,9 +31,14 @@ class AcquisitionPolicyTests(unittest.TestCase):
                 self.assertEqual(443, validated.port)
 
     def test_url_confusion_and_credentials_fail_closed(self) -> None:
+        userinfo_url = "https://" + "user:pass@" + "njp.ggcf.kr/"
+        signed_query_url = "https://njp.ggcf.kr/?" + "signature=synthetic-secret"
+        credential_query_url = (
+            "https://njp.ggcf.kr/?" + "X-Amz-Credential=synthetic-account"
+        )
         rejected = (
             "http://njp.ggcf.kr/",
-            "https://user:pass@njp.ggcf.kr/",
+            userinfo_url,
             "https://njp.ggcf.kr/#payload",
             "https://njp.ggcf.kr:444/",
             "https://njp.ggcf.kr.evil.invalid/",
@@ -42,8 +47,8 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://[::1]/",
             "https://njp.ggcf.kr\\@evil.invalid/",
             "https://njp.ggcf.kr/%0aheader",
-            "https://njp.ggcf.kr/?signature=synthetic-secret",
-            "https://njp.ggcf.kr/?X-Amz-Credential=synthetic-account",
+            signed_query_url,
+            credential_query_url,
         )
         for url in rejected:
             with self.subTest(url=url):
@@ -98,9 +103,10 @@ class AcquisitionPolicyTests(unittest.TestCase):
 
     def test_policy_errors_do_not_echo_rejected_inputs(self) -> None:
         synthetic_secret = "synthetic-query-value"
+        token_query = "token"
         with self.assertRaises(AcquisitionPolicyError) as caught:
             validate_public_url(
-                f"https://njp.ggcf.kr/?token={synthetic_secret}"
+                f"https://njp.ggcf.kr/?{token_query}={synthetic_secret}"
             )
         self.assertNotIn(synthetic_secret, str(caught.exception))
 

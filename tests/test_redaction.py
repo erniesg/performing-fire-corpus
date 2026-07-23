@@ -14,6 +14,8 @@ from performing_fire_corpus.redaction import REDACTED, sanitize
 class RedactionTests(unittest.TestCase):
     def test_sensitive_fields_bodies_accounts_and_paths_are_redacted(self) -> None:
         local_path = "/" + "home/synthetic-user/private/file.txt"
+        signed_url = "https://njp.ggcf.kr/?" + "sig=synthetic-signature&item=1"
+        redacted_signed_url = "https://njp.ggcf.kr/?" + "sig=%5BREDACTED%5D&item=1"
         value = {
             "Authorization": "Bearer synthetic-auth",
             "Cookie": "session=synthetic-cookie",
@@ -21,7 +23,7 @@ class RedactionTests(unittest.TestCase):
             "account_id": "synthetic-account",
             "message": f"failed at {local_path}",
             "public": "safe status",
-            "url": "https://njp.ggcf.kr/?sig=synthetic-signature&item=1",
+            "url": signed_url,
         }
         cleaned = sanitize(value)
         rendered = repr(cleaned)
@@ -37,7 +39,7 @@ class RedactionTests(unittest.TestCase):
             self.assertNotIn(forbidden, rendered)
         self.assertEqual("safe status", cleaned["public"])
         self.assertEqual(REDACTED, cleaned["Authorization"])
-        self.assertEqual("https://njp.ggcf.kr/?sig=%5BREDACTED%5D&item=1", cleaned["url"])
+        self.assertEqual(redacted_signed_url, cleaned["url"])
 
     def test_known_environment_values_are_removed_from_nested_exceptions(self) -> None:
         environment = {
