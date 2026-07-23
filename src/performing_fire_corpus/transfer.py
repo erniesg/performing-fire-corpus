@@ -137,13 +137,21 @@ def _normalize_media_type(value: str) -> str:
 
 
 def _matching_metadata(
-    metadata: Mapping[str, object], *, byte_size: int, sha256: str
+    metadata: Mapping[str, object],
+    *,
+    byte_size: int,
+    media_type: str,
+    sha256: str,
 ) -> bool:
     try:
         stored_size = int(metadata.get("byte_size", -1))
     except (TypeError, ValueError):
         return False
-    return stored_size == byte_size and metadata.get("sha256") == sha256
+    return (
+        stored_size == byte_size
+        and _normalize_media_type(str(metadata.get("media_type", ""))) == media_type
+        and metadata.get("sha256") == sha256
+    )
 
 
 def _receipt(
@@ -261,7 +269,10 @@ def transfer_approved_asset(
             ):
                 _fail("receipt_conflict", "The immutable receipt conflicts with this transfer.")
             if existing_object is None or not _matching_metadata(
-                existing_object, byte_size=byte_size, sha256=sha256
+                existing_object,
+                byte_size=byte_size,
+                media_type=media_type,
+                sha256=sha256,
             ):
                 _fail("object_conflict", "The immutable object is absent or conflicting.")
             return existing_receipt
@@ -281,7 +292,10 @@ def transfer_approved_asset(
                 )
         final_object = storage_client.head_object(key)
         if final_object is None or not _matching_metadata(
-            final_object, byte_size=byte_size, sha256=sha256
+            final_object,
+            byte_size=byte_size,
+            media_type=media_type,
+            sha256=sha256,
         ):
             _fail(
                 "object_conflict",

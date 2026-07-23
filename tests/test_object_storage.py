@@ -450,7 +450,11 @@ class TransferTests(unittest.TestCase):
         digest = hashlib.sha256(content).hexdigest()
         key = immutable_object_key(plan, digest)
         storage = FakeStorage()
-        storage.objects[key] = {"byte_size": len(content), "sha256": digest}
+        storage.objects[key] = {
+            "byte_size": len(content),
+            "media_type": "video/mp4",
+            "sha256": digest,
+        }
         receipt, _ = self.run_transfer(
             FakeResponse([content]), storage=storage, plan=plan
         )
@@ -477,7 +481,13 @@ class TransferTests(unittest.TestCase):
     ) -> None:
         content = b"racing"
         digest = hashlib.sha256(content).hexdigest()
-        matching = RacingStorage({"byte_size": len(content), "sha256": digest})
+        matching = RacingStorage(
+            {
+                "byte_size": len(content),
+                "media_type": "video/mp4",
+                "sha256": digest,
+            }
+        )
         receipt, _ = self.run_transfer(FakeResponse([content]), storage=matching)
         self.assertEqual("reused", receipt["attempt_state"])
         self.assertFalse(matching.overwrote_conflict)
@@ -495,6 +505,11 @@ class TransferTests(unittest.TestCase):
         for final_metadata in (
             None,
             {"byte_size": len(content) + 1, "sha256": digest},
+            {
+                "byte_size": len(content),
+                "media_type": "image/jpeg",
+                "sha256": digest,
+            },
         ):
             with self.subTest(final_metadata=final_metadata):
                 storage = UnverifiedCreateStorage(final_metadata)
