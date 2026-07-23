@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Sequence
+import os
+from collections.abc import Mapping, Sequence
 
 from performing_fire_corpus.acquisition import AcquisitionConfig, inventory_public_source
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
+from performing_fire_corpus.storage import (
+    StorageClient,
+    load_r2_config,
+    r2_readiness,
+    write_readiness_result,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,10 +56,26 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--max-response-bytes", type=int, default=262144)
     inventory.add_argument("--ledger", required=True)
     inventory.add_argument("--sanitized-manifest", required=True)
+    r2 = subparsers.add_parser("r2", help="R2 object-storage boundary commands")
+    r2_subparsers = r2.add_subparsers(dest="r2_command", required=True)
+    readiness = r2_subparsers.add_parser(
+        "readiness", help="report redacted R2 configuration readiness"
+    )
+    readiness.add_argument(
+        "--config", default=".agent/storage.yaml", help="agent storage contract"
+    )
+    readiness.add_argument(
+        "--output", required=True, help="durable sanitized readiness result"
+    )
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    storage_client: StorageClient | None = None,
+) -> int:
     arguments = build_parser().parse_args(argv)
     if arguments.command == "progress":
         with Ledger(arguments.database) as ledger:
@@ -73,4 +96,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest_path=arguments.sanitized_manifest,
             )
         )
+    elif arguments.command == "r2" and arguments.r2_command == "readiness":
+        result = r2_readiness(
+            load_r2_config(arguments.config),
+            environ=os.environ if environ is None else environ,
+            storage_client=storage_client,
+        )
+        write_readiness_result(arguments.output, result)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["ready"] else 2
     return 0

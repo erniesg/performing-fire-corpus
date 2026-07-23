@@ -285,6 +285,17 @@ class Ledger:
         ).fetchone()
         return None if row is None else json.loads(row["body"])
 
+    def get_object_by_key(self, object_key: str) -> dict[str, Any] | None:
+        """Return the unique durable receipt for an immutable object key."""
+
+        for row in self._connection.execute(
+            "SELECT body FROM records WHERE record_type='object'"
+        ):
+            record = json.loads(row["body"])
+            if record.get("object_key") == object_key:
+                return record
+        return None
+
     def _require_approved_rights(self, asset_id: str) -> None:
         rows = self._connection.execute(
             "SELECT body FROM records WHERE record_type='rights'"
