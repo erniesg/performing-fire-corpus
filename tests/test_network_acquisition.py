@@ -287,6 +287,105 @@ class NetworkAcquisitionTests(unittest.TestCase):
                 "response_structure_changed", unsafe_manifest["blocker"]["code"]
             )
 
+    def test_sensitive_live_metadata_cannot_reach_ledger_or_manifest(self) -> None:
+        robots = b"User-agent: *\nAllow: /\n"
+        cases = (
+            ("og:title", "Synthetic person@example.invalid"),
+            ("og:title", "account_1234567890"),
+            ("article:published_time", "Synthetic person@example.invalid"),
+            ("article:published_time", "account_1234567890"),
+        )
+        for field, sensitive_value in cases:
+            with self.subTest(field=field, sensitive_value=sensitive_value):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    title = (
+                        "Synthetic Fluxus metadata"
+                        if field == "article:published_time"
+                        else sensitive_value
+                    )
+                    published = (
+                        f'<meta property="article:published_time" '
+                        f'content="{sensitive_value}">'
+                        if field == "article:published_time"
+                        else ""
+                    )
+                    metadata = (
+                        "<html><head>"
+                        f'<meta property="og:title" content="{title}">'
+                        '<meta property="og:type" content="article">'
+                        f"{published}"
+                        '<link rel="canonical" href="https://antiegg.kr/25502/">'
+                        "</head></html>"
+                    ).encode()
+                    transport = FakeTransport(
+                        [
+                            response(
+                                ROBOTS_URL, mime_type="text/plain", body=robots
+                            ),
+                            response(
+                                ARTICLE_URL, mime_type="text/html", body=metadata
+                            ),
+                        ]
+                    )
+
+                    manifest = inventory_public_source(
+                        self.config(root), transport=transport
+                    )
+
+                    self.assertEqual("blocked", manifest["result"])
+                    self.assertEqual(
+                        "response_structure_changed",
+                        manifest["blocker"]["code"],
+                    )
+                    self.assertNotIn(
+                        sensitive_value,
+                        json.dumps(manifest, sort_keys=True),
+                    )
+                    self.assertNotIn(
+                        sensitive_value,
+                        (root / "manifest.json").read_text(encoding="utf-8"),
+                    )
+                    with Ledger(root / "ledger.sqlite3") as ledger:
+                        asset = ledger.get_record(
+                            "asset", "asset_antiegg_fluxus_25502"
+                        )
+                        self.assertEqual(
+                            {"inventory_status": "blocked"}, asset["metadata"]
+                        )
+
+    def test_declared_oversized_robots_response_blocks_before_catalogue(self) -> None:
+        metadata = (
+            b"<html><head>"
+            b'<meta property="og:title" content="Synthetic Fluxus metadata">'
+            b'<meta property="og:type" content="article">'
+            b'<link rel="canonical" href="https://antiegg.kr/25502/">'
+            b"</head></html>"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transport = FakeTransport(
+                [
+                    response(
+                        ROBOTS_URL,
+                        mime_type="text/plain",
+                        body=b"",
+                        declared_bytes=5000,
+                    ),
+                    response(ARTICLE_URL, mime_type="text/html", body=metadata),
+                ]
+            )
+
+            manifest = inventory_public_source(
+                self.config(root, max_response_bytes=256),
+                transport=transport,
+            )
+
+            self.assertEqual("blocked", manifest["result"])
+            self.assertEqual("response_oversized", manifest["blocker"]["code"])
+            self.assertEqual([ROBOTS_URL], [call[1] for call in transport.calls])
+            self.assertIsNone(manifest["requests"][0]["response_sha256"])
+
     def test_resume_after_partial_request_evidence_uses_new_stable_request_id(
         self,
     ) -> None:

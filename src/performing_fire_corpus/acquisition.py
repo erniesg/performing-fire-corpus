@@ -446,7 +446,14 @@ class _Runner:
                     return None, "elapsed_time_exhausted"
                 continue
             self.run_request_count += 1
-            if len(response.body) > self.config.max_response_bytes:
+            if (
+                response.oversized
+                or len(response.body) > self.config.max_response_bytes
+                or (
+                    response.declared_bytes is not None
+                    and response.declared_bytes > self.config.max_response_bytes
+                )
+            ):
                 response = HTTPResponse(
                     url=response.url,
                     status=response.status,
