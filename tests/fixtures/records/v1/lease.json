@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "record_type": "lease",
+  "lease_id": "lease_synthetic_001",
+  "job_id": "job_synthetic_metadata_001",
+  "holder_id": "worker_fixture_01",
+  "capabilities": [
+    "metadata-discovery"
+  ],
+  "acquired_at": "2026-01-01T00:00:00Z",
+  "expires_at": "2026-01-01T00:05:00Z",
+  "checkpoint": {
+    "sequence": 0,
+    "summary": "Synthetic lease checkpoint."
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "record_type": "source",
+  "source_id": "source_njp_synthetic",
+  "public_url": "https://njp.ggcf.kr/",
+  "source_kind": "website",
+  "metadata": {
+    "label": "synthetic source"
+  }
+}

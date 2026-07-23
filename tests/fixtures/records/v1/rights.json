@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "record_type": "rights",
+  "rights_id": "rights_synthetic_video_001",
+  "asset_id": "asset_synthetic_video_001",
+  "state": "approved",
+  "decision_reason": "Synthetic fixture approved for schema testing.",
+  "decision_at": "2026-01-01T00:00:00Z"
+}

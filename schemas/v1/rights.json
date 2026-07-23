@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/rights.json",
+  "title": "Rights record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "rights_id",
+    "asset_id",
+    "state"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record_type": {
+      "const": "rights"
+    },
+    "rights_id": {
+      "type": "string",
+      "pattern": "^rights_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "approved",
+        "blocked"
+      ]
+    },
+    "decision_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$"
+    },
+    "decision_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "pending"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "decision_reason"
+              ]
+            },
+            {
+              "required": [
+                "decision_at"
+              ]
+            }
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "decision_reason",
+          "decision_at"
+        ]
+      }
+    }
+  ]
+}

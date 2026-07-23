@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "record_type": "job",
+  "job_id": "job_synthetic_metadata_001",
+  "asset_id": "asset_synthetic_video_001",
+  "operation": "metadata_discovery",
+  "status": "queued",
+  "required_capabilities": [
+    "metadata-discovery"
+  ],
+  "retry_state": "ready",
+  "attempt_count": 0,
+  "max_attempts": 3,
+  "checkpoint": {
+    "sequence": 0,
+    "summary": "Synthetic metadata checkpoint."
+  },
+  "output_object_key": "derived/synthetic/metadata-001.json"
+}
