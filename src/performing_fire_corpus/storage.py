@@ -68,6 +68,10 @@ class StorageClient(Protocol):
         """Atomically create *key*; return false when it already exists."""
         ...
 
+    def delete_exact_object(self, key: str) -> bool:
+        """Delete one exact immutable key; broad selectors are forbidden."""
+        ...
+
 
 def dedicated_staging_prefix(prefix: str) -> bool:
     """Return whether *prefix* is a normalized, dedicated staging namespace."""

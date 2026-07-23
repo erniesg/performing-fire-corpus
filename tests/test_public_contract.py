@@ -114,6 +114,24 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, runbook)
 
+    def test_r2_runbook_documents_the_held_trusted_vm_one_object_command(self) -> None:
+        runbook = (ROOT / "docs" / "r2-object-storage.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "trusted-vm acquire-one-to-r2",
+            "--approval .local/r2-proof/approval.json",
+            "--database .local/r2-proof/ledger.sqlite3",
+            "--storage-config .agent/storage.yaml",
+            "--cache-directory .local/r2-proof/cache",
+            "--sanitized-output .local/r2-proof/receipts",
+            "delete_after_verification",
+            "infra/vm/verify.sh",
+            "held",
+            "Do not commit",
+        ):
+            self.assertIn(value, runbook)
+
 
 if __name__ == "__main__":
     unittest.main()
