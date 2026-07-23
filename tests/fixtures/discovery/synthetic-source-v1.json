@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "fixture_type": "synthetic_metadata",
+  "synthetic": true,
+  "source": {
+    "key": "njp_archive",
+    "public_url": "https://NJP.GGCF.KR",
+    "source_kind": "video_library",
+    "metadata": {
+      "label": "Synthetic archive fixture",
+      "region": "Synthetic region"
+    }
+  },
+  "assets": [
+    {
+      "key": "synthetic_video",
+      "public_url": "https://NJPVIDEO.GGCF.KR/synthetic/item-001",
+      "media_type": "video/mp4",
+      "metadata": {
+        "label": "Synthetic video fixture",
+        "year": "2000"
+      }
+    }
+  ],
+  "evidence": {
+    "recorded_at": "2026-01-01T00:00:00Z",
+    "summary": "Synthetic fixture metadata validated offline."
+  }
+}

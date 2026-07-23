@@ -1,0 +1,88 @@
+{
+  "assets": [
+    {
+      "asset": {
+        "asset_id": "asset_fixture_synthetic_video",
+        "media_type": "video/mp4",
+        "metadata": {
+          "label": "Synthetic video fixture",
+          "year": "2000"
+        },
+        "public_url": "https://njpvideo.ggcf.kr/synthetic/item-001",
+        "record_type": "asset",
+        "schema_version": 1,
+        "source_id": "source_fixture_njp_archive"
+      },
+      "evidence": [
+        {
+          "evidence_id": "evidence_fixture_synthetic_video",
+          "evidence_kind": "fixture_validation",
+          "public_references": [
+            "https://njpvideo.ggcf.kr/synthetic/item-001"
+          ],
+          "record_type": "evidence",
+          "recorded_at": "2026-01-01T00:00:00Z",
+          "schema_version": 1,
+          "subject_id": "asset_fixture_synthetic_video",
+          "summary": "Synthetic fixture metadata validated offline."
+        }
+      ],
+      "jobs": [
+        {
+          "asset_id": "asset_fixture_synthetic_video",
+          "attempt_count": 0,
+          "checkpoint": {
+            "sequence": 0,
+            "summary": "Synthetic fixture metadata is ready for validation."
+          },
+          "job_id": "job_fixture_synthetic_video_metadata",
+          "max_attempts": 1,
+          "operation": "metadata_validation",
+          "record_type": "job",
+          "required_capabilities": [
+            "portable"
+          ],
+          "retry_state": "ready",
+          "schema_version": 1,
+          "status": "queued"
+        }
+      ],
+      "rights": {
+        "asset_id": "asset_fixture_synthetic_video",
+        "record_type": "rights",
+        "rights_id": "rights_fixture_synthetic_video",
+        "schema_version": 1,
+        "state": "pending"
+      }
+    }
+  ],
+  "evidence_references": [
+    "https://njpvideo.ggcf.kr/synthetic/item-001"
+  ],
+  "job_state_counts": {
+    "queued": 1
+  },
+  "manifest_type": "fixture_discovery",
+  "record_counts": {
+    "asset": 1,
+    "evidence": 1,
+    "job": 1,
+    "rights": 1,
+    "source": 1
+  },
+  "schema_version": 1,
+  "source": {
+    "metadata": {
+      "label": "Synthetic archive fixture",
+      "region": "Synthetic region"
+    },
+    "public_url": "https://njp.ggcf.kr/",
+    "record_type": "source",
+    "schema_version": 1,
+    "source_id": "source_fixture_njp_archive",
+    "source_kind": "video_library"
+  },
+  "state_counts": {
+    "discovered": 1
+  }
+}

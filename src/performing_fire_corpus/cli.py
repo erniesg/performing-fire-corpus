@@ -4,6 +4,7 @@ import argparse
 import json
 from collections.abc import Sequence
 
+from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
 
 
@@ -19,6 +20,19 @@ def build_parser() -> argparse.ArgumentParser:
     progress.add_argument(
         "--database", required=True, help="explicit path to the SQLite ledger"
     )
+    discover = subparsers.add_parser(
+        "discover-fixture",
+        help="ingest checked-in synthetic metadata without network access",
+    )
+    discover.add_argument(
+        "--fixture", required=True, help="checked-in synthetic JSON fixture"
+    )
+    discover.add_argument(
+        "--database", required=True, help="explicit path to the SQLite ledger"
+    )
+    discover.add_argument(
+        "--output", required=True, help="explicit path for the sanitized manifest"
+    )
     return parser
 
 
@@ -27,4 +41,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "progress":
         with Ledger(arguments.database) as ledger:
             print(json.dumps(ledger.progress(), indent=2, sort_keys=True))
+    elif arguments.command == "discover-fixture":
+        discover_fixture(arguments.fixture, arguments.database, arguments.output)
     return 0
