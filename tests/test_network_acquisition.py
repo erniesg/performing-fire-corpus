@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from performing_fire_corpus.acquisition import (
     HTTPResponse,
     AcquisitionConfig,
+    UrllibGETTransport,
     inventory_public_source,
 )
 from performing_fire_corpus.cli import build_parser
@@ -56,8 +58,10 @@ def response(
     mime_type: str,
     body: bytes,
     declared_bytes: int | None = None,
+    observed_bytes: int | None = None,
     retry_after: str | None = None,
     location: str | None = None,
+    oversized: bool = False,
 ) -> HTTPResponse:
     return HTTPResponse(
         url=url,
@@ -65,8 +69,10 @@ def response(
         mime_type=mime_type,
         body=body,
         declared_bytes=declared_bytes,
+        observed_bytes=observed_bytes,
         retry_after=retry_after,
         location=location,
+        oversized=oversized,
     )
 
 
@@ -159,6 +165,7 @@ class NetworkAcquisitionTests(unittest.TestCase):
     def test_resume_after_robots_checkpoint_does_not_duplicate_records(
         self,
     ) -> None:
+        checked_at = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
         robots = b"User-agent: *\nAllow: /\n"
         metadata = (
             b"<html><head>"
@@ -175,12 +182,14 @@ class NetworkAcquisitionTests(unittest.TestCase):
 
             with self.assertRaises(KeyboardInterrupt):
                 inventory_public_source(
-                    self.config(root), transport=interrupted_transport
+                    self.config(root),
+                    transport=interrupted_transport,
+                    wall_clock=lambda: checked_at,
                 )
 
             with Ledger(root / "ledger.sqlite3") as ledger:
                 observation = ledger.get_record(
-                    "evidence", "evidence_antiegg_fluxus_robots_observation"
+                    "evidence", "evidence_antiegg_fluxus_robots_observation_001"
                 )
                 self.assertIsNotNone(observation)
                 self.assertIsNotNone(
@@ -198,7 +207,9 @@ class NetworkAcquisitionTests(unittest.TestCase):
                 [response(ARTICLE_URL, mime_type="text/html", body=metadata)]
             )
             resumed = inventory_public_source(
-                self.config(root), transport=resumed_transport
+                self.config(root),
+                transport=resumed_transport,
+                wall_clock=lambda: checked_at + timedelta(hours=1),
             )
 
             self.assertEqual([ARTICLE_URL], [call[1] for call in resumed_transport.calls])
@@ -217,6 +228,120 @@ class NetworkAcquisitionTests(unittest.TestCase):
             )
             self.assertEqual(resumed, repeated)
             self.assertEqual([], final_transport.calls)
+
+    def test_stale_robots_checkpoint_is_revalidated_before_catalogue(self) -> None:
+        checked_at = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+        allowed_robots = b"User-agent: *\nAllow: /\n"
+        denied_robots = b"User-agent: *\nDisallow: /25502/\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(KeyboardInterrupt):
+                inventory_public_source(
+                    self.config(root),
+                    transport=InterruptAfterRobotsTransport(
+                        [
+                            response(
+                                ROBOTS_URL,
+                                mime_type="text/plain",
+                                body=allowed_robots,
+                            )
+                        ]
+                    ),
+                    wall_clock=lambda: checked_at,
+                )
+
+            transport = FakeTransport(
+                [
+                    response(
+                        ROBOTS_URL, mime_type="text/plain", body=denied_robots
+                    )
+                ]
+            )
+            manifest = inventory_public_source(
+                self.config(root),
+                transport=transport,
+                wall_clock=lambda: checked_at + timedelta(days=2),
+            )
+
+            self.assertEqual([ROBOTS_URL], [call[1] for call in transport.calls])
+            self.assertEqual("robots_denied", manifest["blocker"]["code"])
+            self.assertEqual(2, manifest["record_counts"]["requests"])
+
+    def test_malformed_or_orphaned_robots_checkpoint_is_revalidated(self) -> None:
+        now = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
+        robots = b"User-agent: *\nDisallow: /25502/\n"
+        for case in ("malformed", "orphaned"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                with Ledger(root / "ledger.sqlite3") as ledger:
+                    ledger.upsert(
+                        {
+                            "schema_version": 1,
+                            "record_type": "source",
+                            "source_id": "source_antiegg_fluxus",
+                            "public_url": ARTICLE_URL,
+                            "source_kind": "article",
+                            "metadata": {"adapter": "antiegg-fluxus"},
+                        }
+                    )
+                    if case == "malformed":
+                        ledger.upsert(
+                            {
+                                "schema_version": 1,
+                                "record_type": "evidence",
+                                "evidence_id": "evidence_antiegg_fluxus_request_001",
+                                "subject_id": "source_antiegg_fluxus",
+                                "evidence_kind": "sanitized_public_request",
+                                "recorded_at": "2026-07-23T12:00:00Z",
+                                "summary": json.dumps(
+                                    {
+                                        "byte_count": 24,
+                                        "mime_type": "text/plain",
+                                        "recorded_at": "2026-07-23T12:00:00Z",
+                                        "response_sha256": "0" * 64,
+                                        "retry_outcome": "not_retried",
+                                        "status": 200,
+                                    },
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                ),
+                                "public_references": [ROBOTS_URL],
+                            }
+                        )
+                    ledger.upsert(
+                        {
+                            "schema_version": 1,
+                            "record_type": "evidence",
+                            "evidence_id": "evidence_antiegg_fluxus_robots_observation",
+                            "subject_id": "source_antiegg_fluxus",
+                            "evidence_kind": "sanitized_robots_observation",
+                            "recorded_at": "2026-07-23T12:00:00Z",
+                            "summary": json.dumps(
+                                {
+                                    "catalogue_allowed": (
+                                        "yes" if case == "malformed" else True
+                                    ),
+                                    "outcome": "allowed",
+                                    "status": 200,
+                                },
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            ),
+                            "public_references": [ROBOTS_URL],
+                        }
+                    )
+
+                transport = FakeTransport(
+                    [response(ROBOTS_URL, mime_type="text/plain", body=robots)]
+                )
+                manifest = inventory_public_source(
+                    self.config(root),
+                    transport=transport,
+                    wall_clock=lambda: now,
+                )
+
+                self.assertEqual([ROBOTS_URL], [call[1] for call in transport.calls])
+                self.assertEqual("robots_denied", manifest["blocker"]["code"])
 
     def test_robots_denial_writes_one_durable_blocker_without_catalogue_request(
         self,
@@ -303,20 +428,15 @@ class NetworkAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             observed_root = Path(temporary) / "observed"
             observed_root.mkdir()
-            oversized_body = (
-                b"<html><head>"
-                b'<meta property="og:title" content="Synthetic title">'
-                b'<meta property="og:type" content="article">'
-                b'<link rel="canonical" href="https://antiegg.kr/25502/">'
-                b"</head></html>"
-            )
             observed_transport = FakeTransport(
                 [
                     response(ROBOTS_URL, mime_type="text/plain", body=robots),
                     response(
                         ARTICLE_URL,
                         mime_type="text/html",
-                        body=oversized_body,
+                        body=b"",
+                        observed_bytes=65,
+                        oversized=True,
                     ),
                 ]
             )
@@ -332,6 +452,14 @@ class NetworkAcquisitionTests(unittest.TestCase):
             self.assertIsNone(
                 observed_manifest["requests"][-1]["response_sha256"]
             )
+            self.assertEqual(
+                65, observed_manifest["requests"][-1]["byte_count"]
+            )
+            with Ledger(observed_root / "ledger.sqlite3") as ledger:
+                request = ledger.get_record(
+                    "evidence", "evidence_antiegg_fluxus_request_002"
+                )
+                self.assertEqual(65, json.loads(request["summary"])["byte_count"])
 
             unsafe_root = Path(temporary) / "unsafe"
             unsafe_root.mkdir()
@@ -361,6 +489,38 @@ class NetworkAcquisitionTests(unittest.TestCase):
             self.assertEqual(
                 "response_structure_changed", unsafe_manifest["blocker"]["code"]
             )
+
+    def test_transport_preserves_bounded_observed_oversize_count(self) -> None:
+        class OpenedResponse:
+            status = 200
+            headers = {"Content-Type": "text/html"}
+
+            def __enter__(self) -> "OpenedResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def geturl(self) -> str:
+                return ARTICLE_URL
+
+            def read(self, limit: int) -> bytes:
+                return b"x" * limit
+
+        class Opener:
+            def open(self, request: object, timeout: float) -> OpenedResponse:
+                return OpenedResponse()
+
+        transport = UrllibGETTransport()
+        transport._opener = Opener()
+
+        result = transport.get(
+            ARTICLE_URL, timeout_seconds=3.0, max_response_bytes=64
+        )
+
+        self.assertTrue(result.oversized)
+        self.assertEqual(b"", result.body)
+        self.assertEqual(65, result.observed_bytes)
 
     def test_sensitive_live_metadata_cannot_reach_ledger_or_manifest(self) -> None:
         robots = b"User-agent: *\nAllow: /\n"

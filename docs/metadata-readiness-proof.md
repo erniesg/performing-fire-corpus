@@ -22,7 +22,9 @@ The interrupted restart check used the same bounds except for a longer
 be terminated after its first durable checkpoint. Its sanitized robots
 observation was present before termination. Resuming against the same ledger
 made only the remaining article request. Repeating the completed command made
-no request and emitted a byte-identical manifest.
+no request and emitted a byte-identical manifest. Resume authorization now
+requires that robots observation to be no more than 24 hours old and linked to
+its matching sanitized request evidence; otherwise robots is fetched again.
 
 ## Sanitized observations
 
