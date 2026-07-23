@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import tempfile
 from collections import Counter
 from collections.abc import Mapping
@@ -19,6 +20,15 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_ROOT = _REPOSITORY_ROOT / "tests" / "fixtures" / "discovery"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9_]{0,79}$")
 _LOCAL_ABSOLUTE_PATH = re.compile(r"^(?:/|[A-Za-z]:[\\/]|file://)")
+_EMAIL_VALUE = re.compile(
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"(?![A-Za-z0-9.-])"
+)
+_ACCOUNT_IDENTIFIER_VALUE = re.compile(
+    r"(?<![A-Za-z0-9])(?:acct|account|owner|tenant|user)[_-][A-Za-z0-9]{6,}"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 _FORBIDDEN_FIELD_PARTS = frozenset(
     {
         "account",
@@ -77,8 +87,11 @@ def _assert_fixture_safe(value: Any, *, field: str = "fixture") -> None:
         return
     if isinstance(value, (bytes, bytearray, memoryview)):
         raise FixtureError(f"{field} contains forbidden binary data")
-    if isinstance(value, str) and _LOCAL_ABSOLUTE_PATH.search(value):
-        raise FixtureError(f"{field} contains a local absolute path")
+    if isinstance(value, str):
+        if _LOCAL_ABSOLUTE_PATH.search(value):
+            raise FixtureError(f"{field} contains a local absolute path")
+        if _EMAIL_VALUE.search(value) or _ACCOUNT_IDENTIFIER_VALUE.search(value):
+            raise FixtureError(f"{field} contains a sensitive value")
 
 
 def _require_mapping(value: Any, field: str) -> Mapping[str, Any]:
@@ -123,17 +136,45 @@ def _validated_url(value: Any, field: str) -> str:
 def load_fixture(path: str | Path) -> dict[str, Any]:
     """Load JSON only from the repository's synthetic discovery fixture tree."""
 
-    fixture_path = Path(path).resolve()
+    supplied_path = Path(path)
+    fixture_path = supplied_path.resolve()
     fixture_root = _FIXTURE_ROOT.resolve()
     if (
         fixture_path.suffix != ".json"
+        or supplied_path.is_symlink()
         or not fixture_path.is_file()
         or not _is_within(fixture_path, fixture_root)
     ):
         raise FixtureError("fixture must be a checked-in synthetic JSON fixture")
+
+    relative_path = fixture_path.relative_to(_REPOSITORY_ROOT.resolve()).as_posix()
     try:
-        value = json.loads(fixture_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        tree_entry = subprocess.run(
+            ["git", "-C", str(_REPOSITORY_ROOT), "ls-tree", "-z", "HEAD", "--", relative_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if tree_entry.returncode != 0 or not tree_entry.stdout.endswith(
+            f"\t{relative_path}\0".encode()
+        ):
+            raise FixtureError("fixture must be a checked-in synthetic JSON fixture")
+        mode, object_type, object_id = tree_entry.stdout.split(b"\t", 1)[0].split()
+        if mode not in {b"100644", b"100755"} or object_type != b"blob":
+            raise FixtureError("fixture must be a checked-in synthetic JSON fixture")
+        checked_in = subprocess.run(
+            ["git", "-C", str(_REPOSITORY_ROOT), "cat-file", "blob", object_id.decode()],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        fixture_bytes = fixture_path.read_bytes()
+        if checked_in.returncode != 0 or checked_in.stdout != fixture_bytes:
+            raise FixtureError("fixture must be a checked-in synthetic JSON fixture")
+        value = json.loads(fixture_bytes.decode("utf-8"))
+    except FixtureError:
+        raise
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
         raise FixtureError("fixture must contain valid UTF-8 JSON") from None
     if not isinstance(value, dict):
         raise FixtureError("fixture root must be an object")

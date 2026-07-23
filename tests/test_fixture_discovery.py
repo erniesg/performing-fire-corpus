@@ -121,6 +121,17 @@ class FixtureDiscoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(FixtureError, "checked-in"):
                 load_fixture(unchecked)
 
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            suffix=".json",
+            dir=FIXTURES,
+        ) as untracked:
+            json.dump(fixture_data(), untracked)
+            untracked.flush()
+            with self.assertRaisesRegex(FixtureError, "checked-in"):
+                load_fixture(untracked.name)
+
     def test_malformed_fixture_is_rejected(self) -> None:
         malformed = fixture_data()
         del malformed["source"]["source_kind"]
@@ -151,6 +162,27 @@ class FixtureDiscoveryTests(unittest.TestCase):
         private["assets"][0]["metadata"]["location"] = "/tmp/synthetic-private.json"
         with self.assertRaisesRegex(FixtureError, "local absolute path"):
             build_records(private)
+
+    def test_sensitive_values_cannot_reach_records_or_manifests(self) -> None:
+        sensitive_values = (
+            "synthetic-person" + "@example.invalid",
+            "acct_" + "1234567890",
+        )
+        for value in sensitive_values:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                private = fixture_data()
+                private["source"]["metadata"]["label"] = value
+                directory = Path(temporary)
+                output = directory / "manifest.json"
+                with (
+                    patch(
+                        "performing_fire_corpus.discovery.load_fixture",
+                        return_value=private,
+                    ),
+                    self.assertRaisesRegex(FixtureError, "sensitive value"),
+                ):
+                    discover_fixture(FIXTURE, directory / "ledger.sqlite3", output)
+                self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
