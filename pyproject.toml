@@ -13,5 +13,14 @@ dependencies = ["jsonschema>=4.10,<5"]
 [project.scripts]
 performing-fire-corpus = "performing_fire_corpus.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = [
+  "performing_fire_corpus",
+  "performing_fire_corpus.migrations",
+  "performing_fire_corpus.schemas.v1",
+]
+package-dir = {"" = "src", "performing_fire_corpus.schemas.v1" = "schemas/v1"}
+
+[tool.setuptools.package-data]
+"performing_fire_corpus.migrations" = ["*.sql"]
+"performing_fire_corpus.schemas.v1" = ["*.json"]
