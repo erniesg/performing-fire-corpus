@@ -265,18 +265,29 @@ def transfer_approved_asset(
             ):
                 _fail("object_conflict", "The immutable object is absent or conflicting.")
             return existing_receipt
-        if existing_object is not None:
-            if not _matching_metadata(existing_object, byte_size=byte_size, sha256=sha256):
-                _fail("object_conflict", "The immutable object has conflicting metadata.")
-            expected["attempt_state"] = "reused"
-        else:
-            storage_client.upload_file(
+        created = False
+        if existing_object is None:
+            created = storage_client.create_file_if_absent(
                 key,
                 temporary_path,
                 byte_size=byte_size,
                 media_type=media_type,
                 sha256=sha256,
             )
+            if not isinstance(created, bool):
+                _fail(
+                    "object_conflict",
+                    "The immutable create result could not be verified.",
+                )
+        final_object = storage_client.head_object(key)
+        if final_object is None or not _matching_metadata(
+            final_object, byte_size=byte_size, sha256=sha256
+        ):
+            _fail(
+                "object_conflict",
+                "The immutable object is absent or has conflicting metadata.",
+            )
+        expected["attempt_state"] = "uploaded" if created else "reused"
         try:
             return ledger.upsert(
                 expected,
