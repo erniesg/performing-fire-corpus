@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Sequence
 
 from performing_fire_corpus.acquisition import AcquisitionConfig, inventory_public_source
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
+from performing_fire_corpus.storage import load_r2_config, r2_readiness
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +51,14 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--max-response-bytes", type=int, default=262144)
     inventory.add_argument("--ledger", required=True)
     inventory.add_argument("--sanitized-manifest", required=True)
+    r2 = subparsers.add_parser("r2", help="R2 object-storage boundary commands")
+    r2_subparsers = r2.add_subparsers(dest="r2_command", required=True)
+    readiness = r2_subparsers.add_parser(
+        "readiness", help="report redacted R2 configuration readiness"
+    )
+    readiness.add_argument(
+        "--config", default=".agent/storage.yaml", help="agent storage contract"
+    )
     return parser
 
 
@@ -73,4 +83,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest_path=arguments.sanitized_manifest,
             )
         )
+    elif arguments.command == "r2" and arguments.r2_command == "readiness":
+        result = r2_readiness(load_r2_config(arguments.config), environ=os.environ)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["ready"] else 2
     return 0
