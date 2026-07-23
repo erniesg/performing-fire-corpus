@@ -551,6 +551,13 @@ class TransferTests(unittest.TestCase):
                 with self.assertRaises(TransferError) as conflict:
                     self.run_transfer(FakeResponse([content]), storage=storage)
                 self.assertEqual("object_conflict", conflict.exception.code)
+                self.assertIsNotNone(
+                    conflict.exception.created_object_receipt
+                )
+                self.assertEqual(
+                    immutable_object_key(make_plan(), digest),
+                    conflict.exception.created_object_receipt["object_key"],
+                )
                 self.assertEqual(1, storage.uploads)
                 self.assert_cache_empty()
 

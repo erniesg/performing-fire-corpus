@@ -4,8 +4,14 @@ import argparse
 import json
 import os
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
-from performing_fire_corpus.acquisition import AcquisitionConfig, inventory_public_source
+from performing_fire_corpus.acquisition import (
+    AcquisitionConfig,
+    HTTPTransport,
+    UrllibGETTransport,
+    inventory_public_source,
+)
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
 from performing_fire_corpus.r2 import (
@@ -24,6 +30,12 @@ from performing_fire_corpus.storage import (
     write_readiness_result,
 )
 from performing_fire_corpus.transfer import HTTPClient, TransferError, transfer_approved_asset
+from performing_fire_corpus.trusted_vm import (
+    TrustedVMRunError,
+    acquire_one_to_r2,
+    load_trusted_vm_approval,
+    persist_blocked_run,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,7 +102,82 @@ def build_parser() -> argparse.ArgumentParser:
     transfer.add_argument(
         "--output", required=True, help="sanitized immutable object receipt"
     )
+    trusted_vm = subparsers.add_parser(
+        "trusted-vm", help="held trusted-VM operator workflows"
+    )
+    trusted_vm_subparsers = trusted_vm.add_subparsers(
+        dest="trusted_vm_command", required=True
+    )
+    acquire_one = trusted_vm_subparsers.add_parser(
+        "acquire-one-to-r2",
+        help="acquire, verify, and delete one explicitly approved R2 object",
+    )
+    acquire_one.add_argument("--approval", required=True)
+    acquire_one.add_argument("--database", required=True)
+    acquire_one.add_argument("--storage-config", required=True)
+    acquire_one.add_argument("--cache-directory", required=True)
+    acquire_one.add_argument("--sanitized-output", required=True)
     return parser
+
+
+def _trusted_vm_paths(arguments: argparse.Namespace) -> dict[str, Path]:
+    raw_paths = {
+        "approval": arguments.approval,
+        "database": arguments.database,
+        "storage_config": arguments.storage_config,
+        "cache_directory": arguments.cache_directory,
+        "sanitized_output": arguments.sanitized_output,
+    }
+    root = Path.cwd().resolve()
+    selected: dict[str, Path] = {}
+    for name, raw_path in raw_paths.items():
+        candidate = Path(raw_path)
+        if (
+            candidate.is_absolute()
+            or not candidate.parts
+            or any(part in ("", ".", "..") for part in candidate.parts)
+        ):
+            raise TrustedVMRunError(
+                "unsafe_path",
+                "Use explicit repository-relative paths in the held proof scope.",
+            )
+        resolved = (root / candidate).resolve()
+        if not resolved.is_relative_to(root):
+            raise TrustedVMRunError(
+                "unsafe_path",
+                "Use explicit repository-relative paths in the held proof scope.",
+            )
+        selected[name] = resolved
+    if Path(raw_paths["storage_config"]).as_posix() != ".agent/storage.yaml":
+        raise TrustedVMRunError(
+            "unsafe_path",
+            "Use the reviewed .agent storage contract for this held proof.",
+        )
+    proof_root = (root / ".local" / "r2-proof").resolve()
+    if any(
+        not selected[name].is_relative_to(proof_root)
+        for name in (
+            "approval",
+            "database",
+            "cache_directory",
+            "sanitized_output",
+        )
+    ):
+        raise TrustedVMRunError(
+            "unsafe_path",
+            "Keep approval, ledger, cache, and receipts in the held proof scope.",
+        )
+    if (
+        selected["approval"].suffix != ".json"
+        or selected["database"].suffix != ".sqlite3"
+        or selected["cache_directory"] in (proof_root, selected["sanitized_output"])
+        or selected["sanitized_output"] == proof_root
+    ):
+        raise TrustedVMRunError(
+            "unsafe_path",
+            "Use one approval file, one ledger, and separate bounded cache and receipt directories.",
+        )
+    return selected
 
 
 def main(
@@ -99,6 +186,7 @@ def main(
     environ: Mapping[str, str] | None = None,
     storage_client: StorageClient | None = None,
     http_client: HTTPClient | None = None,
+    robots_transport: HTTPTransport | None = None,
 ) -> int:
     arguments = build_parser().parse_args(argv)
     source = os.environ if environ is None else environ
@@ -200,6 +288,80 @@ def main(
                     {
                         "code": "transfer_failed",
                         "next_action": "Review the bounded transfer gates and retry safely.",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 1
+    elif (
+        arguments.command == "trusted-vm"
+        and arguments.trusted_vm_command == "acquire-one-to-r2"
+    ):
+        paths: dict[str, Path] | None = None
+        try:
+            paths = _trusted_vm_paths(arguments)
+            approval = load_trusted_vm_approval(paths["approval"])
+            config = load_r2_config(paths["storage_config"])
+            selected_storage = storage_client or build_r2_client(
+                config,
+                environ=source,
+            )
+            manifest = acquire_one_to_r2(
+                approval,
+                config=config,
+                ledger_path=paths["database"],
+                cache_directory=paths["cache_directory"],
+                sanitized_output=paths["sanitized_output"],
+                environ=source,
+                storage_client=selected_storage,
+                robots_transport=robots_transport or UrllibGETTransport(),
+                asset_http_client=http_client or UrllibHTTPClient(),
+            )
+            print(json.dumps({"status": manifest["status"]}, sort_keys=True))
+            return 0
+        except TrustedVMRunError as error:
+            if paths is not None:
+                persist_blocked_run(
+                    paths["sanitized_output"],
+                    code=error.code,
+                    next_action=error.next_action,
+                    environ=source,
+                )
+            print(
+                json.dumps(
+                    {"code": error.code, "next_action": error.next_action},
+                    sort_keys=True,
+                )
+            )
+            return 4 if error.code in {"approval_invalid", "unsafe_path"} else 1
+        except StorageError as error:
+            if paths is not None:
+                persist_blocked_run(
+                    paths["sanitized_output"],
+                    code=error.code,
+                    next_action=error.next_action,
+                    environ=source,
+                )
+            print(
+                json.dumps(
+                    {"code": error.code, "next_action": error.next_action},
+                    sort_keys=True,
+                )
+            )
+            return 3 if error.code == "r2_configuration_invalid" else 1
+        except Exception:
+            if paths is not None:
+                persist_blocked_run(
+                    paths["sanitized_output"],
+                    code="trusted_vm_run_failed",
+                    next_action="Review the held one-object gates and retry safely.",
+                    environ=source,
+                )
+            print(
+                json.dumps(
+                    {
+                        "code": "trusted_vm_run_failed",
+                        "next_action": "Review the held one-object gates and retry safely.",
                     },
                     sort_keys=True,
                 )

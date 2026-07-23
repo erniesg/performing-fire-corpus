@@ -11,6 +11,7 @@
 **/.agent/vm-runs/
 .rucksack/secrets/
 .env.live
+.local/r2-proof/
 
 # Python caches and build artifacts
 __pycache__/

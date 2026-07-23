@@ -70,6 +70,9 @@ class FakeSDK:
             "ResponseMetadata": {"HTTPStatusCode": 200},
             "ETag": '"synthetic"',
         }
+        self.delete_result: object = {
+            "ResponseMetadata": {"HTTPStatusCode": 204},
+        }
 
     def list_objects_v2(self, **kwargs: object) -> object:
         self.calls.append(("list_objects_v2", kwargs))
@@ -88,6 +91,12 @@ class FakeSDK:
         if isinstance(self.put_result, Exception):
             raise self.put_result
         return self.put_result
+
+    def delete_object(self, **kwargs: object) -> object:
+        self.calls.append(("delete_object", kwargs))
+        if isinstance(self.delete_result, Exception):
+            raise self.delete_result
+        return self.delete_result
 
 
 class FakeSession:
@@ -343,6 +352,25 @@ class R2AdapterTests(OfflineTestCase):
                     media_type="video/mp4",
                     sha256="c" * 64,
                 )
+
+    def test_delete_is_exact_key_only_and_redacts_provider_failures(self) -> None:
+        sdk = FakeSDK()
+        adapter = R2StorageClient(CONFIG, sdk)
+        key = "proof/v1/asset/digest"
+
+        self.assertTrue(adapter.delete_exact_object(key))
+        self.assertEqual(
+            ("delete_object", {"Bucket": CONFIG.bucket, "Key": key}),
+            sdk.calls[-1],
+        )
+        for unsafe in ("proof/", "proof/*", "../proof/key", "other/key"):
+            with self.subTest(unsafe=unsafe), self.assertRaises(StorageError):
+                adapter.delete_exact_object(unsafe)
+        sdk.delete_result = client_error("AccessDenied", 403, "DeleteObject")
+        with self.assertRaises(StorageError) as raised:
+            adapter.delete_exact_object(key)
+        self.assertEqual("r2_delete_failed", raised.exception.code)
+        self.assertNotIn("private provider detail", str(raised.exception))
 
     def test_production_http_client_installs_a_rejecting_redirect_handler(self) -> None:
         client = UrllibHTTPClient()

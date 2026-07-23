@@ -78,6 +78,7 @@ def _valid_exact_key(prefix: str, key: object) -> bool:
         isinstance(key, str)
         and key.startswith(prefix)
         and key != prefix
+        and not any(character in key for character in "*?[]{}")
         and not any(part in {".", ".."} for part in key.split("/"))
     )
 
@@ -229,6 +230,21 @@ class R2StorageClient:
             or not response["ETag"]
         ):
             raise _storage_error("r2_create_failed", _OBJECT_NEXT_ACTION)
+        return True
+
+    def delete_exact_object(self, key: str) -> bool:
+        """Delete only one validated key within the configured capability."""
+
+        exact_key = self._require_key(key)
+        try:
+            response = self._client.delete_object(
+                Bucket=self._bucket,
+                Key=exact_key,
+            )
+        except Exception:
+            raise _storage_error("r2_delete_failed", _OBJECT_NEXT_ACTION) from None
+        if not isinstance(response, Mapping) or _status(response) != 204:
+            raise _storage_error("r2_delete_failed", _OBJECT_NEXT_ACTION)
         return True
 
 
