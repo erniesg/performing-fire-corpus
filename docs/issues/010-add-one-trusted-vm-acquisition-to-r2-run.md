@@ -57,29 +57,63 @@ Only the explicitly approved post-unlock trusted-VM run may read their values fr
 
 Keep this issue labeled `rucksack-blocked` until a maintainer provides every privacy-safe approval field below and confirms trusted-VM secret presence without pasting values.
 
-Use only the current official setup links:
+Use the current Account API token flow below. The direct dashboard link is the
+primary action; the documentation links are supporting context:
 
-- R2 S3 setup: `https://developers.cloudflare.com/r2/get-started/s3/`
-- R2 authentication and token scope: `https://developers.cloudflare.com/r2/api/tokens/`
-- Direct R2 Overview: `https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fr2%2Foverview`
+- Create the scoped Account API token:
+  `https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fapi-tokens%2Fcreate`
+- Inspect R2 buckets:
+  `https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fr2%2Foverview`
+- R2 S3 setup:
+  `https://developers.cloudflare.com/r2/get-started/s3/`
+- R2 authentication:
+  `https://developers.cloudflare.com/r2/api/tokens/`
 - Exact-key deletion behavior: `https://developers.cloudflare.com/r2/objects/delete-objects/`
 
-In the Cloudflare dashboard, the expected current UI labels are `Storage & databases` > `R2` > `Overview`, `Create bucket`, `Account Details`, `API Tokens`, `Manage`, `Create Account API token` or `Create User API token`, `Object Read & Write`, `Apply to specific buckets only`, and `Create API Token`. Scope the token to the one dedicated proof bucket. Do not grant account-wide administration and do not make the bucket public.
+In the current Cloudflare dashboard:
 
-If a setup screen is used for human review, its redacted expectation is:
+1. Open the token link above. If navigating manually, use `Manage account` >
+   `Account API tokens` > `Create Token`.
+2. Give the credential a recognizable name.
+3. In `Permission policies`, change the resource selector to `R2 Buckets` and
+   select `performing-fire-corpus-proof`. The R2 Overview table is paginated;
+   the token picker shows the full bucket list.
+4. Under `Developer Platform`, enable
+   `Workers R2 Storage Bucket Item Read` and
+   `Workers R2 Storage Bucket Item Write` using the `Read` and `Edit`
+   checkboxes.
+5. Create the token and keep the one-time confirmation page open. Copy the
+   values labelled `Access Key ID`, `Secret Access Key`, and `S3 API endpoint`
+   into the guided Rucksack form. Rucksack derives the account identifier from
+   the endpoint, so the human should not hunt for or paste a separate account
+   ID.
+
+Do not use the generic token value in place of the S3 credentials, grant
+account-wide administration, or make the bucket public.
+
+Before the human leaves the token form, the expected scoped policy looks like:
 
 ```text
-Bucket name: [REDACTED]
-Dedicated staging prefix: [REDACTED]
-Permission: Object Read & Write
-Bucket scope: Apply to specific buckets only
-Access Key ID: present
-Secret Access Key: present
-S3 API endpoint: present
-Account identifier: [REDACTED]
+Permission policies
+  Resource: R2 Buckets
+  Bucket: performing-fire-corpus-proof
+  Developer Platform:
+    Workers R2 Storage Bucket Item Read   [Read]
+    Workers R2 Storage Bucket Item Write  [Edit]
 ```
 
-Do not attach an unredacted screenshot. The reviewed response may name the dedicated bucket and prefix but must never include an account identifier, credential, endpoint value, source content, signed URL, personal information, private document, or local path.
+The one-time confirmation screen then looks like this redacted sample:
+
+```text
+Access Key ID: present
+Secret Access Key: present
+S3 API endpoint: https://••••••••.r2.cloudflarestorage.com
+```
+
+Do not attach an unredacted screenshot. The reviewed response may name the
+dedicated bucket and prefix but must never include an account identifier,
+credential, endpoint value, source content, signed URL, personal information,
+private document, or local path.
 
 After the response is complete, implementation is merged, and all four secret names report `present` on the trusted VM, the post-unlock proof command is exactly:
 
