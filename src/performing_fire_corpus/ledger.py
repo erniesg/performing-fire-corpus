@@ -80,19 +80,24 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def _schema_dir() -> Path:
-    # Source checkouts keep the public contracts at repository root.
-    return Path(__file__).resolve().parents[2] / "schemas" / "v1"
+def _schema_resource(record_type: str) -> Any:
+    packaged = files("performing_fire_corpus").joinpath(
+        "schemas", "v1", f"{record_type}.json"
+    )
+    if packaged.is_file():
+        return packaged
+    # Source checkouts retain the public contracts at repository root.
+    return Path(__file__).resolve().parents[2] / "schemas" / "v1" / f"{record_type}.json"
 
 
 def validate_record(record: Mapping[str, Any]) -> None:
     record_type = record.get("record_type")
     if record_type not in RECORD_TYPES:
         raise LedgerError(f"unsupported record_type: {record_type!r}")
-    schema_path = _schema_dir() / f"{record_type}.json"
-    if not schema_path.is_file():
+    schema_resource = _schema_resource(str(record_type))
+    if not schema_resource.is_file():
         raise LedgerError(f"schema is unavailable for {record_type}")
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_resource.read_text(encoding="utf-8"))
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(dict(record))
 
 
@@ -162,21 +167,54 @@ class Ledger:
     def _begin(self) -> None:
         self._connection.execute("BEGIN IMMEDIATE")
 
-    def _operation_result(self, operation_id: str | None) -> dict[str, Any] | None:
+    def _operation_result(
+        self,
+        operation_id: str | None,
+        kind: str,
+        subject_id: str,
+        request: Any,
+    ) -> dict[str, Any] | None:
         if operation_id is None:
             return None
         row = self._connection.execute(
-            "SELECT result FROM operations WHERE operation_id = ?", (operation_id,)
+            """SELECT operation_kind, subject_id, result
+               FROM operations WHERE operation_id = ?""",
+            (operation_id,),
         ).fetchone()
-        return None if row is None else json.loads(row["result"])
+        if row is None:
+            return None
+        stored = json.loads(row["result"])
+        if (
+            row["operation_kind"] != kind
+            or row["subject_id"] != subject_id
+            or not isinstance(stored, dict)
+            or stored.get("version") != 1
+            or stored.get("request") != _canonical(request)
+            or "result" not in stored
+        ):
+            raise LedgerError(
+                f"operation_id {operation_id!r} is already bound to a different request"
+            )
+        return stored["result"]
 
     def _record_operation(
-        self, operation_id: str | None, kind: str, subject_id: str, result: Any, now: str
+        self,
+        operation_id: str | None,
+        kind: str,
+        subject_id: str,
+        request: Any,
+        result: Any,
+        now: str,
     ) -> None:
         if operation_id is not None:
+            stored = {
+                "version": 1,
+                "request": _canonical(request),
+                "result": result,
+            }
             self._connection.execute(
                 "INSERT INTO operations VALUES(?, ?, ?, ?, ?)",
-                (operation_id, kind, subject_id, _canonical(result), now),
+                (operation_id, kind, subject_id, _canonical(stored), now),
             )
 
     def upsert(self, record: Mapping[str, Any], *, operation_id: str | None = None) -> dict[str, Any]:
@@ -186,11 +224,14 @@ class Ledger:
         _assert_sanitized(value)
         record_type = str(value["record_type"])
         record_id = str(value[ID_FIELDS[record_type]])
+        operation_subject = f"{record_type}:{record_id}"
         now = utc_text()
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "upsert", operation_subject, value
+                )
                 if prior is not None:
                     self._connection.commit()
                     return prior
@@ -222,7 +263,9 @@ class Ledger:
                         "INSERT OR IGNORE INTO asset_states VALUES(?, 'discovered', NULL, NULL, ?)",
                         (record_id, now),
                     )
-                self._record_operation(operation_id, "upsert", record_id, value, now)
+                self._record_operation(
+                    operation_id, "upsert", operation_subject, value, value, now
+                )
                 self._connection.commit()
                 return value
             except Exception:
@@ -266,11 +309,14 @@ class Ledger:
         if new_state not in ALL_STATES:
             raise InvalidTransition(f"unknown asset state {new_state!r}")
         _assert_sanitized(blocker)
+        request = {"new_state": new_state, "blocker": blocker}
         now = utc_text()
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "transition", asset_id, request
+                )
                 if prior is not None:
                     self._connection.commit()
                     return str(prior["state"])
@@ -312,7 +358,9 @@ class Ledger:
                     (new_state, resume_state, blocker, now, asset_id),
                 )
                 result = {"asset_id": asset_id, "state": new_state}
-                self._record_operation(operation_id, "transition", asset_id, result, now)
+                self._record_operation(
+                    operation_id, "transition", asset_id, request, result, now
+                )
                 self._connection.commit()
                 return new_state
             except Exception:
@@ -352,7 +400,9 @@ class Ledger:
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "create_job", str(value["job_id"]), value
+                )
                 if prior is not None:
                     self._connection.commit()
                     return prior
@@ -384,7 +434,14 @@ class Ledger:
                     "INSERT OR IGNORE INTO records VALUES('job', ?, ?, ?)",
                     (value["job_id"], _canonical(value), now),
                 )
-                self._record_operation(operation_id, "create_job", value["job_id"], value, now)
+                self._record_operation(
+                    operation_id,
+                    "create_job",
+                    str(value["job_id"]),
+                    value,
+                    value,
+                    now,
+                )
                 self._connection.commit()
                 return value
             except Exception:
@@ -541,10 +598,13 @@ class Ledger:
         if "object_key" in value and not _OBJECT_KEY.fullmatch(str(value["object_key"])):
             raise LedgerError("checkpoint object_key is invalid")
         now_text = utc_text(now)
+        request = {"holder_id": holder_id, "checkpoint": value}
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "checkpoint", lease_id, request
+                )
                 if prior is not None:
                     self._connection.commit()
                     return prior
@@ -563,7 +623,12 @@ class Ledger:
                     (_canonical(value), now_text, lease["job_id"]),
                 )
                 self._record_operation(
-                    operation_id, "checkpoint", lease["job_id"], value, now_text
+                    operation_id,
+                    "checkpoint",
+                    lease_id,
+                    request,
+                    value,
+                    now_text,
                 )
                 self._connection.commit()
                 return value
@@ -582,10 +647,13 @@ class Ledger:
         now: datetime | str | None = None,
     ) -> dict[str, Any]:
         now_text = utc_text(now)
+        request = {"holder_id": holder_id}
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "complete_job", lease_id, request
+                )
                 if prior is not None:
                     self._connection.commit()
                     return prior
@@ -601,7 +669,12 @@ class Ledger:
                 )
                 result = {"job_id": lease["job_id"], "status": "completed"}
                 self._record_operation(
-                    operation_id, "complete_job", lease["job_id"], result, now_text
+                    operation_id,
+                    "complete_job",
+                    lease_id,
+                    request,
+                    result,
+                    now_text,
                 )
                 self._connection.commit()
                 return result
@@ -623,10 +696,17 @@ class Ledger:
     ) -> dict[str, Any]:
         _assert_sanitized(reason)
         now_text = utc_text(now)
+        request = {
+            "holder_id": holder_id,
+            "retryable": retryable,
+            "reason": reason,
+        }
         with self._lock:
             self._begin()
             try:
-                prior = self._operation_result(operation_id)
+                prior = self._operation_result(
+                    operation_id, "fail_job", lease_id, request
+                )
                 if prior is not None:
                     self._connection.commit()
                     return prior
@@ -655,7 +735,12 @@ class Ledger:
                     "attempt_count": attempts,
                 }
                 self._record_operation(
-                    operation_id, "fail_job", lease["job_id"], result, now_text
+                    operation_id,
+                    "fail_job",
+                    lease_id,
+                    request,
+                    result,
+                    now_text,
                 )
                 self._connection.commit()
                 return result

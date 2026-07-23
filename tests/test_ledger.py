@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from performing_fire_corpus.ledger import (
     LeaseError,
     Ledger,
     LedgerError,
+    RECORD_TYPES,
 )
 
 
@@ -155,6 +157,155 @@ class LedgerTests(unittest.TestCase):
                 now=T0 + timedelta(seconds=4),
             ),
         )
+
+    def test_operation_ids_fail_closed_when_reused_for_a_different_request(self) -> None:
+        source = fixture("source")
+        self.ledger.upsert(source, operation_id="op_upsert_collision")
+        with self.assertRaises(LedgerError):
+            self.ledger.upsert(self.asset, operation_id="op_upsert_collision")
+
+        self.seed_asset()
+        self.ledger.create_job(self.job, operation_id="op_job_collision")
+        changed_job = copy.deepcopy(self.job)
+        changed_job["max_attempts"] = 4
+        with self.assertRaises(LedgerError):
+            self.ledger.create_job(changed_job, operation_id="op_job_collision")
+
+        self.ledger.transition_asset(
+            self.asset["asset_id"],
+            "metadata_verified",
+            operation_id="op_transition_collision",
+        )
+        with self.assertRaises(LedgerError):
+            self.ledger.transition_asset(
+                self.asset["asset_id"],
+                "approved_for_ingest",
+                operation_id="op_transition_collision",
+            )
+
+        lease = self.ledger.claim_job(
+            "worker_fixture_01", {"metadata-discovery"}, now=T0
+        )
+        first_checkpoint = {"sequence": 1, "summary": "First request."}
+        self.ledger.write_checkpoint(
+            lease["lease_id"],
+            lease["holder_id"],
+            first_checkpoint,
+            operation_id="op_checkpoint_collision",
+            now=T0 + timedelta(seconds=1),
+        )
+        with self.assertRaises(LedgerError):
+            self.ledger.write_checkpoint(
+                lease["lease_id"],
+                lease["holder_id"],
+                {"sequence": 2, "summary": "Different request."},
+                operation_id="op_checkpoint_collision",
+                now=T0 + timedelta(seconds=2),
+            )
+
+        self.ledger.complete_job(
+            lease["lease_id"],
+            lease["holder_id"],
+            operation_id="op_completion_collision",
+            now=T0 + timedelta(seconds=3),
+        )
+        with self.assertRaises(LedgerError):
+            self.ledger.complete_job(
+                lease["lease_id"],
+                "worker_fixture_wrong",
+                operation_id="op_completion_collision",
+                now=T0 + timedelta(seconds=4),
+            )
+
+        another_job = copy.deepcopy(self.job)
+        another_job["job_id"] = "job_synthetic_metadata_002"
+        another_job["operation"] = "metadata_discovery_second"
+        self.ledger.create_job(another_job)
+        failed_lease = self.ledger.claim_job(
+            "worker_fixture_02",
+            {"metadata-discovery"},
+            now=T0 + timedelta(seconds=5),
+        )
+        self.ledger.fail_job(
+            failed_lease["lease_id"],
+            failed_lease["holder_id"],
+            reason="First failure.",
+            operation_id="op_failure_collision",
+            now=T0 + timedelta(seconds=6),
+        )
+        with self.assertRaises(LedgerError):
+            self.ledger.fail_job(
+                failed_lease["lease_id"],
+                failed_lease["holder_id"],
+                reason="Different failure.",
+                operation_id="op_failure_collision",
+                now=T0 + timedelta(seconds=7),
+            )
+
+    def test_built_wheel_validates_records_outside_the_source_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            project_directory = temporary_path / "project"
+            wheel_directory = temporary_path / "wheel"
+            installed_directory = temporary_path / "installed"
+            project_directory.mkdir()
+            for filename in ("README.md", "pyproject.toml"):
+                shutil.copy2(ROOT / filename, project_directory / filename)
+            shutil.copytree(ROOT / "schemas", project_directory / "schemas")
+            shutil.copytree(ROOT / "src", project_directory / "src")
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "wheel",
+                    str(project_directory),
+                    "--no-deps",
+                    "--no-build-isolation",
+                    "--wheel-dir",
+                    str(wheel_directory),
+                ],
+                cwd=temporary_path,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            wheel = next(wheel_directory.glob("*.whl"))
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    str(wheel),
+                    "--no-deps",
+                    "--target",
+                    str(installed_directory),
+                ],
+                cwd=temporary_path,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            validation = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import json, sys; "
+                        "sys.path.insert(0, sys.argv[1]); "
+                        "from performing_fire_corpus.ledger import validate_record; "
+                        "[validate_record(record) for record in json.loads(sys.argv[2])]"
+                    ),
+                    str(installed_directory),
+                    json.dumps([fixture(record_type) for record_type in RECORD_TYPES]),
+                ],
+                cwd=temporary_path,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, validation.returncode, validation.stderr)
 
     def test_claim_is_capability_scoped_atomic_and_expiring(self) -> None:
         self.seed_asset()
