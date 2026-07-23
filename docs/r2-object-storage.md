@@ -14,18 +14,22 @@ prints configuration values, account identifiers, secret values, or storage
 client errors. Without a configured storage client, the scope probe fails
 closed.
 
-The live proof command is held and intentionally unavailable in this round.
-Issue 8 must first record one approved stable asset
-identifier and public URL, a strict byte bound, an expected media type, a
-dedicated staging prefix, a proof window, and a reviewed retention rule or exact
-key cleanup deadline. Only then may a trusted-VM operator construct a transfer
-plan and invoke `transfer_approved_asset` with the reviewed HTTP and R2 client
-for that one object. Until that approval, the only authorized command is:
+The low-level transfer command is available for one reviewed approval plan:
 
 ```bash
-performing-fire-corpus r2 readiness \
+performing-fire-corpus r2 transfer-approved \
+  --plan APPROVAL_JSON \
+  --ledger LEDGER_SQLITE3 \
   --config .agent/storage.yaml \
-  --output r2-readiness.json
+  --cache-directory DISPOSABLE_CACHE \
+  --output SANITIZED_RECEIPT_JSON
 ```
+
+Adding this wiring does not authorize a live transfer. The plan must contain one
+complete approved rights record, public URL, media allowlist, byte bound,
+dedicated prefix matching the storage configuration, and reviewed retention or
+cleanup decision. Missing or malformed gates stop before either client is
+constructed. The command writes the verified receipt but prints only a stable
+status or sanitized error code and next action.
 
 Tests and CI use fake HTTP and storage clients and never perform a live upload.

@@ -147,7 +147,10 @@ class SchemaContractTests(unittest.TestCase):
             {"performing-fire-corpus": "performing_fire_corpus.cli:main"},
             project["scripts"],
         )
-        self.assertEqual(["jsonschema>=4.10,<5"], project["dependencies"])
+        self.assertEqual(
+            ["boto3>=1.37.32,<2", "jsonschema>=4.10,<5"],
+            project["dependencies"],
+        )
 
 
 if __name__ == "__main__":
