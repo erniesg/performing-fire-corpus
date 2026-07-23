@@ -16,6 +16,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from performing_fire_corpus.redaction import sanitize
+
 
 UTC = timezone.utc
 RECORD_TYPES = ("source", "asset", "rights", "job", "lease", "object", "evidence")
@@ -102,6 +104,8 @@ def validate_record(record: Mapping[str, Any]) -> None:
 
 
 def _assert_sanitized(value: Any, *, field: str = "payload") -> None:
+    if sanitize(value, environ={}) != value:
+        raise LedgerError(f"{field} contains private or secret-like data")
     if isinstance(value, bytes):
         raise LedgerError(f"{field} may not contain binary media")
     if isinstance(value, str):
