@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -32,7 +33,13 @@ class HostRateLimiter:
         self._intervals: dict[str, float] = {}
         for hostname, interval in intervals.items():
             canonical = _canonical_hostname(hostname)
-            if canonical != hostname.lower() or interval < 0:
+            if (
+                canonical != hostname.lower()
+                or isinstance(interval, bool)
+                or not isinstance(interval, (int, float))
+                or interval < 0
+                or not math.isfinite(interval)
+            ):
                 raise ValueError("rate-limit configuration is invalid")
             self._intervals[canonical] = float(interval)
         if not self._intervals:

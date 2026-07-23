@@ -55,6 +55,20 @@ class AcquisitionPolicyTests(unittest.TestCase):
                 with self.assertRaises(AcquisitionPolicyError):
                     validate_public_url(url)
 
+    def test_explicit_allowlist_cannot_admit_non_public_ip_addresses(self) -> None:
+        cases = (
+            ("127.0.0.1", "https://127.0.0.1/"),
+            ("10.0.0.1", "https://10.0.0.1/"),
+            ("169.254.1.1", "https://169.254.1.1/"),
+            ("192.0.2.1", "https://192.0.2.1/"),
+            ("::1", "https://[::1]/"),
+        )
+        for hostname, url in cases:
+            with self.subTest(hostname=hostname):
+                with self.assertRaises(AcquisitionPolicyError) as caught:
+                    validate_public_url(url, allowed_hosts={hostname})
+                self.assertEqual("non_public_host", caught.exception.code)
+
     def test_redirects_are_revalidated_before_following(self) -> None:
         validated = validate_redirect(
             "https://njp.ggcf.kr/pages/videoarchive",

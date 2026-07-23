@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -50,6 +51,21 @@ class RateLimitAndRetryTests(unittest.TestCase):
             with self.subTest(hostname=hostname):
                 with self.assertRaises(ValueError):
                     limiter.acquire(hostname)
+
+    def test_rate_limiter_rejects_invalid_intervals(self) -> None:
+        for interval in (
+            True,
+            "1",
+            -1,
+            math.nan,
+            math.inf,
+            -math.inf,
+        ):
+            with self.subTest(interval=interval):
+                with self.assertRaises(ValueError):
+                    HostRateLimiter(  # type: ignore[arg-type]
+                        {"njp.ggcf.kr": interval}
+                    )
 
     def test_durable_outcomes_are_never_retried(self) -> None:
         expected = {
@@ -126,6 +142,23 @@ class RateLimitAndRetryTests(unittest.TestCase):
                     policy, RetryState(), "http_429", retry_after=retry_after
                 )
                 self.assertEqual(1.0, result.delay)
+
+    def test_retry_after_cannot_weaken_local_backoff(self) -> None:
+        policy = RetryPolicy(
+            max_attempts=3,
+            max_elapsed_backoff=20.0,
+            base_delay=4.0,
+            max_retry_after=8.0,
+            transient_outcomes=frozenset({"http_429"}),
+        )
+
+        result = plan_retry(
+            policy, RetryState(), "http_429", retry_after="0"
+        )
+
+        self.assertTrue(result.retry)
+        self.assertEqual(4.0, result.delay)
+        self.assertEqual(4.0, result.state.elapsed_backoff)
 
     def test_bounded_http_date_retry_after_is_honored(self) -> None:
         policy = RetryPolicy(

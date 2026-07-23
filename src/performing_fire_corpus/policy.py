@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from ipaddress import ip_address
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
@@ -91,6 +92,12 @@ def validate_public_url(
         _reject("ambiguous_hostname", "Hostname must use its reviewed ASCII form.")
     if ascii_hostname != hostname.lower() or ascii_hostname.endswith("."):
         _reject("ambiguous_hostname", "Hostname is not in reviewed canonical form.")
+    try:
+        address = ip_address(ascii_hostname)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        _reject("non_public_host", "Hostname is not a public network destination.")
     if ascii_hostname not in allowed_hosts:
         _reject("host_not_allowed", "Hostname is not in the reviewed public allowlist.")
     if explicit_port not in (None, 443):

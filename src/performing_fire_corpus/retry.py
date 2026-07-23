@@ -156,7 +156,7 @@ def plan_retry(
     server_delay = _bounded_retry_after(
         retry_after, policy.max_retry_after, current_time
     )
-    delay = local_delay if server_delay is None else server_delay
+    delay = local_delay if server_delay is None else max(local_delay, server_delay)
     if state.elapsed_backoff + delay > policy.max_elapsed_backoff:
         return RetryDecision(False, 0.0, "backoff_budget_exhausted", next_state)
     scheduled = RetryState(
