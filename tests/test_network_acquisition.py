@@ -36,6 +36,19 @@ class FakeTransport:
         return self.responses.pop(0)
 
 
+class InterruptAfterRobotsTransport(FakeTransport):
+    def get(
+        self, url: str, *, timeout_seconds: float, max_response_bytes: int
+    ) -> HTTPResponse:
+        if url == ARTICLE_URL:
+            raise KeyboardInterrupt
+        return super().get(
+            url,
+            timeout_seconds=timeout_seconds,
+            max_response_bytes=max_response_bytes,
+        )
+
+
 def response(
     url: str,
     *,
@@ -142,6 +155,68 @@ class NetworkAcquisitionTests(unittest.TestCase):
 
             self.assertEqual(first, resumed)
             self.assertEqual([], resumed_transport.calls)
+
+    def test_resume_after_robots_checkpoint_does_not_duplicate_records(
+        self,
+    ) -> None:
+        robots = b"User-agent: *\nAllow: /\n"
+        metadata = (
+            b"<html><head>"
+            b'<meta property="og:title" content="Synthetic Fluxus metadata">'
+            b'<meta property="og:type" content="article">'
+            b'<link rel="canonical" href="https://antiegg.kr/25502/">'
+            b"</head></html>"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            interrupted_transport = InterruptAfterRobotsTransport(
+                [response(ROBOTS_URL, mime_type="text/plain", body=robots)]
+            )
+
+            with self.assertRaises(KeyboardInterrupt):
+                inventory_public_source(
+                    self.config(root), transport=interrupted_transport
+                )
+
+            with Ledger(root / "ledger.sqlite3") as ledger:
+                observation = ledger.get_record(
+                    "evidence", "evidence_antiegg_fluxus_robots_observation"
+                )
+                self.assertIsNotNone(observation)
+                self.assertIsNotNone(
+                    ledger.get_record(
+                        "evidence", "evidence_antiegg_fluxus_request_001"
+                    )
+                )
+                self.assertIsNone(
+                    ledger.get_record(
+                        "evidence", "evidence_antiegg_fluxus_request_002"
+                    )
+                )
+
+            resumed_transport = FakeTransport(
+                [response(ARTICLE_URL, mime_type="text/html", body=metadata)]
+            )
+            resumed = inventory_public_source(
+                self.config(root), transport=resumed_transport
+            )
+
+            self.assertEqual([ARTICLE_URL], [call[1] for call in resumed_transport.calls])
+            self.assertEqual(
+                {"assets": 1, "blockers": 0, "jobs": 1, "requests": 2},
+                resumed["record_counts"],
+            )
+            self.assertEqual(
+                {"catalogue_allowed": True, "outcome": "allowed", "status": 200},
+                resumed["robots_observation"],
+            )
+
+            final_transport = FakeTransport([])
+            repeated = inventory_public_source(
+                self.config(root), transport=final_transport
+            )
+            self.assertEqual(resumed, repeated)
+            self.assertEqual([], final_transport.calls)
 
     def test_robots_denial_writes_one_durable_blocker_without_catalogue_request(
         self,

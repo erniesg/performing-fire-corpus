@@ -547,19 +547,63 @@ def _blocker(ledger: Ledger) -> dict[str, str] | None:
     return None if record is None else json.loads(record["summary"])
 
 
+def _robots_observation(ledger: Ledger) -> dict[str, object] | None:
+    record = ledger.get_record(
+        "evidence", "evidence_antiegg_fluxus_robots_observation"
+    )
+    return None if record is None else json.loads(record["summary"])
+
+
+def _record_robots_observation(
+    ledger: Ledger, *, outcome: str, status: int
+) -> dict[str, object]:
+    observation: dict[str, object] = {
+        "catalogue_allowed": True,
+        "outcome": outcome,
+        "status": status,
+    }
+    ledger.upsert(
+        {
+            "schema_version": 1,
+            "record_type": "evidence",
+            "evidence_id": "evidence_antiegg_fluxus_robots_observation",
+            "subject_id": SOURCE_ID,
+            "evidence_kind": "sanitized_robots_observation",
+            "recorded_at": utc_text(),
+            "summary": _json_summary(observation),
+            "public_references": [ROBOTS_URL],
+        }
+    )
+    return observation
+
+
 def _manifest(ledger: Ledger) -> dict[str, object]:
     source = ledger.get_record("source", SOURCE_ID)
     asset = ledger.get_record("asset", ASSET_ID)
     state = ledger.asset_state(ASSET_ID)
     blocker = _blocker(ledger)
+    robots_observation = _robots_observation(ledger)
+    requests = _request_facts(ledger)
     value: dict[str, object] = {
         "schema_version": 1,
         "manifest_type": "public_metadata_inventory",
         "source": source,
         "assets": [] if asset is None else [asset],
-        "requests": _request_facts(ledger),
+        "requests": requests,
         "result": "blocked" if blocker is not None else "completed",
+        "record_counts": {
+            "assets": 0 if asset is None else 1,
+            "blockers": 0 if blocker is None else 1,
+            "jobs": (
+                0
+                if ledger.get_record("job", JOB_ID) is None
+                else 1
+            ),
+            "requests": len(requests),
+        },
     }
+    if robots_observation is not None:
+        value["robots_observation"] = robots_observation
     if blocker is not None:
         value["blocker"] = blocker
     value["state_counts"] = {} if state is None else {state: 1}
@@ -628,60 +672,83 @@ def inventory_public_source(
                 clock=clock,
                 sleep=sleep,
             )
-            robots, failure = runner.get(adapter.robots_url)
-            if failure is not None:
-                manifest = _finish_blocked(
-                    ledger, failure, "review the bounded request failure", config
-                )
-            elif robots is None:
-                manifest = _finish_blocked(
-                    ledger,
-                    "request_failed",
-                    "review the bounded request failure",
-                    config,
-                )
-            elif robots.status in {401, 403}:
-                manifest = _finish_blocked(
-                    ledger,
-                    "login_required" if robots.status == 401 else "access_forbidden",
-                    "use a different unauthenticated public metadata source",
-                    config,
-                )
-            elif robots.oversized:
-                manifest = _finish_blocked(
-                    ledger,
-                    "response_oversized",
-                    "reduce the response bound only after source review",
-                    config,
-                )
-            elif robots.status == 404:
+            robots_observation = _robots_observation(ledger)
+            if (
+                robots_observation is not None
+                and robots_observation.get("catalogue_allowed") is True
+                and robots_observation.get("outcome") in {"allowed", "not_found"}
+            ):
                 manifest = {}
-            elif robots.status != 200 or robots.mime_type not in {
-                "text/plain",
-                "text/plain;charset=utf-8",
-            }:
-                manifest = _finish_blocked(
-                    ledger,
-                    "unexpected_mime_type",
-                    "review the public robots metadata format",
-                    config,
-                )
             else:
-                parser = RobotFileParser()
-                try:
-                    parser.parse(robots.body.decode("utf-8").splitlines())
-                    allowed = parser.can_fetch(USER_AGENT, adapter.catalogue_url)
-                except UnicodeDecodeError:
-                    allowed = False
-                if not allowed:
+                robots, failure = runner.get(adapter.robots_url)
+                if failure is not None:
                     manifest = _finish_blocked(
                         ledger,
-                        "robots_denied",
-                        "review robots policy or select another public source",
+                        failure,
+                        "review the bounded request failure",
+                        config,
+                    )
+                elif robots is None:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "request_failed",
+                        "review the bounded request failure",
+                        config,
+                    )
+                elif robots.status in {401, 403}:
+                    manifest = _finish_blocked(
+                        ledger,
+                        (
+                            "login_required"
+                            if robots.status == 401
+                            else "access_forbidden"
+                        ),
+                        "use a different unauthenticated public metadata source",
+                        config,
+                    )
+                elif robots.oversized:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "response_oversized",
+                        "reduce the response bound only after source review",
+                        config,
+                    )
+                elif robots.status == 404:
+                    _record_robots_observation(
+                        ledger, outcome="not_found", status=robots.status
+                    )
+                    manifest = {}
+                elif robots.status != 200 or robots.mime_type not in {
+                    "text/plain",
+                    "text/plain;charset=utf-8",
+                }:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "unexpected_mime_type",
+                        "review the public robots metadata format",
                         config,
                     )
                 else:
-                    manifest = {}
+                    parser = RobotFileParser()
+                    try:
+                        parser.parse(robots.body.decode("utf-8").splitlines())
+                        allowed = parser.can_fetch(
+                            USER_AGENT, adapter.catalogue_url
+                        )
+                    except UnicodeDecodeError:
+                        allowed = False
+                    if not allowed:
+                        manifest = _finish_blocked(
+                            ledger,
+                            "robots_denied",
+                            "review robots policy or select another public source",
+                            config,
+                        )
+                    else:
+                        _record_robots_observation(
+                            ledger, outcome="allowed", status=robots.status
+                        )
+                        manifest = {}
 
             if not manifest:
                 page, failure = runner.get(adapter.catalogue_url)
