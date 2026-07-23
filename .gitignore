@@ -10,6 +10,7 @@
 **/.agent/harness-runs/
 **/.agent/vm-runs/
 .rucksack/secrets/
+.env.live
 
 # Python caches and build artifacts
 __pycache__/
