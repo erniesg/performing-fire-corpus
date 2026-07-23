@@ -48,6 +48,15 @@ _LOCAL_PATH = re.compile(
     r"(?:file://)?(?:/home/|/Users/|/tmp/)[^\s\"']+"
     r"|(?<![A-Za-z])[A-Za-z]:[\\/][^\s\"']+"
 )
+_EMAIL_VALUE = re.compile(
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"(?![A-Za-z0-9.-])"
+)
+_ACCOUNT_IDENTIFIER_VALUE = re.compile(
+    r"(?<![A-Za-z0-9])(?:acct|account|owner|tenant|user)[_-][A-Za-z0-9]{6,}"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 
 
 def _sensitive_key(key: object) -> bool:
@@ -91,7 +100,9 @@ def _sanitize_text(value: str, environment_secrets: tuple[str, ...]) -> str:
     cleaned = _sanitize_url(value)
     for secret in environment_secrets:
         cleaned = cleaned.replace(secret, REDACTED)
-    return _LOCAL_PATH.sub(REDACTED, cleaned)
+    cleaned = _LOCAL_PATH.sub(REDACTED, cleaned)
+    cleaned = _EMAIL_VALUE.sub(REDACTED, cleaned)
+    return _ACCOUNT_IDENTIFIER_VALUE.sub(REDACTED, cleaned)
 
 
 def sanitize(

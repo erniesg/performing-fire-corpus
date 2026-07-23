@@ -64,7 +64,24 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, brief)
 
+    def test_network_smoke_run_is_documented_as_opt_in_and_metadata_only(
+        self,
+    ) -> None:
+        smoke = (ROOT / "docs" / "network-acquisition-smoke.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "opt-in",
+            "trusted VM",
+            "inventory-public",
+            "--max-requests 2",
+            "--ledger",
+            "--sanitized-manifest",
+            "unauthenticated",
+            "must not be added to portable CI",
+        ):
+            self.assertIn(value, smoke)
+
 
 if __name__ == "__main__":
     unittest.main()
-
