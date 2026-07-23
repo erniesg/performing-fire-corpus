@@ -141,6 +141,7 @@ class FakeStorage:
         self.deletes: list[str] = []
         self.fail_cleanup = False
         self.conflict_after_upload = False
+        self.lose_create_response = False
 
     def probe_scope(self, bucket: str, staging_prefix: str) -> bool:
         self.probes.append((bucket, staging_prefix))
@@ -170,6 +171,11 @@ class FakeStorage:
             "sha256": sha256,
         }
         self.uploaded_body = path.read_bytes()
+        if self.lose_create_response:
+            raise StorageError(
+                "r2_create_failed",
+                "Retry the bounded exact-key operation safely.",
+            )
         return True
 
     def delete_exact_object(self, key: str) -> bool:
@@ -421,6 +427,23 @@ class TrustedVMAcquisitionTests(unittest.TestCase):
                 self.run_acquisition(storage=storage)
 
         self.assertEqual("receipt_conflict", raised.exception.code)
+        self.assertEqual(storage.uploads, storage.deletes)
+        self.assertEqual({}, storage.objects)
+        output = self.root / "receipts"
+        self.assertTrue((output / "object.json").is_file())
+        self.assertTrue((output / "verification.json").is_file())
+        self.assertTrue((output / "cleanup.json").is_file())
+        manifest = json.loads((output / "manifest.json").read_text())
+        self.assertEqual("blocked", manifest["status"])
+
+    def test_lost_create_response_verifies_and_cleans_exact_key(self) -> None:
+        storage = FakeStorage()
+        storage.lose_create_response = True
+
+        with self.assertRaises(TrustedVMRunError) as raised:
+            self.run_acquisition(storage=storage)
+
+        self.assertEqual("transfer_interrupted", raised.exception.code)
         self.assertEqual(storage.uploads, storage.deletes)
         self.assertEqual({}, storage.objects)
         output = self.root / "receipts"

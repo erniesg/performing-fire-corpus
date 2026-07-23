@@ -303,6 +303,8 @@ def transfer_approved_asset(
             return existing_receipt
         created = False
         if existing_object is None:
+            expected["attempt_state"] = "uploaded"
+            created_object_receipt = dict(expected)
             created = storage_client.create_file_if_absent(
                 key,
                 temporary_path,
@@ -314,10 +316,10 @@ def transfer_approved_asset(
                 _fail(
                     "object_conflict",
                     "The immutable create result could not be verified.",
+                    created_object_receipt=created_object_receipt,
                 )
-            if created:
-                expected["attempt_state"] = "uploaded"
-                created_object_receipt = dict(expected)
+            if not created:
+                created_object_receipt = None
         final_object = storage_client.head_object(key)
         if final_object is None or not _matching_metadata(
             final_object,
