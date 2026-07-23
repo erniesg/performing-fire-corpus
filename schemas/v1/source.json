@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/source.json",
+  "title": "Source record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "source_id",
+    "public_url",
+    "source_kind",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record_type": {
+      "const": "source"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "public_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/\\s]+(?:/[^\\s]*)?$",
+      "maxLength": 2048
+    },
+    "source_kind": {
+      "enum": [
+        "website",
+        "video_library",
+        "archive",
+        "channel",
+        "article"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$"
+      }
+    }
+  }
+}

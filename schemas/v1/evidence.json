@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/evidence.json",
+  "title": "Evidence record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "evidence_id",
+    "subject_id",
+    "evidence_kind",
+    "recorded_at",
+    "summary",
+    "public_references"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record_type": {
+      "const": "evidence"
+    },
+    "evidence_id": {
+      "type": "string",
+      "pattern": "^evidence_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "subject_id": {
+      "type": "string",
+      "pattern": "^(?:source|asset|rights|job|lease|object)_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "evidence_kind": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$"
+    },
+    "public_references": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https://[^/\\s]+(?:/[^\\s]*)?$",
+        "maxLength": 2048
+      }
+    }
+  }
+}

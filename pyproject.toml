@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68,<76"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "performing-fire-corpus"
+version = "0.1.0"
+description = "Privacy-safe, rights-aware performing arts corpus tooling"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.10,<5"]
+
+[project.scripts]
+performing-fire-corpus = "performing_fire_corpus.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
