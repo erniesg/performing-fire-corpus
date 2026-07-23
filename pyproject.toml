@@ -15,3 +15,6 @@ performing-fire-corpus = "performing_fire_corpus.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"performing_fire_corpus.migrations" = ["*.sql"]
