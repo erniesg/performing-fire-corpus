@@ -82,6 +82,24 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, smoke)
 
+    def test_metadata_readiness_proof_covers_restart_privacy_and_gap_matrix(
+        self,
+    ) -> None:
+        proof = (ROOT / "docs" / "metadata-readiness-proof.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "900e63b",
+            "https://antiegg.kr/robots.txt",
+            "https://antiegg.kr/25502/",
+            "response_oversized",
+            "assets, jobs, requests, and blockers were not duplicated",
+            "No response body was written",
+            "First-usable-slice gap matrix",
+            "follow-up issue 6",
+        ):
+            self.assertIn(value, proof)
+
 
 if __name__ == "__main__":
     unittest.main()

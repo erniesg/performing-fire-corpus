@@ -10,7 +10,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +40,12 @@ ROBOTS_URL = "https://antiegg.kr/robots.txt"
 ARTICLE_URL = "https://antiegg.kr/25502/"
 USER_AGENT = "performing-fire-corpus/0.1"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+ROBOTS_OBSERVATION_TTL = timedelta(hours=24)
+_ROBOTS_OBSERVATION_ID = "evidence_antiegg_fluxus_robots_observation"
+
+
+def _utc_wall_clock() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class AcquisitionError(RuntimeError):
@@ -55,6 +61,7 @@ class HTTPResponse:
     mime_type: str
     body: bytes
     declared_bytes: int | None = None
+    observed_bytes: int | None = None
     retry_after: str | None = None
     location: str | None = None
     oversized: bool = False
@@ -165,10 +172,13 @@ class UrllibGETTransport:
             try:
                 if headers.get("Content-Length") is not None:
                     declared = int(headers["Content-Length"])
+                    if declared < 0:
+                        declared = None
             except (TypeError, ValueError):
                 declared = None
             oversized = declared is not None and declared > max_response_bytes
             body = b"" if oversized else opened.read(max_response_bytes + 1)
+            observed = len(body)
             if len(body) > max_response_bytes:
                 body = b""
                 oversized = True
@@ -178,6 +188,7 @@ class UrllibGETTransport:
                 mime_type=content_type,
                 body=body,
                 declared_bytes=declared,
+                observed_bytes=observed,
                 retry_after=headers.get("Retry-After"),
                 location=headers.get("Location"),
                 oversized=oversized,
@@ -323,12 +334,14 @@ class _Runner:
         transport: HTTPTransport,
         *,
         clock: Callable[[], float],
+        wall_clock: Callable[[], datetime],
         sleep: Callable[[float], None],
     ) -> None:
         self.config = config
         self.ledger = ledger
         self.transport = transport
         self.clock = clock
+        self.wall_clock = wall_clock
         self.sleep = sleep
         self.started = clock()
         self.requests = _request_facts(ledger)
@@ -376,9 +389,15 @@ class _Runner:
             "byte_count": (
                 response.declared_bytes
                 if response.declared_bytes is not None
-                else len(response.body)
+                and response.declared_bytes >= 0
+                else (
+                    response.observed_bytes
+                    if response.observed_bytes is not None
+                    and response.observed_bytes >= 0
+                    else len(response.body)
+                )
             ),
-            "recorded_at": utc_text(),
+            "recorded_at": utc_text(self.wall_clock()),
             "retry_outcome": retry_outcome,
             "response_sha256": body_hash,
         }
@@ -454,12 +473,21 @@ class _Runner:
                     and response.declared_bytes > self.config.max_response_bytes
                 )
             ):
+                observed_bytes = (
+                    response.observed_bytes
+                    if response.observed_bytes is not None
+                    else len(response.body)
+                )
+                observed_bytes = min(
+                    observed_bytes, self.config.max_response_bytes + 1
+                )
                 response = HTTPResponse(
                     url=response.url,
                     status=response.status,
                     mime_type=response.mime_type,
                     body=b"",
                     declared_bytes=response.declared_bytes,
+                    observed_bytes=observed_bytes,
                     retry_after=response.retry_after,
                     location=response.location,
                     oversized=True,
@@ -484,7 +512,7 @@ class _Runner:
                     retry_state,
                     outcome,
                     retry_after=response.retry_after,
-                    now=datetime.now(timezone.utc),
+                    now=self.wall_clock(),
                 )
                 can_retry = (
                     decision.retry
@@ -547,19 +575,180 @@ def _blocker(ledger: Ledger) -> dict[str, str] | None:
     return None if record is None else json.loads(record["summary"])
 
 
+def _robots_observation_records(
+    ledger: Ledger,
+) -> list[tuple[str, dict[str, object]]]:
+    records: list[tuple[str, dict[str, object]]] = []
+    legacy = ledger.get_record("evidence", _ROBOTS_OBSERVATION_ID)
+    if legacy is not None:
+        records.append((_ROBOTS_OBSERVATION_ID, legacy))
+    for index in range(1, len(_request_facts(ledger)) + 1):
+        evidence_id = f"{_ROBOTS_OBSERVATION_ID}_{index:03d}"
+        record = ledger.get_record("evidence", evidence_id)
+        if record is not None:
+            records.append((evidence_id, record))
+    return records
+
+
+def _parse_robots_observation(
+    record: Mapping[str, object],
+) -> dict[str, object] | None:
+    try:
+        observation = json.loads(str(record["summary"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if (
+        record.get("subject_id") != SOURCE_ID
+        or record.get("evidence_kind") != "sanitized_robots_observation"
+        or record.get("public_references") != [ROBOTS_URL]
+        or not isinstance(observation, dict)
+        or set(observation) != {"catalogue_allowed", "outcome", "status"}
+        or (
+            observation.get("catalogue_allowed"),
+            observation.get("outcome"),
+            observation.get("status"),
+        )
+        not in {
+            (True, "allowed", 200),
+            (True, "not_found", 404),
+            (False, "denied", 200),
+        }
+    ):
+        return None
+    return observation
+
+
+def _robots_observation(ledger: Ledger) -> dict[str, object] | None:
+    records = _robots_observation_records(ledger)
+    if not records:
+        return None
+    return _parse_robots_observation(records[-1][1])
+
+
+def _request_supports_robots_observation(
+    record: Mapping[str, object],
+    observation_record: Mapping[str, object],
+    observation: Mapping[str, object],
+) -> bool:
+    try:
+        fact = json.loads(str(record["summary"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return (
+        record.get("subject_id") == SOURCE_ID
+        and record.get("evidence_kind") == "sanitized_public_request"
+        and record.get("public_references") == [ROBOTS_URL]
+        and record.get("recorded_at") == observation_record.get("recorded_at")
+        and isinstance(fact, dict)
+        and fact.get("recorded_at") == observation_record.get("recorded_at")
+        and fact.get("status") == observation.get("status")
+        and fact.get("retry_outcome") == "not_retried"
+    )
+
+
+def _fresh_robots_observation(
+    ledger: Ledger, now: datetime
+) -> dict[str, object] | None:
+    records = _robots_observation_records(ledger)
+    if not records:
+        return None
+    evidence_id, record = records[-1]
+    observation = _parse_robots_observation(record)
+    try:
+        checked_at = datetime.fromisoformat(
+            str(record["recorded_at"]).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        if now.tzinfo is None:
+            return None
+        current = now.astimezone(timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if (
+        observation is None
+        or observation.get("catalogue_allowed") is not True
+        or checked_at > current
+        or current - checked_at > ROBOTS_OBSERVATION_TTL
+    ):
+        return None
+    request_records: list[dict[str, object]] = []
+    suffix = evidence_id.removeprefix(f"{_ROBOTS_OBSERVATION_ID}_")
+    if evidence_id != _ROBOTS_OBSERVATION_ID and suffix.isdigit():
+        request = ledger.get_record(
+            "evidence", f"evidence_antiegg_fluxus_request_{suffix}"
+        )
+        if request is not None:
+            request_records.append(request)
+    else:
+        for index in range(1, 1000):
+            request = ledger.get_record(
+                "evidence", f"evidence_antiegg_fluxus_request_{index:03d}"
+            )
+            if request is None:
+                break
+            request_records.append(request)
+    if not any(
+        _request_supports_robots_observation(request, record, observation)
+        for request in request_records
+    ):
+        return None
+    return observation
+
+
+def _record_robots_observation(
+    ledger: Ledger,
+    *,
+    outcome: str,
+    status: int,
+    request_index: int,
+    recorded_at: str,
+) -> dict[str, object]:
+    observation: dict[str, object] = {
+        "catalogue_allowed": outcome != "denied",
+        "outcome": outcome,
+        "status": status,
+    }
+    ledger.upsert(
+        {
+            "schema_version": 1,
+            "record_type": "evidence",
+            "evidence_id": f"{_ROBOTS_OBSERVATION_ID}_{request_index:03d}",
+            "subject_id": SOURCE_ID,
+            "evidence_kind": "sanitized_robots_observation",
+            "recorded_at": recorded_at,
+            "summary": _json_summary(observation),
+            "public_references": [ROBOTS_URL],
+        }
+    )
+    return observation
+
+
 def _manifest(ledger: Ledger) -> dict[str, object]:
     source = ledger.get_record("source", SOURCE_ID)
     asset = ledger.get_record("asset", ASSET_ID)
     state = ledger.asset_state(ASSET_ID)
     blocker = _blocker(ledger)
+    robots_observation = _robots_observation(ledger)
+    requests = _request_facts(ledger)
     value: dict[str, object] = {
         "schema_version": 1,
         "manifest_type": "public_metadata_inventory",
         "source": source,
         "assets": [] if asset is None else [asset],
-        "requests": _request_facts(ledger),
+        "requests": requests,
         "result": "blocked" if blocker is not None else "completed",
+        "record_counts": {
+            "assets": 0 if asset is None else 1,
+            "blockers": 0 if blocker is None else 1,
+            "jobs": (
+                0
+                if ledger.get_record("job", JOB_ID) is None
+                else 1
+            ),
+            "requests": len(requests),
+        },
     }
+    if robots_observation is not None:
+        value["robots_observation"] = robots_observation
     if blocker is not None:
         value["blocker"] = blocker
     value["state_counts"] = {} if state is None else {state: 1}
@@ -603,6 +792,7 @@ def inventory_public_source(
     *,
     transport: HTTPTransport | None = None,
     clock: Callable[[], float] = time.monotonic,
+    wall_clock: Callable[[], datetime] = _utc_wall_clock,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, object]:
     """Inventory one public article within explicit request and elapsed bounds."""
@@ -626,62 +816,97 @@ def inventory_public_source(
                 ledger,
                 transport or UrllibGETTransport(),
                 clock=clock,
+                wall_clock=wall_clock,
                 sleep=sleep,
             )
-            robots, failure = runner.get(adapter.robots_url)
-            if failure is not None:
-                manifest = _finish_blocked(
-                    ledger, failure, "review the bounded request failure", config
-                )
-            elif robots is None:
-                manifest = _finish_blocked(
-                    ledger,
-                    "request_failed",
-                    "review the bounded request failure",
-                    config,
-                )
-            elif robots.status in {401, 403}:
-                manifest = _finish_blocked(
-                    ledger,
-                    "login_required" if robots.status == 401 else "access_forbidden",
-                    "use a different unauthenticated public metadata source",
-                    config,
-                )
-            elif robots.oversized:
-                manifest = _finish_blocked(
-                    ledger,
-                    "response_oversized",
-                    "reduce the response bound only after source review",
-                    config,
-                )
-            elif robots.status == 404:
+            robots_observation = _fresh_robots_observation(ledger, wall_clock())
+            if robots_observation is not None:
                 manifest = {}
-            elif robots.status != 200 or robots.mime_type not in {
-                "text/plain",
-                "text/plain;charset=utf-8",
-            }:
-                manifest = _finish_blocked(
-                    ledger,
-                    "unexpected_mime_type",
-                    "review the public robots metadata format",
-                    config,
-                )
             else:
-                parser = RobotFileParser()
-                try:
-                    parser.parse(robots.body.decode("utf-8").splitlines())
-                    allowed = parser.can_fetch(USER_AGENT, adapter.catalogue_url)
-                except UnicodeDecodeError:
-                    allowed = False
-                if not allowed:
+                robots, failure = runner.get(adapter.robots_url)
+                if failure is not None:
                     manifest = _finish_blocked(
                         ledger,
-                        "robots_denied",
-                        "review robots policy or select another public source",
+                        failure,
+                        "review the bounded request failure",
+                        config,
+                    )
+                elif robots is None:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "request_failed",
+                        "review the bounded request failure",
+                        config,
+                    )
+                elif robots.status in {401, 403}:
+                    manifest = _finish_blocked(
+                        ledger,
+                        (
+                            "login_required"
+                            if robots.status == 401
+                            else "access_forbidden"
+                        ),
+                        "use a different unauthenticated public metadata source",
+                        config,
+                    )
+                elif robots.oversized:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "response_oversized",
+                        "reduce the response bound only after source review",
+                        config,
+                    )
+                elif robots.status == 404:
+                    _record_robots_observation(
+                        ledger,
+                        outcome="not_found",
+                        status=robots.status,
+                        request_index=len(runner.requests),
+                        recorded_at=str(runner.requests[-1]["recorded_at"]),
+                    )
+                    manifest = {}
+                elif robots.status != 200 or robots.mime_type not in {
+                    "text/plain",
+                    "text/plain;charset=utf-8",
+                }:
+                    manifest = _finish_blocked(
+                        ledger,
+                        "unexpected_mime_type",
+                        "review the public robots metadata format",
                         config,
                     )
                 else:
-                    manifest = {}
+                    parser = RobotFileParser()
+                    try:
+                        parser.parse(robots.body.decode("utf-8").splitlines())
+                        allowed = parser.can_fetch(
+                            USER_AGENT, adapter.catalogue_url
+                        )
+                    except UnicodeDecodeError:
+                        allowed = False
+                    if not allowed:
+                        _record_robots_observation(
+                            ledger,
+                            outcome="denied",
+                            status=robots.status,
+                            request_index=len(runner.requests),
+                            recorded_at=str(runner.requests[-1]["recorded_at"]),
+                        )
+                        manifest = _finish_blocked(
+                            ledger,
+                            "robots_denied",
+                            "review robots policy or select another public source",
+                            config,
+                        )
+                    else:
+                        _record_robots_observation(
+                            ledger,
+                            outcome="allowed",
+                            status=robots.status,
+                            request_index=len(runner.requests),
+                            recorded_at=str(runner.requests[-1]["recorded_at"]),
+                        )
+                        manifest = {}
 
             if not manifest:
                 page, failure = runner.get(adapter.catalogue_url)
