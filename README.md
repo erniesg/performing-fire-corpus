@@ -17,8 +17,11 @@ as the handoff rather than machine-local paths.
 Read [the public project brief](docs/PROJECT_BRIEF.md) for scope, source URLs,
 transit lanes, and the first usable slice.
 
+The shared [bounded discovery contract](docs/bounded-discovery.md) defines
+governance binding, hard limits, atomic resume, and evidence-scoped
+completeness for later source adapters.
+
 ## Status
 
 Rucksack created this repository and installed its reversible agent harness.
 The implementation ledger is being generated and reviewed before activation.
-

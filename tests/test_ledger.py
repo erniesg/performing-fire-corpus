@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -330,9 +331,17 @@ class LedgerTests(unittest.TestCase):
                     "-c",
                     (
                         "import json, sys; "
+                        "from importlib.resources import files; "
                         "sys.path.insert(0, sys.argv[1]); "
                         "from performing_fire_corpus.ledger import validate_record; "
-                        "[validate_record(record) for record in json.loads(sys.argv[2])]"
+                        "[validate_record(record) for record in json.loads(sys.argv[2])]; "
+                        "schema_root = files('performing_fire_corpus.schemas.v1'); "
+                        "migration_root = files('performing_fire_corpus.migrations'); "
+                        "required = ('discovery-run-plan.json', 'page-checkpoint.json', "
+                        "'request-fact.json', 'discovery-observation.json', "
+                        "'completeness-report.json'); "
+                        "assert all(schema_root.joinpath(name).is_file() for name in required); "
+                        "assert migration_root.joinpath('002_discovery.sql').is_file()"
                     ),
                     str(installed_directory),
                     json.dumps([fixture(record_type) for record_type in RECORD_TYPES]),
@@ -343,6 +352,39 @@ class LedgerTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, validation.returncode, validation.stderr)
+
+    def test_discovery_migration_is_versioned_and_not_reapplied(self) -> None:
+        with sqlite3.connect(self.database) as connection:
+            versions = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                )
+            ]
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+        self.assertEqual([1, 2], versions)
+        self.assertTrue(
+            {
+                "discovery_runs",
+                "discovery_request_facts",
+                "discovery_observations",
+                "discovery_duplicate_events",
+            }.issubset(tables)
+        )
+        with Ledger(self.database):
+            pass
+        with sqlite3.connect(self.database) as connection:
+            self.assertEqual(
+                [(1,), (2,)],
+                connection.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall(),
+            )
 
     def test_claim_is_capability_scoped_atomic_and_expiring(self) -> None:
         self.seed_asset()

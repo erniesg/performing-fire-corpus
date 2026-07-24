@@ -1,0 +1,193 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/discovery-run-plan.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "adapter_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "approved_metadata_fields": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "endpoint_id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "max_pages": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_requests": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_response_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_retries": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_retry_after_seconds": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "per_host_interval_seconds": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "aggregate_bytes",
+        "elapsed_seconds",
+        "max_pages",
+        "max_requests",
+        "max_response_bytes",
+        "max_retries",
+        "max_retry_after_seconds",
+        "per_host_interval_seconds",
+        "timeout_seconds"
+      ],
+      "type": "object"
+    },
+    "metadata_field_contracts": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "value_type": {
+                "const": "year"
+              }
+            },
+            "required": [
+              "value_type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "allowed_values": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$",
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "value_type": {
+                "const": "enum"
+              }
+            },
+            "required": [
+              "allowed_values",
+              "value_type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxProperties": 32,
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "type": "object"
+    },
+    "policy_expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "policy_snapshot_id": {
+      "pattern": "^policy_snapshot_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "policy_state": {
+      "enum": [
+        "approved",
+        "blocked",
+        "pending",
+        "revoked"
+      ]
+    },
+    "record_type": {
+      "const": "discovery_run_plan"
+    },
+    "robots_evidence_id": {
+      "pattern": "^evidence_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "robots_expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "robots_state": {
+      "const": "allowed"
+    },
+    "run_id": {
+      "pattern": "^discovery_run_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "adapter_version",
+    "approved_metadata_fields",
+    "endpoint_id",
+    "limits",
+    "metadata_field_contracts",
+    "policy_expires_at",
+    "policy_snapshot_id",
+    "policy_state",
+    "record_type",
+    "robots_evidence_id",
+    "robots_expires_at",
+    "robots_state",
+    "run_id",
+    "schema_version",
+    "source_id"
+  ],
+  "title": "Bounded discovery run plan v1",
+  "type": "object"
+}
