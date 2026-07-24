@@ -17,6 +17,7 @@ from jsonschema.exceptions import ValidationError
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+import performing_fire_corpus.corpus_objects as corpus_objects
 from performing_fire_corpus.corpus_objects import (
     CorpusObjectError,
     bind_object_receipt,
@@ -32,7 +33,7 @@ from performing_fire_corpus.corpus_objects import (
     raw_object_key,
     reconcile_receipt_commit,
     tombstone_object_key,
-    validate_cleanup_commit_capability,
+    validate_cleanup_commit_context,
 )
 from performing_fire_corpus.ledger import InvalidTransition, Ledger, LedgerError
 
@@ -154,14 +155,30 @@ class FakeCorpusAuthority:
     def exact_cleanup_guard(self) -> object:
         return nullcontext(self)
 
-    def record_cleanup_tombstones(
+    def commit_confirmed_cleanup(
         self,
         tombstones: list[Mapping[str, object]],
         *,
-        capability: object | None = None,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: FakeStorage,
+        current_time: str,
     ) -> None:
-        validate_cleanup_commit_capability(capability, tombstones)
-        for value in tombstones:
+        values = validate_cleanup_commit_context(
+            tombstones,
+            work=work,
+            object_authority=self,
+            current_retention_authority=current_retention_authority,
+            current_lineage_snapshot=current_lineage_snapshot,
+            current_time=current_time,
+        )
+        if any(
+            storage.head_object(str(value["deleted_object_key"])) is not None
+            for value in values
+        ):
+            raise ValueError("synthetic exact key remains present")
+        for value in values:
             existing = [
                 item
                 for item in self.tombstones
@@ -1447,6 +1464,13 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual("2026-07-26T00:00:00Z", work["evaluated_at"])
 
     def test_real_ledger_is_the_complete_guarded_cleanup_authority(self) -> None:
+        for forbidden_symbol in (
+            "_CLEANUP_COMMIT_SEAL",
+            "_CleanupCommitCapability",
+            "_cleanup_commit_capability",
+            "validate_cleanup_commit_capability",
+        ):
+            self.assertFalse(hasattr(corpus_objects, forbidden_symbol))
         with tempfile.TemporaryDirectory() as temporary:
             fixture_root = ROOT / "tests" / "fixtures" / "records" / "v1"
             records = {
@@ -1521,14 +1545,6 @@ class RetentionTests(unittest.TestCase):
                     current_lineage_snapshot=lineage,
                     current_time="2026-07-26T00:00:00Z",
                 )
-                with ledger.exact_cleanup_guard():
-                    with self.assertRaises(LedgerError):
-                        ledger.record_cleanup_tombstones(
-                            forged_result["tombstones"]
-                        )
-                self.assertIsNone(
-                    ledger.get_cleanup_tombstone_by_key(self.raw_key)
-                )
                 storage = FakeStorage()
                 for item in (self.raw_receipt, self.derived_receipt):
                     storage.objects[str(item["object_key"])] = {
@@ -1536,6 +1552,34 @@ class RetentionTests(unittest.TestCase):
                         "media_type": item["media_type"],
                         "sha256": item["sha256"],
                     }
+                with ledger.exact_cleanup_guard() as cleanup_guard:
+                    with self.assertRaises(LedgerError):
+                        cleanup_guard.commit_confirmed_cleanup(
+                            forged_result["tombstones"],
+                            work=work,
+                            current_retention_authority=self.authority,
+                            current_lineage_snapshot=lineage,
+                            storage=storage,
+                            current_time="2026-07-26T00:00:00Z",
+                        )
+                self.assertIsNone(
+                    ledger.get_cleanup_tombstone_by_key(self.raw_key)
+                )
+                with Ledger(
+                    Path(temporary) / "second-ledger.sqlite3"
+                ) as second_ledger:
+                    with ledger.exact_cleanup_guard() as first_guard:
+                        with second_ledger.exact_cleanup_guard():
+                            with self.assertRaises(LedgerError):
+                                second_ledger._commit_confirmed_cleanup(
+                                    first_guard._nonce,
+                                    forged_result["tombstones"],
+                                    work=work,
+                                    current_retention_authority=self.authority,
+                                    current_lineage_snapshot=lineage,
+                                    storage=FakeStorage(),
+                                    current_time="2026-07-26T00:00:00Z",
+                                )
                 result = execute_exact_cleanup(
                     storage,
                     work,
@@ -1557,15 +1601,50 @@ class RetentionTests(unittest.TestCase):
                 tombstone = result["tombstones"][0]
                 with self.assertRaises(LedgerError):
                     ledger.upsert(tombstone)
-                with self.assertRaises(LedgerError):
-                    ledger.record_cleanup_tombstones([tombstone])
+                self.assertFalse(
+                    hasattr(ledger, "record_cleanup_tombstones")
+                )
                 mismatched = copy.deepcopy(tombstone)
                 mismatched["deleted_object_sha256"] = hashlib.sha256(
                     b"forged tombstone hash"
                 ).hexdigest()
-                with ledger.exact_cleanup_guard():
+                with ledger.exact_cleanup_guard() as cleanup_guard:
                     with self.assertRaises(LedgerError):
-                        ledger.record_cleanup_tombstones([mismatched])
+                        cleanup_guard.commit_confirmed_cleanup(
+                            [mismatched],
+                            work=work,
+                            current_retention_authority=self.authority,
+                            current_lineage_snapshot=lineage,
+                            storage=storage,
+                            current_time="2026-07-26T00:00:00Z",
+                        )
+                with ledger.exact_cleanup_guard() as cleanup_guard:
+                    cleanup_guard.commit_confirmed_cleanup(
+                        result["tombstones"],
+                        work=work,
+                        current_retention_authority=self.authority,
+                        current_lineage_snapshot=lineage,
+                        storage=storage,
+                        current_time="2026-07-26T00:00:00Z",
+                    )
+                    with self.assertRaises(LedgerError):
+                        cleanup_guard.commit_confirmed_cleanup(
+                            result["tombstones"],
+                            work=work,
+                            current_retention_authority=self.authority,
+                            current_lineage_snapshot=lineage,
+                            storage=storage,
+                            current_time="2026-07-26T00:00:00Z",
+                        )
+                with self.assertRaises(LedgerError):
+                    cleanup_guard.commit_confirmed_cleanup(
+                        result["tombstones"],
+                        work=work,
+                        current_retention_authority=self.authority,
+                        current_lineage_snapshot=lineage,
+                        storage=storage,
+                        current_time="2026-07-26T00:00:00Z",
+                    )
         self.assertEqual("complete", result["state"])
         self.assertEqual({self.raw_key, self.derived_key}, set(storage.deleted))
 

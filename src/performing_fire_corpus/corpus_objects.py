@@ -11,7 +11,6 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -113,25 +112,6 @@ class CorpusObjectError(RuntimeError):
         super().__init__(f"{code}: {next_action}")
 
 
-_CLEANUP_COMMIT_SEAL = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _CleanupCommitCapability:
-    """Opaque proof that the guarded executor confirmed exact-key absence."""
-
-    _seal: object
-    confirmed_absent_keys: tuple[str, ...]
-    lineage_snapshot_sha256: str
-    retention_authority_sha256: str
-    retention_work_sha256: str
-    tombstones_sha256: str
-
-    def __post_init__(self) -> None:
-        if self._seal is not _CLEANUP_COMMIT_SEAL:
-            raise TypeError("cleanup capabilities are executor-owned")
-
-
 class ExactObjectStorage(Protocol):
     """The only storage operations allowed by this contract."""
 
@@ -175,11 +155,15 @@ class CorpusAuthority(Protocol):
 
     def exact_cleanup_guard(self) -> Any: ...
 
-    def record_cleanup_tombstones(
+    def commit_confirmed_cleanup(
         self,
         tombstones: Iterable[Mapping[str, object]],
         *,
-        capability: object,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: ExactObjectStorage,
+        current_time: str,
     ) -> None: ...
 
 
@@ -2016,49 +2000,6 @@ def validate_object_tombstone(
     return dict(value)
 
 
-def _cleanup_commit_capability(
-    work: Mapping[str, object],
-    tombstones: list[Mapping[str, object]],
-) -> _CleanupCommitCapability:
-    """Seal the already validated work and confirmed-absent tombstone set."""
-
-    confirmed_absent_keys = tuple(
-        str(value["deleted_object_key"]) for value in tombstones
-    )
-    return _CleanupCommitCapability(
-        _seal=_CLEANUP_COMMIT_SEAL,
-        confirmed_absent_keys=confirmed_absent_keys,
-        lineage_snapshot_sha256=str(work["lineage_snapshot_sha256"]),
-        retention_authority_sha256=str(work["retention_authority_sha256"]),
-        retention_work_sha256=hashlib.sha256(_canonical(work)).hexdigest(),
-        tombstones_sha256=hashlib.sha256(_canonical(tombstones)).hexdigest(),
-    )
-
-
-def validate_cleanup_commit_capability(
-    capability: object,
-    tombstones: Iterable[Mapping[str, object]],
-) -> None:
-    """Reject tombstone writes not sealed by the exact cleanup executor."""
-
-    values = [validate_object_tombstone(value) for value in tombstones]
-    if (
-        not isinstance(capability, _CleanupCommitCapability)
-        or capability._seal is not _CLEANUP_COMMIT_SEAL
-        or capability.confirmed_absent_keys
-        != tuple(str(value["deleted_object_key"]) for value in values)
-        or capability.tombstones_sha256
-        != hashlib.sha256(_canonical(values)).hexdigest()
-        or not _SHA256.fullmatch(capability.retention_work_sha256)
-        or not _SHA256.fullmatch(capability.retention_authority_sha256)
-        or not _SHA256.fullmatch(capability.lineage_snapshot_sha256)
-    ):
-        _fail(
-            "cleanup_commit_unauthorized",
-            "Persist tombstones only from the validated exact cleanup executor.",
-        )
-
-
 def _planned_tombstone(
     work: Mapping[str, object],
     target: Mapping[str, object],
@@ -2091,6 +2032,62 @@ def _planned_tombstone(
             "Resume only from the exact durable tombstone authority.",
         )
     return planned, True
+
+
+def validate_cleanup_commit_context(
+    tombstones: Iterable[Mapping[str, object]],
+    *,
+    work: Mapping[str, object],
+    object_authority: CorpusAuthority,
+    current_retention_authority: Mapping[str, object],
+    current_lineage_snapshot: Mapping[str, object],
+    current_time: str,
+) -> list[dict[str, object]]:
+    """Rebuild every authority fact before an exact-absence commit."""
+
+    rebuilt = build_retention_work(
+        work_id=str(work.get("retention_work_id", "")),
+        object_authority=object_authority,
+        lineage_snapshot=current_lineage_snapshot,
+        retention_authority=current_retention_authority,
+        current_time=current_time,
+        cleanup_authority=str(work.get("cleanup_authority", "")),
+        cleanup_run_id=str(work.get("cleanup_run_id", "")),
+        reason_code=str(work.get("reason_code", "")),
+        evidence_ref=str(work.get("evidence_ref", "")),
+    )
+    if rebuilt != dict(work) or rebuilt.get("state") != "ready_exact_cleanup":
+        _fail(
+            "cleanup_commit_authority_mismatch",
+            "Rebuild exact cleanup from current retention and lineage authority.",
+        )
+    targets = {
+        str(target["object_key"]): target
+        for target in rebuilt["targets"]
+        if isinstance(target, Mapping)
+    }
+    values = [validate_object_tombstone(value) for value in tombstones]
+    keys = [str(value["deleted_object_key"]) for value in values]
+    if not values or len(keys) != len(set(keys)) or any(
+        key not in targets for key in keys
+    ):
+        _fail(
+            "cleanup_commit_scope_mismatch",
+            "Commit one non-empty exact subset of the validated cleanup work.",
+        )
+    for value in values:
+        target = targets[str(value["deleted_object_key"])]
+        planned, _ = _planned_tombstone(
+            rebuilt,
+            target,
+            object_authority=object_authority,
+        )
+        if value != planned:
+            _fail(
+                "cleanup_commit_tombstone_mismatch",
+                "Commit only content-bound tombstones from current authority.",
+            )
+    return values
 
 
 def _preflight_cleanup_targets(
@@ -2383,11 +2380,14 @@ def _execute_exact_cleanup_guarded(
         else:
             failed.append(key)
     if tombstones:
-        capability = _cleanup_commit_capability(work, tombstones)
         try:
-            object_authority.record_cleanup_tombstones(
+            object_authority.commit_confirmed_cleanup(
                 tombstones,
-                capability=capability,
+                work=work,
+                current_retention_authority=current_retention_authority,
+                current_lineage_snapshot=current_lineage_snapshot,
+                storage=storage,
+                current_time=current_time,
             )
         except Exception:
             _fail(

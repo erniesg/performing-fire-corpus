@@ -183,11 +183,14 @@ authority, changed retention decision, or changed lineage stops cleanup and
 requires rebuilt work.
 
 The immediate write guard is a transaction lock, never deletion authority.
-Only the exact cleanup executor can seal a commit capability after validating
-the current retention and lineage hashes and confirming each named key absent.
-The capability binds the complete work receipt, exact absent-key sequence, and
-content-bound tombstone set. Opening the ledger guard directly cannot persist
-a tombstone or change an asset state.
+It yields a ledger-bound, transaction-nonce commit channel that is consumed
+once. At commit, the ledger rebuilds the complete work from its own receipts
+and manifests, the supplied current retention/legal-hold and lineage records,
+and the current time. It then validates the exact tombstone subset and performs
+another exact-key `HEAD` for every claimed absence before writing any record or
+changing asset state. The channel cannot be transferred to another ledger,
+replayed after the transaction, or used twice. There is no importable
+tombstone-capability builder or ordinary tombstone-write method.
 
 ## Production boundary
 

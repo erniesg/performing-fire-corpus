@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import sqlite3
 import threading
 import uuid
@@ -79,6 +80,61 @@ class LeaseError(LedgerError):
 
 class CapabilityError(LedgerError):
     """Raised when a worker cannot satisfy a job's bounded capabilities."""
+
+
+class _LedgerCleanupGuard:
+    """One transaction-bound exact-cleanup commit channel."""
+
+    __slots__ = ("_ledger", "_nonce")
+
+    def __init__(self, ledger: "Ledger", nonce: str) -> None:
+        self._ledger = ledger
+        self._nonce = nonce
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_corpus_receipt_by_key(object_key)
+
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_corpus_receipt(receipt_id)
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        return self._ledger.list_corpus_receipts(source_id, asset_id)
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        return self._ledger.list_derivation_manifests(source_id, asset_id)
+
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_cleanup_tombstone_by_key(object_key)
+
+    def commit_confirmed_cleanup(
+        self,
+        tombstones: Iterable[Mapping[str, object]],
+        *,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: Any,
+        current_time: str,
+    ) -> None:
+        self._ledger._commit_confirmed_cleanup(
+            self._nonce,
+            tombstones,
+            work=work,
+            current_retention_authority=current_retention_authority,
+            current_lineage_snapshot=current_lineage_snapshot,
+            storage=storage,
+            current_time=current_time,
+        )
 
 
 def utc_now() -> datetime:
@@ -211,6 +267,8 @@ class Ledger:
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._cleanup_guard_active = False
+        self._cleanup_guard_nonce: str | None = None
+        self._cleanup_guard_consumed = False
         self._connection.execute("PRAGMA foreign_keys = ON")
         if self.database != ":memory:":
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -497,7 +555,7 @@ class Ledger:
         return None if not matches else matches[0]
 
     @contextmanager
-    def exact_cleanup_guard(self) -> Iterable["Ledger"]:
+    def exact_cleanup_guard(self) -> Iterable[_LedgerCleanupGuard]:
         """Freeze authoritative receipt/manifest writes during exact cleanup."""
 
         with self._lock:
@@ -505,39 +563,75 @@ class Ledger:
                 raise LedgerError("exact cleanup guards may not be nested")
             self._connection.execute("BEGIN IMMEDIATE")
             self._cleanup_guard_active = True
+            nonce = secrets.token_hex(32)
+            self._cleanup_guard_nonce = nonce
+            self._cleanup_guard_consumed = False
             try:
-                yield self
+                yield _LedgerCleanupGuard(self, nonce)
                 self._connection.commit()
             except Exception:
                 self._connection.rollback()
                 raise
             finally:
                 self._cleanup_guard_active = False
+                self._cleanup_guard_nonce = None
+                self._cleanup_guard_consumed = False
 
-    def record_cleanup_tombstones(
+    def _commit_confirmed_cleanup(
         self,
+        nonce: str,
         tombstones: Iterable[Mapping[str, object]],
         *,
-        capability: object | None = None,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: Any,
+        current_time: str,
     ) -> None:
-        """Persist exact-key absence under the active cleanup transaction."""
+        """Atomically revalidate, confirm absence, and persist tombstones."""
 
-        if not self._cleanup_guard_active or not self._connection.in_transaction:
+        if (
+            not self._cleanup_guard_active
+            or not self._connection.in_transaction
+            or nonce != self._cleanup_guard_nonce
+            or self._cleanup_guard_consumed
+        ):
             raise LedgerError(
-                "object tombstones require the active exact cleanup guard"
+                "cleanup commit requires one live transaction-bound guard"
             )
         from performing_fire_corpus.corpus_objects import (
             CorpusObjectError,
-            validate_cleanup_commit_capability,
+            validate_cleanup_commit_context,
         )
 
         values = [dict(value) for value in tombstones]
         try:
-            validate_cleanup_commit_capability(capability, values)
+            values = validate_cleanup_commit_context(
+                values,
+                work=work,
+                object_authority=self,
+                current_retention_authority=current_retention_authority,
+                current_lineage_snapshot=current_lineage_snapshot,
+                current_time=current_time,
+            )
         except CorpusObjectError as error:
             raise LedgerError(
-                "object tombstones require sealed exact-cleanup authority"
+                "cleanup commit failed current authority validation"
             ) from error
+        for value in values:
+            try:
+                existing_object = storage.head_object(
+                    str(value["deleted_object_key"])
+                )
+            except Exception:
+                raise LedgerError(
+                    "cleanup commit exact absence check failed"
+                ) from None
+            if existing_object is not None:
+                raise LedgerError(
+                    "cleanup commit requires every exact key to be absent"
+                )
+        self._cleanup_guard_consumed = True
         now = utc_text()
         affected_assets: set[str] = set()
         for tombstone in values:
