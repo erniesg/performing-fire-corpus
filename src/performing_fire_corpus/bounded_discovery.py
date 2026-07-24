@@ -8,9 +8,10 @@ import json
 import math
 import re
 import sqlite3
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Protocol
@@ -194,6 +195,19 @@ def _safe_cursor(value: Any) -> str:
     return value
 
 
+def _pending_request_is_set(checkpoint: Mapping[str, Any]) -> bool:
+    values = (
+        checkpoint.get("pending_request_fact_id"),
+        checkpoint.get("pending_request_runner_id"),
+        checkpoint.get("pending_request_expires_at"),
+    )
+    if all(value is None for value in values):
+        return False
+    if any(value is None for value in values):
+        raise DiscoveryError("pending request reservation is incomplete")
+    return True
+
+
 def _validate_response(value: PageResponse) -> None:
     if (
         not isinstance(value.status, int)
@@ -209,9 +223,12 @@ def _validate_response(value: PageResponse) -> None:
 
 
 class _DiscoveryStore:
-    def __init__(self, database: str | Path) -> None:
+    def __init__(self, database: str | Path, runner_id: str) -> None:
+        if not re.fullmatch(r"runner_[0-9a-f]{32}", runner_id):
+            raise DiscoveryError("runner identifier is invalid")
         with Ledger(database):
             pass
+        self.runner_id = runner_id
         self.connection = sqlite3.connect(str(database), isolation_level=None)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
@@ -225,7 +242,14 @@ class _DiscoveryStore:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _assert_stored_pending(self, run_id: str, request_fact_id: str) -> None:
+    def _assert_stored_pending(
+        self,
+        run_id: str,
+        request_fact_id: str,
+        owner_id: str,
+        *,
+        require_expired_at: datetime | None = None,
+    ) -> None:
         row = self.connection.execute(
             """
             SELECT checkpoint_body, report_body
@@ -236,8 +260,16 @@ class _DiscoveryStore:
         if row is None or row["report_body"] is not None:
             raise DiscoveryError("discovery run is not available for request resolution")
         stored_checkpoint = json.loads(row["checkpoint_body"])
-        if stored_checkpoint.get("pending_request_fact_id") != request_fact_id:
+        if (
+            stored_checkpoint.get("pending_request_fact_id") != request_fact_id
+            or stored_checkpoint.get("pending_request_runner_id") != owner_id
+        ):
             raise DiscoveryError("stored request reservation does not match the fact")
+        if require_expired_at is not None and (
+            _time(stored_checkpoint["pending_request_expires_at"])
+            > _time(require_expired_at)
+        ):
+            raise DiscoveryError("active request reservation cannot be interrupted")
 
     def start(
         self,
@@ -293,17 +325,35 @@ class _DiscoveryStore:
         fact: Mapping[str, Any],
         checkpoint: Mapping[str, Any],
         now: str,
+        *,
+        owner_id: str | None = None,
+        require_expired_at: datetime | None = None,
     ) -> dict[str, Any]:
         fact_value = _validate("request-fact", fact)
-        if checkpoint.get("pending_request_fact_id") != fact_value["request_fact_id"]:
+        if owner_id is None:
+            owner_id = self.runner_id
+        elif owner_id != self.runner_id and require_expired_at is None:
+            raise DiscoveryError("another runner owns the request reservation")
+        if not isinstance(owner_id, str):
+            raise DiscoveryError("request reservation has no valid owner")
+        if (
+            checkpoint.get("pending_request_fact_id")
+            != fact_value["request_fact_id"]
+            or checkpoint.get("pending_request_runner_id") != owner_id
+        ):
             raise DiscoveryError("request fact does not resolve its pending reservation")
         checkpoint_value = dict(checkpoint)
         checkpoint_value["pending_request_fact_id"] = None
+        checkpoint_value["pending_request_runner_id"] = None
+        checkpoint_value["pending_request_expires_at"] = None
         checkpoint_value = _validate("page-checkpoint", checkpoint_value)
         try:
             self.connection.execute("BEGIN IMMEDIATE")
             self._assert_stored_pending(
-                fact_value["run_id"], fact_value["request_fact_id"]
+                fact_value["run_id"],
+                fact_value["request_fact_id"],
+                owner_id,
+                require_expired_at=require_expired_at,
             )
             self.connection.execute(
                 """
@@ -341,9 +391,10 @@ class _DiscoveryStore:
         checkpoint: Mapping[str, Any],
         *,
         attempt: int,
+        expires_at: datetime,
         now: str,
     ) -> dict[str, Any]:
-        if checkpoint.get("pending_request_fact_id") is not None:
+        if _pending_request_is_set(checkpoint):
             raise DiscoveryError("a discovery request is already pending")
         prior_checkpoint = _validate("page-checkpoint", checkpoint)
         checkpoint_value = dict(checkpoint)
@@ -351,6 +402,8 @@ class _DiscoveryStore:
         checkpoint_value["pending_request_fact_id"] = _request_fact_id(
             plan, checkpoint_value, attempt
         )
+        checkpoint_value["pending_request_runner_id"] = self.runner_id
+        checkpoint_value["pending_request_expires_at"] = _time_text(expires_at)
         checkpoint_value = _validate("page-checkpoint", checkpoint_value)
         try:
             self.connection.execute("BEGIN IMMEDIATE")
@@ -397,17 +450,24 @@ class _DiscoveryStore:
         commit_hook: Callable[[str, int], None] | None,
     ) -> dict[str, Any]:
         fact_value = _validate("request-fact", fact)
-        if checkpoint.get("pending_request_fact_id") != fact_value["request_fact_id"]:
+        owner_id = self.runner_id
+        if (
+            checkpoint.get("pending_request_fact_id")
+            != fact_value["request_fact_id"]
+            or checkpoint.get("pending_request_runner_id") != owner_id
+        ):
             raise DiscoveryError("request fact does not resolve its pending reservation")
         observation_values = [
             _validate("discovery-observation", item) for item in observations
         ]
         checkpoint_value = dict(checkpoint)
         checkpoint_value["pending_request_fact_id"] = None
+        checkpoint_value["pending_request_runner_id"] = None
+        checkpoint_value["pending_request_expires_at"] = None
         try:
             self.connection.execute("BEGIN IMMEDIATE")
             self._assert_stored_pending(
-                fact_value["run_id"], fact_value["request_fact_id"]
+                fact_value["run_id"], fact_value["request_fact_id"], owner_id
             )
             self.connection.execute(
                 """
@@ -560,6 +620,8 @@ def _initial_checkpoint(plan: Mapping[str, Any]) -> dict[str, Any]:
         "expected_total": None,
         "current_page_retries": 0,
         "pending_request_fact_id": None,
+        "pending_request_runner_id": None,
+        "pending_request_expires_at": None,
         "terminal": False,
         "terminal_pages": 0,
     }
@@ -873,8 +935,9 @@ def run_bounded_discovery(
     plan = _validate_plan_and_adapter(run_plan, adapter)
     governance = _validate_governance_binding(plan, governance_record)
     plan_fingerprint = _fingerprint(plan)
+    runner_id = f"runner_{uuid.uuid4().hex}"
     started = monotonic()
-    with _DiscoveryStore(database) as store:
+    with _DiscoveryStore(database, runner_id) as store:
         checkpoint, existing_report, stored_fingerprint = store.start(
             plan,
             plan_fingerprint,
@@ -900,7 +963,13 @@ def run_bounded_discovery(
             raise DiscoveryError("run id is already bound to a different plan")
         if existing_report is not None:
             return _validate("completeness-report", existing_report)
-        if checkpoint["pending_request_fact_id"] is not None:
+        if _pending_request_is_set(checkpoint):
+            reservation_expires_at = _time(
+                checkpoint["pending_request_expires_at"]
+            )
+            stale_at = _time(wall_clock())
+            if reservation_expires_at > stale_at:
+                raise DiscoveryError("discovery run has an active request reservation")
             interrupted_attempt = int(checkpoint["current_page_retries"]) + 1
             interrupted_fact = _request_fact(
                 plan,
@@ -912,7 +981,11 @@ def run_bounded_discovery(
                 observed_at=wall_clock(),
             )
             checkpoint = store.commit_fact(
-                interrupted_fact, checkpoint, _time_text(wall_clock())
+                interrupted_fact,
+                checkpoint,
+                _time_text(wall_clock()),
+                owner_id=checkpoint["pending_request_runner_id"],
+                require_expired_at=stale_at,
             )
             return finish("blocked", "request_interrupted", blocked_pages=1)
 
@@ -988,10 +1061,18 @@ def run_bounded_discovery(
                     checkpoint["elapsed_seconds"]
                 )
                 attempt = int(checkpoint["current_page_retries"]) + 1
+                request_timeout = min(
+                    float(plan["limits"]["timeout_seconds"]),
+                    remaining_elapsed,
+                )
+                reservation_expires_at = _time(wall_clock()) + timedelta(
+                    seconds=max(1, math.ceil(request_timeout)) + 1
+                )
                 checkpoint = store.reserve_request(
                     plan,
                     checkpoint,
                     attempt=attempt,
+                    expires_at=reservation_expires_at,
                     now=_time_text(wall_clock()),
                 )
                 last_request_at = monotonic()
@@ -999,10 +1080,7 @@ def run_bounded_discovery(
                     response = transport.fetch(
                         plan["endpoint_id"],
                         checkpoint["next_cursor"],
-                        timeout_seconds=min(
-                            float(plan["limits"]["timeout_seconds"]),
-                            remaining_elapsed,
-                        ),
+                        timeout_seconds=request_timeout,
                         max_response_bytes=int(
                             plan["limits"]["max_response_bytes"]
                         ),

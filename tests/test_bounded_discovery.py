@@ -5,6 +5,7 @@ import hashlib
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -391,6 +392,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
         for stage in ("before_commit", "after_commit"):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temporary:
                 run_plan = plan()
+                clock = FakeClock()
                 database = Path(temporary) / "discovery.sqlite3"
                 interrupted = False
 
@@ -413,11 +415,13 @@ class BoundedDiscoveryTests(unittest.TestCase):
                         database,
                         adapter=SyntheticAdapter(run_plan["limits"]),
                         transport=FakeTransport([first_page]),
-                        wall_clock=lambda: T0,
-                        monotonic=lambda: 0.0,
-                        sleeper=lambda _: None,
+                        wall_clock=clock.wall,
+                        monotonic=clock.monotonic,
+                        sleeper=clock.sleep,
                         commit_hook=interrupt,
                     )
+                if stage == "before_commit":
+                    clock.elapsed = 4.0
 
                 outcomes = [
                     page(
@@ -436,9 +440,9 @@ class BoundedDiscoveryTests(unittest.TestCase):
                     database,
                     adapter=SyntheticAdapter(run_plan["limits"]),
                     transport=resume_transport,
-                    wall_clock=lambda: T0,
-                    monotonic=lambda: 0.0,
-                    sleeper=lambda _: None,
+                    wall_clock=clock.wall,
+                    monotonic=clock.monotonic,
+                    sleeper=clock.sleep,
                 )
                 expected = (
                     ("blocked", "request_interrupted", 0, 1, 0)
@@ -1011,6 +1015,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
             run_id="discovery_run_synthetic_in_flight_interrupt",
             limits={"max_requests": 1},
         )
+        clock = FakeClock()
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "in-flight.sqlite3"
             with self.assertRaises(KeyboardInterrupt):
@@ -1019,8 +1024,8 @@ class BoundedDiscoveryTests(unittest.TestCase):
                     database,
                     adapter=SyntheticAdapter(run_plan["limits"]),
                     transport=FakeTransport([KeyboardInterrupt()]),
-                    wall_clock=lambda: T0,
-                    monotonic=lambda: 0.0,
+                    wall_clock=clock.wall,
+                    monotonic=clock.monotonic,
                     sleeper=lambda _: None,
                 )
             with sqlite3.connect(database) as connection:
@@ -1035,6 +1040,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 )
             self.assertEqual(1, checkpoint["requests_attempted"])
             self.assertIsNotNone(checkpoint["pending_request_fact_id"])
+            clock.elapsed = 4.0
 
             transport = FakeTransport(
                 [
@@ -1051,8 +1057,8 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 database,
                 adapter=SyntheticAdapter(run_plan["limits"]),
                 transport=transport,
-                wall_clock=lambda: T0,
-                monotonic=lambda: 0.0,
+                wall_clock=clock.wall,
+                monotonic=clock.monotonic,
                 sleeper=lambda _: None,
             )
             self.assertEqual(
@@ -1072,6 +1078,124 @@ class BoundedDiscoveryTests(unittest.TestCase):
                     ).fetchone()[0]
                 )
             self.assertEqual("request_interrupted", fact["outcome"])
+
+    def test_live_reservation_makes_concurrent_runner_busy_without_mutation(
+        self,
+    ) -> None:
+        run_plan = plan(
+            run_id="discovery_run_synthetic_concurrent_runner"
+        )
+        request_started = threading.Event()
+        release_request = threading.Event()
+        first_result: list[dict[str, Any]] = []
+        first_error: list[BaseException] = []
+
+        class WaitingTransport(FakeTransport):
+            def fetch(self, *args: Any, **kwargs: Any) -> PageResponse:
+                request_started.set()
+                if not release_request.wait(timeout=5):
+                    raise AssertionError("synthetic concurrent request timed out")
+                return super().fetch(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "concurrent.sqlite3"
+
+            def run_first() -> None:
+                try:
+                    first_result.append(
+                        run_bounded_discovery(
+                            run_plan,
+                            database,
+                            adapter=SyntheticAdapter(run_plan["limits"]),
+                            transport=WaitingTransport(
+                                [
+                                    page(
+                                        [record("synthetic-001")],
+                                        next_cursor=None,
+                                        next_ordinal=None,
+                                        terminal=True,
+                                    )
+                                ]
+                            ),
+                            wall_clock=lambda: T0,
+                            monotonic=lambda: 0.0,
+                            sleeper=lambda _: None,
+                        )
+                    )
+                except BaseException as error:
+                    first_error.append(error)
+
+            worker = threading.Thread(target=run_first)
+            worker.start()
+            self.assertTrue(request_started.wait(timeout=5))
+            with sqlite3.connect(database) as connection:
+                reserved = connection.execute(
+                    """
+                    SELECT checkpoint_body FROM discovery_runs
+                    WHERE run_id = ?
+                    """,
+                    (run_plan["run_id"],),
+                ).fetchone()[0]
+
+            second_transport = FakeTransport([])
+            with self.assertRaises(DiscoveryError):
+                run_bounded_discovery(
+                    run_plan,
+                    database,
+                    adapter=SyntheticAdapter(run_plan["limits"]),
+                    transport=second_transport,
+                    wall_clock=lambda: T0,
+                    monotonic=lambda: 0.0,
+                    sleeper=lambda _: None,
+                )
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(
+                    reserved,
+                    connection.execute(
+                        """
+                        SELECT checkpoint_body FROM discovery_runs
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0],
+                )
+            self.assertEqual([], second_transport.calls)
+
+            release_request.set()
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual([], first_error)
+            self.assertEqual(1, len(first_result))
+            self.assertEqual(
+                ("complete_for_observed_endpoint", "terminal_page"),
+                (
+                    first_result[0]["state"],
+                    first_result[0]["stop_reason"],
+                ),
+            )
+            with sqlite3.connect(database) as connection:
+                final_checkpoint = json.loads(
+                    connection.execute(
+                        """
+                        SELECT checkpoint_body FROM discovery_runs
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0]
+                )
+                self.assertEqual(
+                    1,
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM discovery_request_facts
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0],
+                )
+            self.assertIsNone(final_checkpoint["pending_request_fact_id"])
+            self.assertIsNone(final_checkpoint["pending_request_runner_id"])
+            self.assertIsNone(final_checkpoint["pending_request_expires_at"])
 
     def test_slow_response_cannot_cross_elapsed_budget_and_report_complete(
         self,

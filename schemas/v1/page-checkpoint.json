@@ -103,6 +103,29 @@
         }
       ]
     },
+    "pending_request_expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pending_request_runner_id": {
+      "anyOf": [
+        {
+          "pattern": "^runner_[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "policy_snapshot_id": {
       "pattern": "^policy_snapshot_[a-z0-9][a-z0-9._-]{0,127}$",
       "type": "string"
@@ -157,7 +180,9 @@
     "next_cursor",
     "next_ordinal",
     "page_sequence",
+    "pending_request_expires_at",
     "pending_request_fact_id",
+    "pending_request_runner_id",
     "policy_snapshot_id",
     "record_type",
     "rejected_records",

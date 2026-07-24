@@ -77,13 +77,15 @@ One SQLite transaction commits:
 3. the checkpoint that points to the next page.
 
 Before any network call, the engine durably reserves one request in the
-checkpoint. The corresponding body-free fact and page commit atomically resolve
-that reservation. If execution ends after reservation but before resolution,
-resume records `request_interrupted` and blocks without reissuing the uncertain
-request. Retry attempts are likewise committed with the body-free request fact,
-so restarting cannot reset the current page's retry budget. A crash after a page
-commit resumes from the new checkpoint. Re-running a terminal run returns the
-same stored completeness report without another request.
+checkpoint with an opaque runner ID and bounded lease expiry. The corresponding
+body-free fact and page commit atomically resolve that reservation. A concurrent
+runner that encounters a live lease returns busy without mutating the run. Only
+after the lease is proven expired may resume record `request_interrupted` and
+block without reissuing the uncertain request. Retry attempts are likewise
+committed with the body-free request fact, so restarting cannot reset the
+current page's retry budget. A crash after a page commit resumes from the new
+checkpoint. Re-running a terminal run returns the same stored completeness
+report without another request.
 
 The versioned migration creates separate run, request-fact, observation, and
 duplicate-event tables. Migration versions are applied once and packaged with
