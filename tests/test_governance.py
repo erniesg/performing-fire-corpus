@@ -40,31 +40,31 @@ def validate_schema(name: str, value: dict[str, object]) -> None:
 
 
 def synthetic_governance() -> dict[str, object]:
-    dimensions = (
-        "access_control",
-        "api_availability",
-        "authentication",
-        "copyright_lawful_basis",
-        "platform_terms",
-        "robots",
-    )
+    fact_states = {
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed",
+    }
     record = {
         "schema_version": 1,
         "record_type": "source_governance",
         "source_governance_id": "source_governance_synthetic",
         "source_id": "antiegg-fluxus",
         "endpoint_id": "antiegg-posts-api",
-        "fact_states": {dimension: "allowed" for dimension in dimensions},
+        "fact_states": fact_states,
         "observations": [
             {
                 "dimension": dimension,
-                "state": "allowed",
+                "state": state,
                 "observed_at": "2026-07-23T00:00:00Z",
                 "expires_at": "2026-07-25T00:00:00Z",
                 "evidence_id": f"evidence_synthetic_{dimension}",
                 "next_safe_action": "Revalidate this synthetic fact after expiry.",
             }
-            for dimension in dimensions
+            for dimension, state in fact_states.items()
         ],
         "operation_states": {
             "acquisition_eligibility": "pending",
@@ -218,6 +218,25 @@ class GovernanceTests(unittest.TestCase):
             ),
         )
 
+        governance = json.loads(
+            GOVERNANCE_REGISTRY_PATH.read_text(encoding="utf-8")
+        )
+        governance["records"][0]["blockers"] = [
+            {
+                "code": "http_403",
+                "endpoint_id": "njp-center-main-home",
+                "next_safe_action": "Keep the mismatched endpoint blocked.",
+                "observed_at": "2026-07-23T00:00:00Z",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "cross-source-blocker.json"
+            path.write_text(json.dumps(governance, sort_keys=True), encoding="utf-8")
+            with self.assertRaises(GovernanceError):
+                load_source_governance_registry(
+                    path, source_registry=source_registry
+                )
+
     def test_strict_schemas_accept_only_content_free_synthetic_contracts(self) -> None:
         governance = synthetic_governance()
         consent, retention, deletion = project_native_contract()
@@ -246,6 +265,18 @@ class GovernanceTests(unittest.TestCase):
         self.assertTrue(metadata["eligible"])
         self.assertFalse(media["eligible"])
         self.assertEqual("pending", media["state"])
+
+    def test_fact_states_are_dimension_specific_permissions(self) -> None:
+        governance = synthetic_governance()
+        for dimension in governance["fact_states"]:
+            governance["fact_states"][dimension] = "available"
+        for observation in governance["observations"]:
+            observation["state"] = "available"
+        self.assertFalse(
+            evaluate_source_operation(
+                governance, "metadata_inventory", now=NOW
+            )["eligible"]
+        )
 
     def test_unknown_stale_conflicting_and_durable_blockers_fail_closed(self) -> None:
         for state in ("unknown", "stale", "conflicting"):
@@ -356,6 +387,8 @@ class GovernanceTests(unittest.TestCase):
                 retention,
                 deletion,
                 "derived_processing",
+                viewer_role="researcher",
+                redaction_applied=True,
                 now=NOW,
             )["eligible"]
         )
@@ -373,6 +406,8 @@ class GovernanceTests(unittest.TestCase):
             ["delete_content", "delete_derivatives", "reindex"],
             outcome["required_work"],
         )
+        self.assertEqual("consent_revoked", outcome["deletion_record"]["trigger_state"])
+        self.assertEqual("pending", outcome["deletion_record"]["status"])
         self.assertEqual(
             {
                 "consent_id",
@@ -387,11 +422,97 @@ class GovernanceTests(unittest.TestCase):
             evaluate_project_native_use(
                 revoked,
                 retention,
+                outcome["deletion_record"],
+                "derived_processing",
+                viewer_role="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )["eligible"]
+        )
+
+    def test_confidentiality_viewer_and_redaction_are_enforced(self) -> None:
+        consent, retention, deletion = project_native_contract()
+        self.assertFalse(
+            evaluate_project_native_use(
+                consent,
+                retention,
                 deletion,
                 "derived_processing",
                 now=NOW,
             )["eligible"]
         )
+        self.assertFalse(
+            evaluate_project_native_use(
+                consent,
+                retention,
+                deletion,
+                "derived_processing",
+                viewer_role="researcher",
+                redaction_applied=False,
+                now=NOW,
+            )["eligible"]
+        )
+        consent["allowed_uses"].append("public_retrieval")
+        self.assertFalse(
+            evaluate_project_native_use(
+                consent,
+                retention,
+                deletion,
+                "public_retrieval",
+                viewer_role="data_steward",
+                redaction_applied=True,
+                now=NOW,
+            )["eligible"]
+        )
+
+    def test_unreviewed_project_native_family_and_bad_chronology_fail_closed(
+        self,
+    ) -> None:
+        consent, retention, deletion = project_native_contract()
+        for record in (consent, retention, deletion):
+            record["source_id"] = "project-native-private-meeting"
+        with self.assertRaises(GovernanceError):
+            evaluate_project_native_use(
+                consent,
+                retention,
+                deletion,
+                "derived_processing",
+                viewer_role="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )
+
+        consent, retention, deletion = project_native_contract()
+        consent["audit_events"] = [
+            {
+                "schema_version": 1,
+                "consent_id": consent["consent_id"],
+                "source_id": consent["source_id"],
+                "event_type": "consent_revoked",
+                "occurred_at": "2026-07-23T12:00:00Z",
+            }
+        ]
+        with self.assertRaises(GovernanceError):
+            evaluate_project_native_use(
+                consent,
+                retention,
+                deletion,
+                "derived_processing",
+                viewer_role="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )
+
+        consent, retention, deletion = project_native_contract()
+        before_consent = datetime(2026, 7, 22, tzinfo=timezone.utc)
+        with self.assertRaises(GovernanceError):
+            transition_consent(
+                consent,
+                retention,
+                deletion,
+                new_state="revoked",
+                at=before_consent,
+            )
 
     def test_legal_hold_blocks_use_and_requires_review_without_silent_retention(
         self,
@@ -399,6 +520,10 @@ class GovernanceTests(unittest.TestCase):
         consent, retention, deletion = project_native_contract()
         retention["legal_hold_state"] = "active"
         retention["legal_hold_basis"] = "synthetic_reviewed_legal_hold"
+        with self.assertRaises(GovernanceError):
+            validate_project_native_contract(consent, retention, deletion)
+        deletion["content_action"] = "review"
+        deletion["derived_action"] = "review"
         revoked, outcome = transition_consent(
             consent,
             retention,
@@ -407,14 +532,39 @@ class GovernanceTests(unittest.TestCase):
             at=NOW,
         )
         self.assertEqual(["review_legal_hold", "reindex"], outcome["required_work"])
+        self.assertEqual("review", outcome["deletion_record"]["content_action"])
+        self.assertEqual(
+            "under_legal_hold_review", outcome["deletion_record"]["status"]
+        )
         result = evaluate_project_native_use(
             revoked,
             retention,
-            deletion,
+            outcome["deletion_record"],
             "indexing",
+            viewer_role="researcher",
+            redaction_applied=True,
             now=NOW,
         )
         self.assertFalse(result["eligible"])
+
+    def test_review_derivatives_policy_never_emits_delete_derivatives(self) -> None:
+        consent, retention, deletion = project_native_contract()
+        retention["derived_data_treatment"] = "review_on_withdrawal"
+        with self.assertRaises(GovernanceError):
+            validate_project_native_contract(consent, retention, deletion)
+        deletion["derived_action"] = "review"
+        _, outcome = transition_consent(
+            consent,
+            retention,
+            deletion,
+            new_state="revoked",
+            at=NOW,
+        )
+        self.assertEqual(
+            ["delete_content", "review_derivatives", "reindex"],
+            outcome["required_work"],
+        )
+        self.assertEqual("review", outcome["deletion_record"]["derived_action"])
 
     def test_project_native_intake_fails_without_notice_authority_or_owner(self) -> None:
         consent, retention, deletion = project_native_contract()
@@ -427,6 +577,8 @@ class GovernanceTests(unittest.TestCase):
                     retention,
                     deletion,
                     "derived_processing",
+                    viewer_role="researcher",
+                    redaction_applied=True,
                     now=NOW,
                 )
 

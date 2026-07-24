@@ -10,6 +10,8 @@ Each source has explicit facts for access control, API availability,
 authentication, copyright or lawful basis, platform terms, and robots. A
 non-expired observation must support every fact. Unknown, stale, conflicting,
 missing, future-dated, or expired evidence blocks the operation.
+Passing states are dimension-specific: API availability cannot stand in for
+robots permission, platform permission, or a copyright lawful basis.
 
 Permissions are operation-specific. Metadata inventory, prose retention,
 caption retention, media acquisition, derived processing, indexing, search
@@ -44,10 +46,14 @@ events.
 
 Use remains ineligible unless consent is active and unexpired, the requested
 operation is explicitly allowed, retention is active and unexpired, and no
-deletion trigger is pending. Revocation or expiry removes all allowed uses and
-creates content deletion, derivative deletion, and reindexing work. A reviewed
-legal hold prevents silent deletion and instead creates legal-hold review plus
-reindexing work; it does not restore use eligibility.
+deletion trigger is pending. Restricted and sensitive operations also require
+an allowed viewer role, and a redaction-required contract requires an explicit
+redaction-complete evaluation context. Public retrieval is allowed only for
+material classified public. Revocation or expiry removes all allowed uses and
+creates a durable deletion request plus deletion or review and reindexing work.
+A reviewed legal hold changes both content and derivative actions to review and
+creates legal-hold review plus reindexing work; it does not restore use
+eligibility.
 
 Audit events contain only the schema version, consent ID, source ID, transition
 type, and timestamp. They contain no names, contact details, roles in the

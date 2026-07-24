@@ -10,7 +10,7 @@
     "content_action": {
       "enum": [
         "delete",
-        "review_legal_hold"
+        "review"
       ]
     },
     "deletion_due_at": {
@@ -41,7 +41,7 @@
     "derived_action": {
       "enum": [
         "delete",
-        "review_legal_hold"
+        "review"
       ]
     },
     "index_action": {
