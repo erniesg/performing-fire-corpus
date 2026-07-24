@@ -94,7 +94,7 @@ _INDEX_RAW_CREDENTIAL = re.compile(
     r")\b"
 )
 _INDEX_JWT_CANDIDATE = re.compile(
-    r"(?=(?<![A-Za-z0-9_])([A-Za-z0-9_-]{2,256})\."
+    r"(?=(?<![A-Za-z0-9])([A-Za-z0-9_-]{2,256})\."
     r"([A-Za-z0-9_-]{0,4096})\."
     r"([A-Za-z0-9_-]{0,4096})(?![A-Za-z0-9_-]))"
 )
