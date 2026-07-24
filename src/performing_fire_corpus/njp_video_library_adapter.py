@@ -116,9 +116,8 @@ class _MetadataHTMLParser(HTMLParser):
                 self.meta[name] = content
         elif tag == "article":
             self.records.append(values)
-        elif tag == "a" and (
-            "data-asset-for" in values
-            or "data-asset-for-url" in values
+        elif tag == "a" and any(
+            key.startswith("data-asset-") for key in values
         ):
             self.assets.append(values)
 
@@ -181,6 +180,19 @@ def _path_is_unambiguous(path: str) -> bool:
     )
 
 
+def _page_number(cursor: object) -> int:
+    if not isinstance(cursor, str):
+        raise ValueError("pagination cursor is not canonical")
+    match = re.fullmatch(r"page-([0-9]{1,18})", cursor)
+    if match is None:
+        raise ValueError("pagination cursor is not canonical")
+    page = int(match.group(1))
+    canonical = f"{page:03d}" if page < 1000 else str(page)
+    if page < 2 or cursor != f"page-{canonical}":
+        raise ValueError("pagination cursor is not canonical")
+    return page
+
+
 class NJPVideoLibraryAdapter:
     """Held production adapter plus an invented-fixture conformance seam."""
 
@@ -232,7 +244,7 @@ class NJPVideoLibraryAdapter:
         self._require_reviewed_shape()
         url = self.public_url
         if cursor is not None:
-            page = int(cursor.removeprefix("page-"))
+            page = _page_number(cursor)
             url = f"{url}?{urlencode({'page': page})}"
         return MetadataRequest(
             endpoint_id=self.endpoint_id,
@@ -366,17 +378,14 @@ class NJPVideoLibraryAdapter:
                 not terminal
                 and (
                     not isinstance(next_cursor, str)
-                    or re.fullmatch(
-                        r"page-[0-9]{1,18}",
-                        next_cursor,
-                    )
-                    is None
                     or not isinstance(next_ordinal, int)
                     or next_ordinal < 1
                 )
             )
         ):
             raise ValueError("metadata page controls are inconsistent")
+        if not terminal:
+            _page_number(next_cursor)
         return {
             "records": records,
             "next_cursor": next_cursor,

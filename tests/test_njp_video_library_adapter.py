@@ -410,6 +410,21 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 adapter.asset_candidates(body)
 
+        partial_asset = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<article data-catalogue-id="catalogue-001" '
+            b'data-record-class="record_class_video_work" '
+            b'data-language="language_en"></article>'
+            b'<a data-asset-kind="asset_kind_video" '
+            b'data-asset-mime="video/mp4" '
+            b'href="/invented-assets/1"></a>'
+            b"</body></html>"
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(partial_asset)
+
     def test_duplicate_controls_and_attributes_fail_closed(self) -> None:
         adapter = InventedVideoLibraryAdapter()
         duplicate_terminal = (
@@ -442,6 +457,41 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
         ):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 adapter.parse_page(body, cursor=None)
+
+    def test_pagination_cursor_has_one_canonical_spelling(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        canonical = invented_page(
+            [],
+            terminal=False,
+            next_cursor="page-002",
+            next_ordinal=1,
+        )
+        self.assertEqual(
+            "page-002",
+            adapter.parse_page(canonical, cursor=None)["next_cursor"],
+        )
+        for cursor in (
+            "page-2",
+            "page-02",
+            "page-0002",
+            "page-001",
+        ):
+            with self.subTest(cursor=cursor), self.assertRaises(
+                ValueError
+            ):
+                adapter.parse_page(
+                    invented_page(
+                        [],
+                        terminal=False,
+                        next_cursor=cursor,
+                        next_ordinal=1,
+                    ),
+                    cursor=None,
+                )
+            with self.subTest(request_cursor=cursor), self.assertRaises(
+                ValueError
+            ):
+                adapter.build_request(cursor)
 
         with self.assertRaises(ValueError):
             adapter.asset_candidates(
