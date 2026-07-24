@@ -273,6 +273,19 @@ def _validate_governance_registry(value: Any) -> list[dict[str, Any]]:
     return records
 
 
+def validate_source_governance_registry(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate and copy a complete current source-governance registry."""
+
+    records = _validate_governance_registry(value)
+    return {
+        "schema_version": 1,
+        "registry_id": "performing-fire-source-governance",
+        "records": copy.deepcopy(records),
+    }
+
+
 def canonical_governance_registry_bytes(value: Mapping[str, Any]) -> bytes:
     """Return deterministic UTF-8 bytes for an already loaded registry."""
 

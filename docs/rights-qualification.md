@@ -35,8 +35,9 @@ Asset locators are bound to the canonical host for their declared source, not
 merely to a global public-host list. The shared URL policy rejects user
 information, non-default ports, fragments, ambiguous controls, and
 credential-like query aliases including authorization, session, secret,
-signature, credential, and token forms. A URL for one approved source cannot
-be qualified using another source's governance.
+signature, credential, and token forms. Qualification additionally applies an
+endpoint-specific query-key allowlist and rejects path parameters; a URL for
+one approved source cannot be qualified using another source's governance.
 
 ## Source boundary matrix
 
@@ -66,12 +67,21 @@ plan.
 
 The runtime detects duplicate source/asset candidates before work creation and
 re-resolves the complete current qualification through an authority boundary.
-The compiler accepts the checked-in source-wide and endpoint-scoped governance
-records, while an asset-scoped record—when supplied—must match the exact asset.
-Deletion authority participates in every qualification; caption/prose
-retention participates in content operations for those asset kinds; and
-search visibility participates in indexing and public retrieval. A blocked
-source operation therefore holds only its affected qualification operations.
+The compiler consumes a complete, strict governance registry and reconciles
+every applicable source-wide, endpoint-scoped, and asset-scoped record; any
+blocking layer wins. Deletion authority participates in every qualification;
+caption/prose retention participates in content operations for those asset
+kinds; and search visibility participates in indexing and public retrieval. A
+blocked source operation therefore holds only its affected qualification
+operations.
+
+Derived qualification hashes are evidence bindings, not self-authorizing
+signatures. Before a query or downstream job becomes executable, the trusted
+authority resolver returns the current raw asset facts, complete governance
+registry, and operation decisions. The runtime recompiles the qualification
+and requires exact canonical equality with the candidate. Clearing a blocker
+or selecting only a permissive governance layer and recomputing public hashes
+therefore cannot create executable work.
 Object-backed downstream jobs carry only the qualification ID, source ID,
 asset ID, operation, and exact immutable R2 object key. They never carry source
 bytes, public or signed URLs, credentials, cookies, headers, response bodies,

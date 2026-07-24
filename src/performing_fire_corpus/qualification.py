@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+from urllib.parse import parse_qsl, urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
@@ -19,7 +20,7 @@ from performing_fire_corpus.governance import (
     CANONICAL_ENDPOINT_IDS,
     PROJECT_NATIVE_SOURCE_IDS,
     evaluate_source_operation,
-    validate_source_governance,
+    validate_source_governance_registry,
 )
 from performing_fire_corpus.policy import (
     AcquisitionPolicyError,
@@ -158,6 +159,20 @@ _SOURCE_PUBLIC_HOSTS = {
     "njp-video-library": frozenset({"njpvideo.ggcf.kr"}),
     "njp-youtube-official": frozenset({"www.youtube.com"}),
 }
+_ASSET_QUERY_KEYS_BY_ENDPOINT = {
+    endpoint_id: frozenset()
+    for endpoint_ids in CANONICAL_ENDPOINT_IDS.values()
+    for endpoint_id in endpoint_ids
+}
+_ASSET_QUERY_KEYS_BY_ENDPOINT["njp-youtube-videos-api"] = frozenset({"v"})
+_YOUTUBE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+_AUTHORITY_BUNDLE_KEYS = frozenset(
+    {
+        "asset",
+        "source_governance_registry",
+        "operation_decisions",
+    }
+)
 
 
 class QualificationError(ValueError):
@@ -165,9 +180,9 @@ class QualificationError(ValueError):
 
 
 class QualificationAuthorityResolver(Protocol):
-    """Trusted current qualification authority used by portable ledger queries."""
+    """Trusted resolver for raw current authority used by portable queries."""
 
-    def resolve_asset_qualification(
+    def resolve_asset_authority(
         self, *, source_id: str, asset_id: str
     ) -> Mapping[str, Any] | None: ...
 
@@ -303,6 +318,30 @@ def _validate_asset_facts(value: Mapping[str, Any]) -> dict[str, Any]:
         raise QualificationError(
             "public URL must use its exact reviewed canonical form"
         )
+    parsed_url = urlsplit(public_url)
+    if ";" in parsed_url.path:
+        raise QualificationError(
+            "public URL path parameters are outside the reviewed locator shape"
+        )
+    query = parse_qsl(parsed_url.query, keep_blank_values=True)
+    query_keys = [key for key, _ in query]
+    allowed_query_keys = _ASSET_QUERY_KEYS_BY_ENDPOINT[endpoint_id]
+    if (
+        any(key not in allowed_query_keys for key in query_keys)
+        or len(query_keys) != len(set(query_keys))
+    ):
+        raise QualificationError(
+            "public URL query is outside the endpoint-specific reviewed shape"
+        )
+    if "v" in query_keys:
+        video_id = next(value for key, value in query if key == "v")
+        if (
+            parsed_url.path != "/watch"
+            or _YOUTUBE_VIDEO_ID.fullmatch(video_id) is None
+        ):
+            raise QualificationError(
+                "YouTube locator is outside the reviewed watch shape"
+            )
     media_type = record["media_type"]
     if not isinstance(media_type, str) or _MEDIA_TYPE.fullmatch(media_type) is None:
         raise QualificationError("media type is invalid")
@@ -360,16 +399,22 @@ def _safe_review_trigger(value: Any) -> str | None:
     return value
 
 
-def _source_expiry(record: Mapping[str, Any], evaluated_at: datetime) -> datetime:
+def _source_expiry(
+    records: Sequence[Mapping[str, Any]],
+    evaluated_at: datetime,
+) -> datetime:
     expiries: list[datetime] = []
-    for collection in ("observations", "decisions"):
-        for item in record[collection]:
-            expiries.append(_parse_time(item["expires_at"], "source expiry"))
+    for record in records:
+        for collection in ("observations", "decisions"):
+            for item in record[collection]:
+                expiries.append(
+                    _parse_time(item["expires_at"], "source expiry")
+                )
     return min(expiries) if expiries else evaluated_at
 
 
 def _source_reasons(
-    governance: Mapping[str, Any],
+    governance_records: Sequence[Mapping[str, Any]],
     operation: str,
     *,
     asset_id: str,
@@ -387,16 +432,17 @@ def _source_reasons(
     if operation in {"indexing", "public_retrieval"}:
         requirements.add("search_visibility")
     for source_operation in sorted(requirements):
-        result = evaluate_source_operation(
-            governance,
-            source_operation,
-            reviewed_asset_sources={asset_id: source_id},
-            now=now,
-        )
-        reasons.extend(
-            f"source:{source_operation}:{reason}"
-            for reason in result["reasons"]
-        )
+        for governance in governance_records:
+            result = evaluate_source_operation(
+                governance,
+                source_operation,
+                reviewed_asset_sources={asset_id: source_id},
+                now=now,
+            )
+            reasons.extend(
+                f"source:{source_operation}:{reason}"
+                for reason in result["reasons"]
+            )
     return reasons
 
 
@@ -405,7 +451,7 @@ def _compile_decision(
     raw: Mapping[str, Any] | None,
     *,
     asset: Mapping[str, Any],
-    governance: Mapping[str, Any],
+    governance_records: Sequence[Mapping[str, Any]],
     snapshot_sha256: str,
     now: datetime,
 ) -> dict[str, Any]:
@@ -543,7 +589,7 @@ def _compile_decision(
 
     reasons.extend(
         _source_reasons(
-            governance,
+            governance_records,
             operation,
             asset_id=str(asset["asset_id"]),
             asset_kind=str(asset["asset_kind"]),
@@ -558,7 +604,7 @@ def _compile_decision(
 
 def compile_asset_qualification(
     asset: Mapping[str, Any],
-    source_governance: Mapping[str, Any],
+    source_governance_registry: Mapping[str, Any],
     operation_decisions: Sequence[Mapping[str, Any]],
     *,
     now: datetime,
@@ -570,17 +616,24 @@ def compile_asset_qualification(
     current = now.astimezone(UTC)
     asset_value = _validate_asset_facts(asset)
     try:
-        governance = validate_source_governance(source_governance)
+        governance_registry = validate_source_governance_registry(
+            source_governance_registry
+        )
     except Exception as error:
-        raise QualificationError("source governance is invalid") from error
-    if (
-        governance["source_id"] != asset_value["source_id"]
-        or governance.get("endpoint_id")
-        not in {None, asset_value["endpoint_id"]}
-        or governance.get("asset_id")
-        not in {None, asset_value["asset_id"]}
-    ):
-        raise QualificationError("source governance is not bound to the asset")
+        raise QualificationError(
+            "source governance registry is invalid"
+        ) from error
+    governance_records = [
+        record
+        for record in governance_registry["records"]
+        if record["source_id"] == asset_value["source_id"]
+        and record.get("endpoint_id") in {None, asset_value["endpoint_id"]}
+        and record.get("asset_id") in {None, asset_value["asset_id"]}
+    ]
+    if not governance_records:
+        raise QualificationError(
+            "source governance registry has no authority for the asset"
+        )
     decision_map: dict[str, Mapping[str, Any]] = {}
     if not isinstance(operation_decisions, Sequence) or isinstance(
         operation_decisions, (str, bytes, bytearray)
@@ -601,13 +654,13 @@ def compile_asset_qualification(
         decision_map[str(operation)] = copy.deepcopy(dict(decision))
 
     snapshot_sha256 = _sha256(asset_value)
-    governance_sha256 = _sha256(governance)
+    governance_sha256 = _sha256(governance_records)
     decisions = [
         _compile_decision(
             operation,
             decision_map.get(operation),
             asset=asset_value,
-            governance=governance,
+            governance_records=governance_records,
             snapshot_sha256=snapshot_sha256,
             now=current,
         )
@@ -620,7 +673,7 @@ def compile_asset_qualification(
         "asset_facts_sha256": snapshot_sha256,
         "source_governance_snapshot_sha256": governance_sha256,
         "source_governance_expires_at": _utc_text(
-            _source_expiry(governance, current)
+            _source_expiry(governance_records, current)
         ),
         "evaluated_at": _utc_text(current),
         "operation_decisions": decisions,
@@ -783,13 +836,22 @@ def _current_qualification(
 ) -> dict[str, Any] | None:
     candidate = validate_asset_qualification(value, now=now)
     try:
-        current = authority_resolver.resolve_asset_qualification(
+        authority = authority_resolver.resolve_asset_authority(
             source_id=str(candidate["source_id"]),
             asset_id=str(candidate["asset_id"]),
         )
-        if current is None:
+        if (
+            authority is None
+            or not isinstance(authority, Mapping)
+            or set(authority) != _AUTHORITY_BUNDLE_KEYS
+        ):
             return None
-        checked = validate_asset_qualification(current, now=now)
+        checked = compile_asset_qualification(
+            authority["asset"],
+            authority["source_governance_registry"],
+            authority["operation_decisions"],
+            now=now,
+        )
     except Exception:
         return None
     if (

@@ -46,25 +46,25 @@ _CREDENTIAL_QUERY_NAMES = frozenset(
         "authorization",
         "client_secret",
         "cookie",
+        "jsessionid",
         "password",
         "refresh_token",
         "session",
     )
 )
-_CREDENTIAL_QUERY_PREFIXES = (
-    "authorization",
-    "cookie",
-    "credential",
-    "password",
-    "secret",
-    "session",
-    "signature",
-    "token",
+_CREDENTIAL_QUERY_WORDS = frozenset(
+    {
+        "auth",
+        "authorization",
+        "cookie",
+        "credential",
+        "password",
+        "secret",
+        "session",
+        "token",
+    }
 )
-_CREDENTIAL_QUERY_SUFFIXES = (
-    "auth",
-    *_CREDENTIAL_QUERY_PREFIXES,
-)
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _ENCODED_CONTROL = re.compile(r"%(?:0[0-9a-f]|1[0-9a-f]|7f)", re.IGNORECASE)
 
 
@@ -90,11 +90,26 @@ def _reject(code: str, reason: str) -> None:
 
 def _credential_query_key(value: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]", "", value.lower())
+    words = {
+        word.lower()
+        for word in re.split(
+            r"[^A-Za-z0-9]+",
+            _CAMEL_BOUNDARY.sub(" ", value),
+        )
+        if word
+    }
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
-        or any(normalized.startswith(marker) for marker in _CREDENTIAL_QUERY_PREFIXES)
-        or any(normalized.endswith(marker) for marker in _CREDENTIAL_QUERY_SUFFIXES)
+        or bool(words & _CREDENTIAL_QUERY_WORDS)
     )
+
+
+def _credential_path_parameter(path: str) -> bool:
+    for segment in path.split("/"):
+        for parameter in segment.split(";")[1:]:
+            if _credential_query_key(parameter.split("=", 1)[0]):
+                return True
+    return False
 
 
 def validate_public_url(
@@ -138,6 +153,11 @@ def validate_public_url(
         _reject("host_not_allowed", "Hostname is not in the reviewed public allowlist.")
     if explicit_port not in (None, 443):
         _reject("port_not_allowed", "Only the default HTTPS port is allowed.")
+    if _credential_path_parameter(parsed.path):
+        _reject(
+            "signed_path_forbidden",
+            "Credential-like path parameters are forbidden.",
+        )
     try:
         query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=False)
     except ValueError:

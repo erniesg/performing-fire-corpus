@@ -115,6 +115,24 @@ def source_governance(
     }
 
 
+def governance_registry(
+    *records: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "registry_id": "performing-fire-source-governance",
+        "records": sorted(
+            (copy.deepcopy(record) for record in records),
+            key=lambda record: (
+                str(record["source_id"]),
+                str(record["endpoint_id"] or ""),
+                str(record.get("asset_id") or ""),
+                str(record["source_governance_id"]),
+            ),
+        ),
+    }
+
+
 def asset(
     source_id: str = "njp-video-library",
     *,
@@ -229,13 +247,16 @@ def rebind_qualification(value: dict[str, object]) -> dict[str, object]:
 
 
 class SyntheticQualificationAuthority:
-    def __init__(self, records: list[dict[str, object]]) -> None:
+    def __init__(self, bundles: list[dict[str, object]]) -> None:
         self.records = {
-            (str(value["source_id"]), str(value["asset_id"])): copy.deepcopy(value)
-            for value in records
+            (
+                str(bundle["asset"]["source_id"]),
+                str(bundle["asset"]["asset_id"]),
+            ): copy.deepcopy(bundle)
+            for bundle in bundles
         }
 
-    def resolve_asset_qualification(
+    def resolve_asset_authority(
         self, *, source_id: str, asset_id: str
     ) -> dict[str, object] | None:
         value = self.records.get((source_id, asset_id))
@@ -249,14 +270,19 @@ class AssetQualificationTests(unittest.TestCase):
         decision_values: list[dict[str, object]] | None = None,
         governance: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        return compile_asset_qualification(
-            asset_value,
+        governance_value = (
             source_governance(
                 str(asset_value["source_id"]),
                 asset_id=str(asset_value["asset_id"]),
             )
             if governance is None
-            else governance,
+            else governance
+        )
+        if "records" not in governance_value:
+            governance_value = governance_registry(governance_value)
+        return compile_asset_qualification(
+            asset_value,
+            governance_value,
             decisions(asset_value)
             if decision_values is None
             else decision_values,
@@ -463,6 +489,22 @@ class AssetQualificationTests(unittest.TestCase):
                 "https://njpvideo.ggcf.kr/synthetic-object?accessToken=synthetic",
                 "njpvideo.ggcf.kr",
             ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?JSESSIONID=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?xSessionId=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?myAccessTokenValue=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object;jsessionid=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
         ):
             with self.subTest(public_url=public_url):
                 asset_value = asset(public_url=public_url)
@@ -546,23 +588,81 @@ class AssetQualificationTests(unittest.TestCase):
             if record["source_id"] == "njp-video-library"
         ]
         self.assertEqual(2, len(records))
-        for governance in records:
-            with self.subTest(endpoint_id=governance["endpoint_id"]):
-                qualified = self.qualify(
-                    asset_value,
-                    decisions(asset_value),
-                    governance,
-                )
-                self.assertEqual(
-                    asset_value["asset_id"],
-                    qualified["asset_id"],
-                )
-                self.assertFalse(
-                    any(
-                        item["eligible"]
-                        for item in qualified["operation_decisions"]
-                    )
-                )
+        qualified = self.qualify(
+            asset_value,
+            decisions(asset_value),
+            registry,
+        )
+        self.assertEqual(asset_value["asset_id"], qualified["asset_id"])
+        self.assertFalse(
+            any(
+                item["eligible"]
+                for item in qualified["operation_decisions"]
+            )
+        )
+
+    def test_all_applicable_governance_layers_are_reconciled(self) -> None:
+        asset_value = asset()
+        source_wide = source_governance(
+            str(asset_value["source_id"]),
+            asset_id=str(asset_value["asset_id"]),
+        )
+        source_wide["source_governance_id"] = (
+            "source_governance_njp_video_library_source"
+        )
+        source_wide["endpoint_id"] = None
+        source_wide["asset_id"] = None
+        endpoint = source_governance(
+            str(asset_value["source_id"]),
+            asset_id=str(asset_value["asset_id"]),
+            operation_overrides={"media_acquisition": "blocked"},
+        )
+        endpoint["source_governance_id"] = (
+            "source_governance_njp_video_library_endpoint"
+        )
+        endpoint["asset_id"] = None
+        qualified = self.qualify(
+            asset_value,
+            decisions(asset_value),
+            governance_registry(source_wide, endpoint),
+        )
+        download = next(
+            item
+            for item in qualified["operation_decisions"]
+            if item["operation"] == "download"
+        )
+        self.assertFalse(download["eligible"])
+        self.assertIn(
+            "source:media_acquisition:operation:blocked",
+            download["reasons"],
+        )
+
+        permissive = self.qualify(
+            asset_value,
+            decisions(asset_value),
+            governance_registry(source_wide),
+        )
+        authority = SyntheticQualificationAuthority(
+            [
+                {
+                    "asset": asset_value,
+                    "source_governance_registry": governance_registry(
+                        source_wide,
+                        endpoint,
+                    ),
+                    "operation_decisions": decisions(asset_value),
+                }
+            ]
+        )
+        self.assertEqual(
+            [],
+            query_qualified_assets(
+                [permissive],
+                operation="download",
+                authority_resolver=authority,
+                now=NOW,
+            ),
+        )
 
     def test_njp_access_blockers_hold_content_but_not_reviewed_metadata(
         self,
@@ -683,8 +783,24 @@ class AssetQualificationTests(unittest.TestCase):
     def test_current_authority_and_duplicate_candidates_gate_minimal_jobs(
         self,
     ) -> None:
-        value = self.qualify(asset())
-        authority = SyntheticQualificationAuthority([value])
+        asset_value = asset()
+        governance = source_governance(
+            str(asset_value["source_id"]),
+            asset_id=str(asset_value["asset_id"]),
+        )
+        governance_value = governance_registry(governance)
+        decision_values = decisions(asset_value)
+        value = self.qualify(
+            asset_value,
+            decision_values,
+            governance_value,
+        )
+        authority_bundle = {
+            "asset": asset_value,
+            "source_governance_registry": governance_value,
+            "operation_decisions": decision_values,
+        }
+        authority = SyntheticQualificationAuthority([authority_bundle])
         results = query_qualified_assets(
             [value],
             operation="transcription",
@@ -719,9 +835,16 @@ class AssetQualificationTests(unittest.TestCase):
                 now=NOW,
             )
 
-        current = copy.deepcopy(value)
-        current["access_state"] = "http_403"
-        authority = SyntheticQualificationAuthority([current])
+        current_asset = copy.deepcopy(asset_value)
+        current_asset["access_state"] = "http_403"
+        authority = SyntheticQualificationAuthority(
+            [
+                {
+                    **authority_bundle,
+                    "asset": current_asset,
+                }
+            ]
+        )
         with self.assertRaisesRegex(QualificationError, "current authority"):
             build_qualified_job(
                 value,
@@ -729,6 +852,50 @@ class AssetQualificationTests(unittest.TestCase):
                 authority_resolver=authority,
                 now=NOW,
             )
+
+    def test_execution_recompiles_from_raw_current_authority(self) -> None:
+        asset_value = asset()
+        blocked_governance = source_governance(
+            str(asset_value["source_id"]),
+            asset_id=str(asset_value["asset_id"]),
+            operation_overrides={"media_acquisition": "blocked"},
+        )
+        governance_value = governance_registry(blocked_governance)
+        decision_values = decisions(asset_value)
+        blocked = self.qualify(
+            asset_value,
+            decision_values,
+            governance_value,
+        )
+        forged = copy.deepcopy(blocked)
+        download = next(
+            item
+            for item in forged["operation_decisions"]
+            if item["operation"] == "download"
+        )
+        download["eligible"] = True
+        download["reasons"] = []
+        forged = rebind_qualification(forged)
+        validate_asset_qualification(forged, now=NOW)
+
+        authority = SyntheticQualificationAuthority(
+            [
+                {
+                    "asset": asset_value,
+                    "source_governance_registry": governance_value,
+                    "operation_decisions": decision_values,
+                }
+            ]
+        )
+        self.assertEqual(
+            [],
+            query_qualified_assets(
+                [forged],
+                operation="download",
+                authority_resolver=authority,
+                now=NOW,
+            ),
+        )
 
     def test_project_native_assets_require_the_consent_lifecycle_path(self) -> None:
         value = {

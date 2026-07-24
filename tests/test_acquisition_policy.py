@@ -33,7 +33,11 @@ class AcquisitionPolicyTests(unittest.TestCase):
     def test_ordinary_metadata_query_keys_remain_allowed(self) -> None:
         for url in (
             "https://antiegg.kr/wp-json/wp/v2/posts?author=1",
+            "https://antiegg.kr/wp-json/wp/v2/posts?authority=synthetic",
+            "https://antiegg.kr/wp-json/wp/v2/posts?authentication=none",
             "https://antiegg.kr/wp-json/wp/v2/posts?page=1&per_page=10",
+            "https://antiegg.kr/wp-json/wp/v2/posts?signature_style=plain",
+            "https://antiegg.kr/wp-json/wp/v2/posts?tokenizer=standard",
             "https://njpvideo.ggcf.kr/item?id=synthetic",
         ):
             with self.subTest(url=url):
@@ -49,6 +53,10 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://njp.ggcf.kr/?session=synthetic",
             "https://njp.ggcf.kr/?auth=synthetic",
             "https://njp.ggcf.kr/?accessToken=synthetic",
+            "https://njp.ggcf.kr/?JSESSIONID=synthetic",
+            "https://njp.ggcf.kr/?xSessionId=synthetic",
+            "https://njp.ggcf.kr/?myAccessTokenValue=synthetic",
+            "https://njp.ggcf.kr/object;jsessionid=synthetic",
         )
         rejected = (
             "http://njp.ggcf.kr/",
