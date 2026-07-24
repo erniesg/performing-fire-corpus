@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from performing_fire_corpus.corpus_objects import raw_object_key
+from performing_fire_corpus.governance import CANONICAL_ENDPOINT_IDS
 from performing_fire_corpus.qualification import (
     QUALIFICATION_OPERATIONS,
     QualificationError,
@@ -136,22 +137,86 @@ def governance_registry(
 def complete_governance_registry(
     record: dict[str, object],
 ) -> dict[str, object]:
-    source_wide = copy.deepcopy(record)
-    source_wide["source_governance_id"] = (
-        f"source_governance_{str(record['source_id']).replace('-', '_')}_source"
-    )
-    source_wide["endpoint_id"] = None
-    source_wide["asset_id"] = None
-    endpoint = copy.deepcopy(record)
-    endpoint["source_governance_id"] = (
-        f"source_governance_{str(record['endpoint_id']).replace('-', '_')}_endpoint"
-    )
-    endpoint["asset_id"] = None
+    records: list[dict[str, object]] = []
+    for source_id, endpoint_ids in CANONICAL_ENDPOINT_IDS.items():
+        source_wide = copy.deepcopy(record)
+        source_wide["source_governance_id"] = (
+            f"source_governance_{source_id.replace('-', '_')}_source"
+        )
+        source_wide["source_id"] = source_id
+        source_wide["endpoint_id"] = None
+        source_wide["asset_id"] = None
+        records.append(source_wide)
+        for endpoint_id in endpoint_ids:
+            endpoint = copy.deepcopy(record)
+            endpoint["source_governance_id"] = (
+                f"source_governance_{endpoint_id.replace('-', '_')}_endpoint"
+            )
+            endpoint["source_id"] = source_id
+            endpoint["endpoint_id"] = endpoint_id
+            endpoint["asset_id"] = None
+            records.append(endpoint)
     asset_scoped = copy.deepcopy(record)
     asset_scoped["source_governance_id"] = (
         f"source_governance_{str(record['source_id']).replace('-', '_')}_asset"
     )
-    return governance_registry(source_wide, endpoint, asset_scoped)
+    records.append(asset_scoped)
+    return governance_registry(*records)
+
+
+def inventory_authority(
+    asset_value: dict[str, object],
+) -> dict[str, object]:
+    source_id = str(asset_value["source_id"])
+    source_scope_id = (
+        "source_scope_njp_youtube_official_channel"
+        if source_id == "njp-youtube-official"
+        else f"source_scope_{source_id.replace('-', '_')}"
+    )
+    payload = {
+        "schema_version": 1,
+        "record_type": "inventory_authority",
+        "inventory_record_id": asset_value["inventory_record_id"],
+        "source_id": source_id,
+        "endpoint_id": asset_value["endpoint_id"],
+        "source_item_id": asset_value["source_item_id"],
+        "source_scope_id": source_scope_id,
+    }
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    return {
+        **payload,
+        "inventory_record_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def rehash_inventory_authority(
+    value: dict[str, object],
+) -> dict[str, object]:
+    rebound = copy.deepcopy(value)
+    payload = {
+        key: child
+        for key, child in rebound.items()
+        if key != "inventory_record_sha256"
+    }
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    rebound["inventory_record_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return rebound
 
 
 def asset(
@@ -174,12 +239,12 @@ def asset(
             asset_id,
             HASH,
         )
-    return {
+    value = {
         "source_id": source_id,
         "endpoint_id": ENDPOINTS[source_id],
         "asset_id": asset_id,
         "inventory_record_id": "inventory_synthetic_001",
-        "inventory_record_sha256": "b" * 64,
+        "inventory_record_sha256": "0" * 64,
         "source_item_id": "synthetic001",
         "asset_kind": asset_kind,
         "public_url": public_url,
@@ -193,6 +258,10 @@ def asset(
         "retrieval_policy": "public",
         "planned_object_key": planned_object_key,
     }
+    value["inventory_record_sha256"] = inventory_authority(value)[
+        "inventory_record_sha256"
+    ]
+    return value
 
 
 def decisions(
@@ -293,6 +362,7 @@ class AssetQualificationTests(unittest.TestCase):
         asset_value: dict[str, object],
         decision_values: list[dict[str, object]] | None = None,
         governance: dict[str, object] | None = None,
+        inventory: dict[str, object] | None = None,
     ) -> dict[str, object]:
         governance_value = (
             source_governance(
@@ -308,6 +378,9 @@ class AssetQualificationTests(unittest.TestCase):
             )
         return compile_asset_qualification(
             asset_value,
+            inventory_authority(asset_value)
+            if inventory is None
+            else inventory,
             governance_value,
             decisions(asset_value)
             if decision_values is None
@@ -531,6 +604,10 @@ class AssetQualificationTests(unittest.TestCase):
                 "https://njpvideo.ggcf.kr/synthetic-object;jsessionid=synthetic",
                 "njpvideo.ggcf.kr",
             ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object%3Bjsessionid=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
         ):
             with self.subTest(public_url=public_url):
                 asset_value = asset(public_url=public_url)
@@ -560,6 +637,53 @@ class AssetQualificationTests(unittest.TestCase):
                     "YouTube|query",
                 ):
                     self.qualify(invalid)
+
+    def test_inventory_authority_is_hash_bound_and_officially_scoped(self) -> None:
+        asset_value = asset(
+            "njp-youtube-official",
+            asset_kind="media",
+            public_url="https://www.youtube.com/watch?v=synthetic001",
+        )
+        inventory = inventory_authority(asset_value)
+        wrong_hash = copy.deepcopy(inventory)
+        wrong_hash["inventory_record_sha256"] = "f" * 64
+        with self.assertRaisesRegex(QualificationError, "hash"):
+            self.qualify(asset_value, inventory=wrong_hash)
+
+        wrong_scope = copy.deepcopy(inventory)
+        wrong_scope["source_scope_id"] = "source_scope_foreign_channel"
+        wrong_scope = rehash_inventory_authority(wrong_scope)
+        with self.assertRaisesRegex(QualificationError, "official channel"):
+            self.qualify(asset_value, inventory=wrong_scope)
+
+        value = self.qualify(asset_value, inventory=inventory)
+        drifted_inventory = copy.deepcopy(inventory)
+        drifted_inventory["inventory_record_id"] = "inventory_foreign_001"
+        drifted_inventory = rehash_inventory_authority(drifted_inventory)
+        authority = SyntheticQualificationAuthority(
+            [
+                {
+                    "asset": asset_value,
+                    "inventory_record": drifted_inventory,
+                    "source_governance_registry": complete_governance_registry(
+                        source_governance(
+                            str(asset_value["source_id"]),
+                            asset_id=str(asset_value["asset_id"]),
+                        )
+                    ),
+                    "operation_decisions": decisions(asset_value),
+                }
+            ]
+        )
+        self.assertEqual(
+            [],
+            query_qualified_assets(
+                [value],
+                operation="download",
+                authority_resolver=authority,
+                now=NOW,
+            ),
+        )
 
     def test_all_content_requires_an_affirmative_basis_and_authority(self) -> None:
         for source_id in (
@@ -634,6 +758,27 @@ class AssetQualificationTests(unittest.TestCase):
             if record["source_id"] == "njp-video-library"
         ]
         self.assertEqual(2, len(records))
+        registry = copy.deepcopy(registry)
+        asset_layer = copy.deepcopy(
+            next(
+                record
+                for record in records
+                if record["endpoint_id"] == asset_value["endpoint_id"]
+            )
+        )
+        asset_layer["source_governance_id"] = (
+            "source_governance_njp_video_library_asset"
+        )
+        asset_layer["asset_id"] = asset_value["asset_id"]
+        registry["records"].append(asset_layer)
+        registry["records"].sort(
+            key=lambda record: (
+                str(record["source_id"]),
+                str(record["endpoint_id"] or ""),
+                str(record.get("asset_id") or ""),
+                str(record["source_governance_id"]),
+            )
+        )
         qualified = self.qualify(
             asset_value,
             decisions(asset_value),
@@ -666,11 +811,27 @@ class AssetQualificationTests(unittest.TestCase):
         endpoint["source_governance_id"] = (
             "source_governance_njp_video_library_endpoint"
         )
-        endpoint["asset_id"] = None
+        full_registry = complete_governance_registry(endpoint)
+        for index, record in enumerate(full_registry["records"]):
+            if (
+                record["source_id"] == asset_value["source_id"]
+                and record["endpoint_id"] is None
+                and record.get("asset_id") is None
+            ):
+                full_registry["records"][index] = source_wide
+                break
+        full_registry["records"].sort(
+            key=lambda record: (
+                str(record["source_id"]),
+                str(record["endpoint_id"] or ""),
+                str(record.get("asset_id") or ""),
+                str(record["source_governance_id"]),
+            )
+        )
         qualified = self.qualify(
             asset_value,
             decisions(asset_value),
-            governance_registry(source_wide, endpoint),
+            full_registry,
         )
         download = next(
             item
@@ -687,10 +848,20 @@ class AssetQualificationTests(unittest.TestCase):
             QualificationError,
             "omits a required",
         ):
+            incomplete = copy.deepcopy(full_registry)
+            incomplete["records"] = [
+                record
+                for record in incomplete["records"]
+                if not (
+                    record["source_id"] == asset_value["source_id"]
+                    and record["endpoint_id"] == asset_value["endpoint_id"]
+                    and record.get("asset_id") == asset_value["asset_id"]
+                )
+            ]
             self.qualify(
                 asset_value,
                 decisions(asset_value),
-                governance_registry(source_wide),
+                incomplete,
             )
 
     def test_njp_access_blockers_hold_content_but_not_reviewed_metadata(
@@ -826,6 +997,7 @@ class AssetQualificationTests(unittest.TestCase):
         )
         authority_bundle = {
             "asset": asset_value,
+            "inventory_record": inventory_authority(asset_value),
             "source_governance_registry": governance_value,
             "operation_decisions": decision_values,
         }
@@ -878,6 +1050,9 @@ class AssetQualificationTests(unittest.TestCase):
                 {
                     **authority_bundle,
                     "asset": current_asset,
+                    "inventory_record": inventory_authority(
+                        current_asset
+                    ),
                 }
             ]
         )
@@ -920,6 +1095,7 @@ class AssetQualificationTests(unittest.TestCase):
             [
                 {
                     "asset": asset_value,
+                    "inventory_record": inventory_authority(asset_value),
                     "source_governance_registry": governance_value,
                     "operation_decisions": decision_values,
                 }
@@ -945,6 +1121,7 @@ class AssetQualificationTests(unittest.TestCase):
             compile_asset_qualification(
                 value,
                 {},
+                [],
                 [],
                 now=NOW,
             )

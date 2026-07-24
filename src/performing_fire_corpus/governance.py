@@ -296,6 +296,23 @@ def validate_source_governance_registry(
     """Validate and copy a complete current source-governance registry."""
 
     records = _validate_governance_registry(value)
+    expected_unscoped_targets = {
+        (source_id, None)
+        for source_id in CANONICAL_ENDPOINT_IDS
+    } | {
+        (source_id, endpoint_id)
+        for source_id, endpoint_ids in CANONICAL_ENDPOINT_IDS.items()
+        for endpoint_id in endpoint_ids
+    }
+    actual_unscoped_targets = {
+        (record["source_id"], record["endpoint_id"])
+        for record in records
+        if record.get("asset_id") is None
+    }
+    if actual_unscoped_targets != expected_unscoped_targets:
+        raise GovernanceError(
+            "source governance registry is not canonically complete"
+        )
     return {
         "schema_version": 1,
         "registry_id": "performing-fire-source-governance",

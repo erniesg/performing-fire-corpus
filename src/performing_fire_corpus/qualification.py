@@ -176,10 +176,25 @@ _YOUTUBE_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _AUTHORITY_BUNDLE_KEYS = frozenset(
     {
         "asset",
+        "inventory_record",
         "source_governance_registry",
         "operation_decisions",
     }
 )
+_INVENTORY_RECORD_KEYS = frozenset(
+    {
+        "schema_version",
+        "record_type",
+        "inventory_record_id",
+        "inventory_record_sha256",
+        "source_id",
+        "endpoint_id",
+        "source_item_id",
+        "source_scope_id",
+    }
+)
+_SOURCE_SCOPE_ID = re.compile(r"^source_scope_[a-z0-9_]{3,127}$")
+_OFFICIAL_YOUTUBE_SCOPE = "source_scope_njp_youtube_official_channel"
 
 
 class QualificationError(ValueError):
@@ -273,6 +288,57 @@ def _validate_planned_key(
     if expected != value:
         raise QualificationError("planned object key does not match asset facts")
     return value
+
+
+def _validate_inventory_record(value: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _INVENTORY_RECORD_KEYS:
+        raise QualificationError(
+            "inventory authority must use the strict durable shape"
+        )
+    record = copy.deepcopy(dict(value))
+    if sanitize(record, environ={}) != record:
+        raise QualificationError("inventory authority contains private data")
+    if (
+        record["schema_version"] != 1
+        or record["record_type"] != "inventory_authority"
+    ):
+        raise QualificationError("inventory authority identity is invalid")
+    if (
+        not isinstance(record["inventory_record_id"], str)
+        or _INVENTORY_ID.fullmatch(record["inventory_record_id"]) is None
+        or not isinstance(record["inventory_record_sha256"], str)
+        or _HASH.fullmatch(record["inventory_record_sha256"]) is None
+        or not isinstance(record["source_item_id"], str)
+        or _SOURCE_ITEM_ID.fullmatch(record["source_item_id"]) is None
+        or not isinstance(record["source_scope_id"], str)
+        or _SOURCE_SCOPE_ID.fullmatch(record["source_scope_id"]) is None
+    ):
+        raise QualificationError("inventory authority identifiers are invalid")
+    source_id = record["source_id"]
+    endpoint_id = record["endpoint_id"]
+    if (
+        source_id not in CANONICAL_ENDPOINT_IDS
+        or source_id in PROJECT_NATIVE_SOURCE_IDS
+        or endpoint_id not in CANONICAL_ENDPOINT_IDS[source_id]
+    ):
+        raise QualificationError(
+            "inventory authority is outside the canonical source boundary"
+        )
+    if (
+        source_id == "njp-youtube-official"
+        and record["source_scope_id"] != _OFFICIAL_YOUTUBE_SCOPE
+    ):
+        raise QualificationError(
+            "YouTube inventory authority is outside the official channel scope"
+        )
+    payload = {
+        key: child
+        for key, child in record.items()
+        if key != "inventory_record_sha256"
+    }
+    if record["inventory_record_sha256"] != _sha256(payload):
+        raise QualificationError("inventory authority hash is invalid")
+    return record
 
 
 def _validate_asset_facts(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -633,6 +699,7 @@ def _compile_decision(
 
 def compile_asset_qualification(
     asset: Mapping[str, Any],
+    inventory_record: Mapping[str, Any],
     source_governance_registry: Mapping[str, Any],
     operation_decisions: Sequence[Mapping[str, Any]],
     *,
@@ -644,6 +711,19 @@ def compile_asset_qualification(
         raise QualificationError("evaluation time must be timezone-aware")
     current = now.astimezone(UTC)
     asset_value = _validate_asset_facts(asset)
+    inventory_value = _validate_inventory_record(inventory_record)
+    if (
+        inventory_value["inventory_record_id"]
+        != asset_value["inventory_record_id"]
+        or inventory_value["inventory_record_sha256"]
+        != asset_value["inventory_record_sha256"]
+        or inventory_value["source_id"] != asset_value["source_id"]
+        or inventory_value["endpoint_id"] != asset_value["endpoint_id"]
+        or inventory_value["source_item_id"] != asset_value["source_item_id"]
+    ):
+        raise QualificationError(
+            "asset facts are not bound to the durable inventory authority"
+        )
     try:
         governance_registry = validate_source_governance_registry(
             source_governance_registry
@@ -670,6 +750,7 @@ def compile_asset_qualification(
     required_targets = {
         (None, None),
         (asset_value["endpoint_id"], None),
+        (asset_value["endpoint_id"], asset_value["asset_id"]),
     }
     if not required_targets.issubset(governance_targets):
         raise QualificationError(
@@ -893,6 +974,7 @@ def _current_qualification(
         )
         checked = compile_asset_qualification(
             authority["asset"],
+            authority["inventory_record"],
             authority["source_governance_registry"],
             authority["operation_decisions"],
             now=candidate_time,

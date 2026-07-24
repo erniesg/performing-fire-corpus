@@ -65,7 +65,10 @@ _CREDENTIAL_QUERY_WORDS = frozenset(
     }
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_ENCODED_CONTROL = re.compile(r"%(?:0[0-9a-f]|1[0-9a-f]|7f)", re.IGNORECASE)
+_ENCODED_CONTROL = re.compile(
+    r"%(?:0[0-9a-f]|1[0-9a-f]|2f|3b|5c|7f)",
+    re.IGNORECASE,
+)
 
 
 class AcquisitionPolicyError(RuntimeError):
@@ -101,6 +104,13 @@ def _credential_query_key(value: str) -> bool:
     lowered_words = {word.lower() for word in words}
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
+        or "apikey" in normalized
+        or "accesstoken" in normalized
+        or "sessionid" in normalized
+        or (
+            "signature" in normalized
+            and normalized != "signaturestyle"
+        )
         or bool(lowered_words & _CREDENTIAL_QUERY_WORDS)
         or {"api", "key"}.issubset(lowered_words)
         or (

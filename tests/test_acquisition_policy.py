@@ -61,7 +61,13 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://njp.ggcf.kr/?apiKeyValue=synthetic",
             "https://njp.ggcf.kr/?requestSignature=synthetic",
             "https://njp.ggcf.kr/?hmacSignatureValue=synthetic",
+            "https://njp.ggcf.kr/?xapikey=synthetic",
+            "https://njp.ggcf.kr/?clientapikey=synthetic",
+            "https://njp.ggcf.kr/?apikeyvalue=synthetic",
+            "https://njp.ggcf.kr/?requestsignature=synthetic",
+            "https://njp.ggcf.kr/?hmacsignaturevalue=synthetic",
             "https://njp.ggcf.kr/object;jsessionid=synthetic",
+            "https://njp.ggcf.kr/object%3Bjsessionid=synthetic",
         )
         rejected = (
             "http://njp.ggcf.kr/",

@@ -71,23 +71,26 @@ re-resolves the complete current qualification through an authority boundary.
 The compiler consumes a complete, strict governance registry and reconciles
 every applicable source-wide, endpoint-scoped, and asset-scoped record; any
 blocking layer wins. The checked-in registry must contain a source-wide and
-exact endpoint layer for every canonical endpoint; the compiler rejects a
-target bundle missing either required layer. Deletion authority participates
-in every qualification; caption/prose retention participates in content
-operations for those asset kinds; and search visibility participates in
-indexing and public retrieval. A blocked source operation therefore holds
-only its affected qualification operations.
+exact endpoint layer for every canonical endpoint, and a qualification bundle
+must add the exact endpoint-plus-asset layer. The compiler rejects a snapshot
+missing any required layer. Deletion authority participates in every
+qualification; caption/prose retention participates in content operations for
+those asset kinds; and search visibility participates in indexing and public
+retrieval. A blocked source operation therefore holds only its affected
+qualification operations.
 
 Derived qualification hashes are evidence bindings, not self-authorizing
 signatures. Before a query or downstream job becomes executable, the trusted
 authority resolver returns the current raw asset facts, complete governance
-registry, and operation decisions. The runtime recompiles the qualification
-at the candidate's recorded evaluation time, validates expiry and revocation
-at the current wall-clock time, and requires exact canonical equality with
-the candidate. Clearing a blocker or selecting only a permissive governance
-layer and recomputing public hashes therefore cannot create executable work,
-while an unchanged current qualification remains usable until its authority
-actually expires.
+registry, hash-verified durable inventory record, and operation decisions. The
+runtime verifies the inventory record's source, endpoint, item, and official
+YouTube channel scope; recompiles the qualification at the candidate's
+recorded evaluation time; validates expiry and revocation at the current
+wall-clock time; and requires exact canonical equality with the candidate.
+Clearing a blocker, inventing an unresolved inventory reference, or selecting
+only permissive governance layers and recomputing public hashes therefore
+cannot create executable work, while an unchanged current qualification
+remains usable until its authority actually expires.
 Object-backed downstream jobs carry only the qualification ID, source ID,
 asset ID, operation, and exact immutable R2 object key. They never carry source
 bytes, public or signed URLs, credentials, cookies, headers, response bodies,
