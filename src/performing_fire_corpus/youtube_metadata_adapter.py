@@ -4,14 +4,17 @@ import copy
 import hashlib
 import json
 import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any, Mapping
 from urllib.parse import urlencode
 
 from .adapter_conformance import (
     AdapterRequestBlocked,
     MetadataRequest,
+    MetadataResponse,
     OfflineConformanceHarness,
 )
 
@@ -119,25 +122,230 @@ class YouTubeQuotaExhausted(ValueError):
     """The local run-wide quota bound is exhausted."""
 
 
+@dataclass(frozen=True)
+class YouTubeQuotaSnapshot:
+    max_units: int
+    run_id: str
+    consumed_units: int
+    method_counts: Mapping[str, int]
+
+
+class YouTubeQuotaStore:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        if not isinstance(connection, sqlite3.Connection):
+            raise ValueError("quota store requires an SQLite connection")
+        self._connection = connection
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS youtube_quota_run (
+                run_id TEXT PRIMARY KEY,
+                max_units INTEGER NOT NULL,
+                consumed_units INTEGER NOT NULL,
+                channels_list INTEGER NOT NULL,
+                playlist_items_list INTEGER NOT NULL,
+                videos_list INTEGER NOT NULL
+            )
+            """
+        )
+        self._connection.commit()
+
+    def ensure_run(self, *, run_id: str, max_units: int) -> None:
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = self._connection.execute(
+                "SELECT max_units FROM youtube_quota_run WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                self._connection.execute(
+                    """
+                    INSERT INTO youtube_quota_run (
+                        run_id,
+                        max_units,
+                        consumed_units,
+                        channels_list,
+                        playlist_items_list,
+                        videos_list
+                    ) VALUES (?, ?, 0, 0, 0, 0)
+                    """,
+                    (run_id, max_units),
+                )
+            elif row[0] != max_units:
+                raise ValueError(
+                    "quota run maximum conflicts with durable state"
+                )
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+
+    def snapshot(self, *, run_id: str) -> YouTubeQuotaSnapshot:
+        row = self._connection.execute(
+            """
+            SELECT
+                max_units,
+                consumed_units,
+                channels_list,
+                playlist_items_list,
+                videos_list
+            FROM youtube_quota_run
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("quota run is absent from durable state")
+        return YouTubeQuotaSnapshot(
+            max_units=row[0],
+            run_id=run_id,
+            consumed_units=row[1],
+            method_counts=MappingProxyType(
+                {
+                    "channels.list": row[2],
+                    "playlistItems.list": row[3],
+                    "videos.list": row[4],
+                }
+            ),
+        )
+
+    def reserve(self, *, run_id: str, method: str, cost: int) -> None:
+        column = {
+            "channels.list": "channels_list",
+            "playlistItems.list": "playlist_items_list",
+            "videos.list": "videos_list",
+        }.get(method)
+        if column is None or cost != _METHOD_COSTS.get(method):
+            raise ValueError("YouTube quota method is unreviewed")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            snapshot = self.snapshot(run_id=run_id)
+            if snapshot.consumed_units + cost > snapshot.max_units:
+                raise YouTubeQuotaExhausted(
+                    "YouTube quota budget exhausted"
+                )
+            self._connection.execute(
+                f"""
+                UPDATE youtube_quota_run
+                SET consumed_units = consumed_units + ?,
+                    {column} = {column} + 1
+                WHERE run_id = ?
+                """,
+                (cost, run_id),
+            )
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+
+    def merge_checkpoint(
+        self,
+        *,
+        run_id: str,
+        consumed_units: int,
+        method_counts: Mapping[str, int],
+    ) -> None:
+        if (
+            not isinstance(consumed_units, int)
+            or isinstance(consumed_units, bool)
+            or consumed_units < 0
+            or not isinstance(method_counts, Mapping)
+            or set(method_counts) != set(_METHOD_COSTS)
+            or any(
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+                for value in method_counts.values()
+            )
+            or consumed_units
+            != sum(
+                method_counts[method] * _METHOD_COSTS[method]
+                for method in _METHOD_COSTS
+            )
+        ):
+            raise ValueError("YouTube checkpoint counters are invalid")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            current = self.snapshot(run_id=run_id)
+            if (
+                consumed_units > current.max_units
+                or current.consumed_units > consumed_units
+                or any(
+                    current.method_counts[method]
+                    > method_counts[method]
+                    for method in current.method_counts
+                )
+            ):
+                raise ValueError("YouTube runtime checkpoint is stale")
+            self._connection.execute(
+                """
+                UPDATE youtube_quota_run
+                SET consumed_units = ?,
+                    channels_list = ?,
+                    playlist_items_list = ?,
+                    videos_list = ?
+                WHERE run_id = ?
+                """,
+                (
+                    consumed_units,
+                    method_counts["channels.list"],
+                    method_counts["playlistItems.list"],
+                    method_counts["videos.list"],
+                    run_id,
+                ),
+            )
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+
+
 class YouTubeQuotaLedger:
-    def __init__(self, *, max_units: int, run_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        max_units: int,
+        run_id: str,
+        store: YouTubeQuotaStore | None = None,
+    ) -> None:
         if not isinstance(max_units, int) or isinstance(max_units, bool) or max_units < 1:
             raise ValueError("quota budget must be positive")
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
             raise ValueError("quota run identifier is invalid")
-        self.max_units = max_units
-        self.run_id = run_id
-        self.consumed_units = 0
-        self.method_counts = {method: 0 for method in sorted(_METHOD_COSTS)}
+        self._store = store or YouTubeQuotaStore(
+            sqlite3.connect(":memory:")
+        )
+        self._run_id = run_id
+        self._store.ensure_run(run_id=run_id, max_units=max_units)
+
+    @property
+    def snapshot(self) -> YouTubeQuotaSnapshot:
+        return self._store.snapshot(run_id=self._run_id)
+
+    @property
+    def max_units(self) -> int:
+        return self.snapshot.max_units
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    @property
+    def consumed_units(self) -> int:
+        return self.snapshot.consumed_units
+
+    @property
+    def method_counts(self) -> Mapping[str, int]:
+        return self.snapshot.method_counts
 
     def reserve(self, method: str) -> None:
         cost = _METHOD_COSTS.get(method)
         if cost is None:
             raise ValueError("YouTube quota method is unreviewed")
-        if self.consumed_units + cost > self.max_units:
-            raise YouTubeQuotaExhausted("YouTube quota budget exhausted")
-        self.consumed_units += cost
-        self.method_counts[method] += 1
+        self._store.reserve(
+            run_id=self.run_id,
+            method=method,
+            cost=cost,
+        )
 
     def checkpoint(self) -> dict[str, Any]:
         unsigned = {
@@ -145,7 +353,7 @@ class YouTubeQuotaLedger:
             "max_units": self.max_units,
             "run_id": self.run_id,
             "consumed_units": self.consumed_units,
-            "method_counts": copy.deepcopy(self.method_counts),
+            "method_counts": dict(self.method_counts),
         }
         return {
             **unsigned,
@@ -215,8 +423,11 @@ class YouTubeQuotaLedger:
             max_units=expected_max_units,
             run_id=expected_run_id,
         )
-        ledger.consumed_units = consumed
-        ledger.method_counts = dict(counts)
+        ledger._store.merge_checkpoint(
+            run_id=expected_run_id,
+            consumed_units=consumed,
+            method_counts=counts,
+        )
         return ledger
 
 
@@ -275,18 +486,12 @@ class _QuotaBoundAdapter:
             expected_run_id=self._session.run_id,
             expected_sha256=quota.get("checkpoint_sha256"),
         )
-        current = self._session.ledger
-        if (
-            current.consumed_units > restored.consumed_units
-            or any(
-                current.method_counts[method]
-                > restored.method_counts[method]
-                for method in current.method_counts
-            )
-        ):
-            raise ValueError("YouTube runtime checkpoint is stale")
-        self._session.ledger.consumed_units = restored.consumed_units
-        self._session.ledger.method_counts = restored.method_counts
+        restored_snapshot = restored.snapshot
+        self._session.ledger._store.merge_checkpoint(
+            run_id=self._session.run_id,
+            consumed_units=restored_snapshot.consumed_units,
+            method_counts=restored_snapshot.method_counts,
+        )
 
 
 class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
@@ -783,10 +988,17 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
 
 
 class YouTubeMetadataCoordinator:
-    def __init__(self, *, max_quota_units: int, run_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        max_quota_units: int,
+        run_id: str,
+        quota_store: YouTubeQuotaStore,
+    ) -> None:
         ledger = YouTubeQuotaLedger(
             max_units=max_quota_units,
             run_id=run_id,
+            store=quota_store,
         )
         self._session = _YouTubeSession(
             run_id=run_id,
@@ -799,30 +1011,99 @@ class YouTubeMetadataCoordinator:
             ),
             ledger=ledger,
         )
+        self._uploads_harness: OfflineConformanceHarness | None = None
+        self._uploads_resolution: ChannelResolution | None = None
 
     @property
-    def quota(self) -> YouTubeQuotaLedger:
-        return self._session.ledger
+    def quota(self) -> YouTubeQuotaSnapshot:
+        return self._session.ledger.snapshot
 
     def channel_adapter(self) -> YouTubeChannelResolverAdapter:
         return YouTubeChannelResolverAdapter(self._session)
 
-    def uploads_adapter(
+    def _new_uploads_adapter(
         self,
         resolution: ChannelResolution,
     ) -> YouTubeUploadsAdapter:
         return YouTubeUploadsAdapter(self._session, resolution)
 
-    def finalize_uploads(
+    def begin_uploads(
         self,
         resolution: ChannelResolution,
-        harness: OfflineConformanceHarness,
-    ) -> UploadsInventory:
+        registry: Mapping[str, Any],
+        **bounds: Any,
+    ) -> MetadataRequest | None:
+        if self._uploads_harness is not None:
+            raise ValueError("uploads stage is already active")
         resolution.validate(
             expected_session_binding_sha256=self._session.binding_sha256
         )
+        self._uploads_resolution = resolution
+        self._uploads_harness = OfflineConformanceHarness(
+            self._new_uploads_adapter(resolution),
+            registry,
+            **bounds,
+        )
+        return self._uploads_harness.next_request()
+
+    def resume_uploads(
+        self,
+        resolution: ChannelResolution,
+        registry: Mapping[str, Any],
+        checkpoint: Mapping[str, Any],
+        *,
+        expected_bounds: Mapping[str, Any],
+        expected_checkpoint_sha256: str,
+    ) -> None:
+        if self._uploads_harness is not None:
+            raise ValueError("uploads stage is already active")
+        resolution.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
+        self._uploads_resolution = resolution
+        self._uploads_harness = OfflineConformanceHarness.resume(
+            self._new_uploads_adapter(resolution),
+            registry,
+            checkpoint,
+            expected_bounds=expected_bounds,
+            expected_checkpoint_sha256=expected_checkpoint_sha256,
+        )
+
+    def next_uploads_request(self) -> MetadataRequest | None:
+        if self._uploads_harness is None:
+            raise ValueError("uploads stage is not active")
+        return self._uploads_harness.next_request()
+
+    def ingest_uploads(
+        self,
+        response: MetadataResponse,
+    ) -> dict[str, Any]:
+        if self._uploads_harness is None:
+            raise ValueError("uploads stage is not active")
+        return self._uploads_harness.ingest(response)
+
+    def record_uploads_retry(self, code: str) -> dict[str, Any]:
+        if self._uploads_harness is None:
+            raise ValueError("uploads stage is not active")
+        return self._uploads_harness.record_retry(code)
+
+    def uploads_checkpoint(self) -> dict[str, Any]:
+        if self._uploads_harness is None:
+            raise ValueError("uploads stage is not active")
+        return self._uploads_harness.checkpoint()
+
+    def uploads_state(self) -> tuple[str, str | None]:
+        if self._uploads_harness is None:
+            raise ValueError("uploads stage is not active")
+        manifest = self._uploads_harness.manifest()
+        return manifest["state"], manifest["stop_reason"]
+
+    def finalize_uploads(self) -> UploadsInventory:
+        harness = self._uploads_harness
+        resolution = self._uploads_resolution
         if (
             not isinstance(harness, OfflineConformanceHarness)
+            or not isinstance(resolution, ChannelResolution)
             or type(harness.adapter) is not YouTubeUploadsAdapter
             or harness.adapter._session is not self._session
             or harness.adapter.resolution.lineage_sha256

@@ -38,22 +38,32 @@ also binds a monotonic page ordinal; repeated raw tokens and skipped ordinals
 fail closed. Checkpoint resume requires externally supplied expected bounds
 and digest.
 
-`YouTubeMetadataCoordinator` owns one run-bound quota ledger and is the only
-normal constructor for all three stages. Every request builder reserves its
-reviewed method cost before returning a request; a request cannot be built
-without the ledger. The common checkpoint stores the run ID, maximum,
-consumed units, and per-method counters inside its outer integrity binding,
-and restores them before a retry. A restore may only advance those counters;
-an older stage checkpoint cannot rewind a shared run ledger. Local exhaustion
-stops the harness as `quota_exhausted` before a request is returned. Provider
-quota reasons are reduced at the transport boundary to the same body-free
-blocker.
+`YouTubeMetadataCoordinator` requires an operator-supplied SQLite-backed
+`YouTubeQuotaStore` and owns one run-bound quota ledger. Every coordinator for
+the same run must use that durable authority; a new coordinator or reopened
+database connection observes the already-consumed units instead of minting a
+fresh budget. Reservations use an immediate SQLite transaction, so separate
+coordinators cannot each spend the final unit. The coordinator exposes only
+an immutable quota snapshot.
+
+The coordinator is the only normal constructor for all three stages. Every
+request builder reserves its reviewed method cost before returning a request;
+a request cannot be built without the ledger. The common checkpoint stores the
+run ID, maximum, consumed units, and per-method counters inside its outer
+integrity binding, and restores them before a retry. A restore may only advance
+those counters; an older stage checkpoint cannot rewind a shared run ledger.
+The database location and connection never enter a checkpoint, manifest,
+request, fixture, issue, or log. Local exhaustion stops the harness as
+`quota_exhausted` before a request is returned. Provider quota reasons are
+reduced at the transport boundary to the same body-free blocker.
 `quotaExceeded` and `dailyLimitExceeded` never signal permission to switch
 accounts, projects, credentials, or endpoints.
 
 Channel resolution produces a non-publicly-constructible, integrity-bound
-artifact. The coordinator owns the uploads harness and will not finalize a
-caller-supplied manifest. Only its exact adapter/session/resolution and a
+artifact. The coordinator creates and retains the sole uploads harness;
+callers can request the next bounded request, submit a response, record a
+retry, or obtain a checkpoint, but finalization accepts no harness or
+manifest. Only the coordinator's exact adapter/session/resolution and a
 complete terminal result with no rejected records can issue an uploads
 inventory; every record identity digest is rechecked against its video ID.
 `videos.list` accepts only a sorted subset of that inventory, so arbitrary
