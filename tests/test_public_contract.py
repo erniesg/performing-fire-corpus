@@ -132,6 +132,25 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, runbook)
 
+    def test_current_r2_proof_specs_match_the_delete_only_operator(self) -> None:
+        decision = (
+            ROOT / "docs" / "issues" / "025-decide-current-one-asset-r2-proof.md"
+        ).read_text(encoding="utf-8")
+        run = (
+            ROOT / "docs" / "issues" / "026-run-current-one-asset-r2-proof.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Cleanup decision: delete_after_verification", decision)
+        self.assertIn("Retention is outside this proof", decision)
+        self.assertIn("Retention is not supported by this operator", run)
+        for unsupported_path in (
+            "or reviewed retention",
+            "cleanup or retention",
+            "temporary or reviewed retained",
+        ):
+            self.assertNotIn(unsupported_path, decision)
+            self.assertNotIn(unsupported_path, run)
+
 
 if __name__ == "__main__":
     unittest.main()
