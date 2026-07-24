@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
@@ -23,6 +24,7 @@ _PUBLIC_ID = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
 _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,55}$")
 _PAGE_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{6,128}$")
 _RUN_ID = re.compile(r"^youtube_metadata_run_[a-z0-9][a-z0-9._-]{0,96}$")
+_AUTHORITY_ID = re.compile(r"^youtube_quota_authority_[0-9a-f]{32}$")
 _METHOD_COSTS = {
     "channels.list": 1,
     "playlistItems.list": 1,
@@ -152,6 +154,7 @@ class YouTubeQuotaExhausted(ValueError):
 
 @dataclass(frozen=True)
 class YouTubeQuotaSnapshot:
+    authority_id: str
     max_units: int
     run_id: str
     consumed_units: int
@@ -167,6 +170,7 @@ class YouTubeQuotaStore:
             """
             CREATE TABLE IF NOT EXISTS youtube_quota_run (
                 run_id TEXT PRIMARY KEY,
+                authority_id TEXT NOT NULL,
                 max_units INTEGER NOT NULL,
                 consumed_units INTEGER NOT NULL,
                 channels_list INTEGER NOT NULL,
@@ -178,10 +182,15 @@ class YouTubeQuotaStore:
         self._connection.commit()
 
     def ensure_run(self, *, run_id: str, max_units: int) -> None:
+        new_authority_id = f"youtube_quota_authority_{uuid.uuid4().hex}"
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             row = self._connection.execute(
-                "SELECT max_units FROM youtube_quota_run WHERE run_id = ?",
+                """
+                SELECT authority_id, max_units
+                FROM youtube_quota_run
+                WHERE run_id = ?
+                """,
                 (run_id,),
             ).fetchone()
             if row is None:
@@ -189,16 +198,21 @@ class YouTubeQuotaStore:
                     """
                     INSERT INTO youtube_quota_run (
                         run_id,
+                        authority_id,
                         max_units,
                         consumed_units,
                         channels_list,
                         playlist_items_list,
                         videos_list
-                    ) VALUES (?, ?, 0, 0, 0, 0)
+                    ) VALUES (?, ?, ?, 0, 0, 0, 0)
                     """,
-                    (run_id, max_units),
+                    (run_id, new_authority_id, max_units),
                 )
-            elif row[0] != max_units:
+            elif (
+                not isinstance(row[0], str)
+                or not _AUTHORITY_ID.fullmatch(row[0])
+                or row[1] != max_units
+            ):
                 raise ValueError(
                     "quota run maximum conflicts with durable state"
                 )
@@ -212,6 +226,7 @@ class YouTubeQuotaStore:
             """
             SELECT
                 max_units,
+                authority_id,
                 consumed_units,
                 channels_list,
                 playlist_items_list,
@@ -223,20 +238,33 @@ class YouTubeQuotaStore:
         ).fetchone()
         if row is None:
             raise ValueError("quota run is absent from durable state")
+        if (
+            not isinstance(row[1], str)
+            or not _AUTHORITY_ID.fullmatch(row[1])
+        ):
+            raise ValueError("quota authority is invalid")
         return YouTubeQuotaSnapshot(
+            authority_id=row[1],
             max_units=row[0],
             run_id=run_id,
-            consumed_units=row[1],
+            consumed_units=row[2],
             method_counts=MappingProxyType(
                 {
-                    "channels.list": row[2],
-                    "playlistItems.list": row[3],
-                    "videos.list": row[4],
+                    "channels.list": row[3],
+                    "playlistItems.list": row[4],
+                    "videos.list": row[5],
                 }
             ),
         )
 
-    def reserve(self, *, run_id: str, method: str, cost: int) -> None:
+    def reserve(
+        self,
+        *,
+        authority_id: str,
+        run_id: str,
+        method: str,
+        cost: int,
+    ) -> None:
         column = {
             "channels.list": "channels_list",
             "playlistItems.list": "playlist_items_list",
@@ -247,6 +275,8 @@ class YouTubeQuotaStore:
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             snapshot = self.snapshot(run_id=run_id)
+            if snapshot.authority_id != authority_id:
+                raise ValueError("YouTube quota authority changed")
             if snapshot.consumed_units + cost > snapshot.max_units:
                 raise YouTubeQuotaExhausted(
                     "YouTube quota budget exhausted"
@@ -268,6 +298,7 @@ class YouTubeQuotaStore:
     def merge_checkpoint(
         self,
         *,
+        authority_id: str,
         run_id: str,
         consumed_units: int,
         method_counts: Mapping[str, int],
@@ -295,7 +326,8 @@ class YouTubeQuotaStore:
             self._connection.execute("BEGIN IMMEDIATE")
             current = self.snapshot(run_id=run_id)
             if (
-                consumed_units > current.max_units
+                authority_id != current.authority_id
+                or consumed_units > current.max_units
                 or current.consumed_units > consumed_units
                 or any(
                     current.method_counts[method]
@@ -344,6 +376,7 @@ class YouTubeQuotaLedger:
         )
         self._run_id = run_id
         self._store.ensure_run(run_id=run_id, max_units=max_units)
+        self._authority_id = self.snapshot.authority_id
 
     @property
     def snapshot(self) -> YouTubeQuotaSnapshot:
@@ -352,6 +385,10 @@ class YouTubeQuotaLedger:
     @property
     def max_units(self) -> int:
         return self.snapshot.max_units
+
+    @property
+    def authority_id(self) -> str:
+        return self._authority_id
 
     @property
     def run_id(self) -> str:
@@ -370,6 +407,7 @@ class YouTubeQuotaLedger:
         if cost is None:
             raise ValueError("YouTube quota method is unreviewed")
         self._store.reserve(
+            authority_id=self.authority_id,
             run_id=self.run_id,
             method=method,
             cost=cost,
@@ -379,6 +417,7 @@ class YouTubeQuotaLedger:
         snapshot = self.snapshot
         unsigned = {
             "schema_version": 1,
+            "authority_id": snapshot.authority_id,
             "max_units": snapshot.max_units,
             "run_id": snapshot.run_id,
             "consumed_units": snapshot.consumed_units,
@@ -399,12 +438,14 @@ class YouTubeQuotaLedger:
         expected_max_units: int,
         expected_run_id: str,
         expected_sha256: str,
+        store: YouTubeQuotaStore,
     ) -> YouTubeQuotaLedger:
         if (
             not isinstance(checkpoint, Mapping)
             or set(checkpoint)
             != {
                 "checkpoint_sha256",
+                "authority_id",
                 "consumed_units",
                 "max_units",
                 "method_counts",
@@ -414,6 +455,8 @@ class YouTubeQuotaLedger:
             or checkpoint.get("schema_version") != 1
             or checkpoint.get("max_units") != expected_max_units
             or checkpoint.get("run_id") != expected_run_id
+            or not isinstance(checkpoint.get("authority_id"), str)
+            or not _AUTHORITY_ID.fullmatch(checkpoint["authority_id"])
             or checkpoint.get("checkpoint_sha256") != expected_sha256
         ):
             raise ValueError("quota checkpoint binding is invalid")
@@ -421,6 +464,7 @@ class YouTubeQuotaLedger:
             key: copy.deepcopy(checkpoint[key])
             for key in (
                 "schema_version",
+                "authority_id",
                 "max_units",
                 "run_id",
                 "consumed_units",
@@ -451,8 +495,12 @@ class YouTubeQuotaLedger:
         ledger = cls(
             max_units=expected_max_units,
             run_id=expected_run_id,
+            store=store,
         )
+        if ledger.authority_id != checkpoint["authority_id"]:
+            raise ValueError("quota checkpoint authority changed")
         ledger._store.merge_checkpoint(
+            authority_id=ledger.authority_id,
             run_id=expected_run_id,
             consumed_units=consumed,
             method_counts=counts,
@@ -514,13 +562,10 @@ class _QuotaBoundAdapter:
             expected_max_units=self._session.ledger.max_units,
             expected_run_id=self._session.run_id,
             expected_sha256=quota.get("checkpoint_sha256"),
+            store=self._session.ledger._store,
         )
-        restored_snapshot = restored.snapshot
-        self._session.ledger._store.merge_checkpoint(
-            run_id=self._session.run_id,
-            consumed_units=restored_snapshot.consumed_units,
-            method_counts=restored_snapshot.method_counts,
-        )
+        if restored.authority_id != self._session.ledger.authority_id:
+            raise ValueError("YouTube runtime checkpoint authority changed")
 
 
 class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
@@ -557,6 +602,10 @@ class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
     handle = "@NamJunePaikArtCenter"
     quota_method = "channels.list"
 
+    def __init__(self, session: _YouTubeSession) -> None:
+        super().__init__(session)
+        self._resolution: ChannelResolution | None = None
+
     def adapter_lineage_sha256(self) -> str:
         return _digest(
             {
@@ -583,7 +632,7 @@ class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
             raise ValueError("unknown YouTube access state")
         return state
 
-    def resolve_channel(self, body: bytes) -> ChannelResolution:
+    def _resolve_channel(self, body: bytes) -> ChannelResolution:
         value = _json_object(body, "youtube#channelListResponse")
         if len(value["items"]) != 1:
             raise ValueError("YouTube handle resolution is ambiguous")
@@ -615,6 +664,7 @@ class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
             ("lineage_sha256", _digest(payload)),
         ):
             object.__setattr__(resolution, field, field_value)
+        self._resolution = resolution
         return resolution
 
     def stable_record_id(self, item: Mapping[str, Any]) -> str:
@@ -626,7 +676,7 @@ class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
     def parse_page(self, body: bytes, *, cursor: str | None) -> dict[str, Any]:
         if cursor is not None:
             raise ValueError("channel resolution is not paginated")
-        resolution = self.resolve_channel(body)
+        resolution = self._resolve_channel(body)
         return {
             "records": [
                 {
@@ -1041,6 +1091,8 @@ class YouTubeMetadataCoordinator:
             ),
             ledger=ledger,
         )
+        self._channel_harness: OfflineConformanceHarness | None = None
+        self._channel_resolution: ChannelResolution | None = None
         self._uploads_harness: OfflineConformanceHarness | None = None
         self._uploads_resolution: ChannelResolution | None = None
 
@@ -1048,8 +1100,127 @@ class YouTubeMetadataCoordinator:
     def quota(self) -> YouTubeQuotaSnapshot:
         return self._session.ledger.snapshot
 
-    def channel_adapter(self) -> YouTubeChannelResolverAdapter:
+    def _new_channel_adapter(self) -> YouTubeChannelResolverAdapter:
         return YouTubeChannelResolverAdapter(self._session)
+
+    def begin_channel(
+        self,
+        registry: Mapping[str, Any],
+        **bounds: Any,
+    ) -> MetadataRequest | None:
+        if self._channel_harness is not None:
+            raise ValueError("channel stage is already active")
+        self._channel_harness = OfflineConformanceHarness(
+            self._new_channel_adapter(),
+            registry,
+            **bounds,
+        )
+        return self._channel_harness.next_request()
+
+    def ingest_channel(
+        self,
+        response: MetadataResponse,
+    ) -> dict[str, Any]:
+        if self._channel_harness is None:
+            raise ValueError("channel stage is not active")
+        return self._channel_harness.ingest(response)
+
+    def resume_channel(
+        self,
+        registry: Mapping[str, Any],
+        checkpoint: Mapping[str, Any],
+        *,
+        expected_bounds: Mapping[str, Any],
+        expected_checkpoint_sha256: str,
+    ) -> None:
+        if self._channel_harness is not None:
+            raise ValueError("channel stage is already active")
+        self._channel_harness = OfflineConformanceHarness.resume(
+            self._new_channel_adapter(),
+            registry,
+            checkpoint,
+            expected_bounds=expected_bounds,
+            expected_checkpoint_sha256=expected_checkpoint_sha256,
+        )
+
+    def record_channel_retry(self, code: str) -> dict[str, Any]:
+        if self._channel_harness is None:
+            raise ValueError("channel stage is not active")
+        return self._channel_harness.record_retry(code)
+
+    def next_channel_request(self) -> MetadataRequest | None:
+        if self._channel_harness is None:
+            raise ValueError("channel stage is not active")
+        return self._channel_harness.next_request()
+
+    def channel_checkpoint(self) -> dict[str, Any]:
+        if self._channel_harness is None:
+            raise ValueError("channel stage is not active")
+        return self._channel_harness.checkpoint()
+
+    def channel_state(self) -> tuple[str, str | None]:
+        if self._channel_harness is None:
+            raise ValueError("channel stage is not active")
+        manifest = self._channel_harness.manifest()
+        return manifest["state"], manifest["stop_reason"]
+
+    def finalize_channel(self) -> ChannelResolution:
+        harness = self._channel_harness
+        if (
+            not isinstance(harness, OfflineConformanceHarness)
+            or type(harness.adapter) is not YouTubeChannelResolverAdapter
+            or harness.adapter._session is not self._session
+            or not isinstance(
+                harness.adapter._resolution,
+                ChannelResolution,
+            )
+        ):
+            raise ValueError("channel harness is not owned by this run")
+        resolution = harness.adapter._resolution
+        manifest = harness.manifest()
+        if (
+            manifest.get("adapter_id") != "youtube-channel-resolver"
+            or manifest.get("source_id") != "njp-youtube-official"
+            or manifest.get("endpoint_id") != "njp-youtube-channels-api"
+            or manifest.get("state")
+            != "complete_for_observed_endpoint"
+            or manifest.get("stop_reason") != "terminal_page"
+            or manifest.get("observed_unique_records") != 1
+            or manifest.get("rejected_records") != 0
+            or not isinstance(manifest.get("records"), list)
+            or len(manifest["records"]) != 1
+        ):
+            raise ValueError(
+                "channel manifest is not a complete bound resolution"
+            )
+        record = manifest["records"][0]
+        if (
+            not isinstance(record, Mapping)
+            or record.get("record_id")
+            != f"youtube-channel-{resolution.channel_id}"
+            or record.get("source_identity_sha256")
+            != hashlib.sha256(resolution.channel_id.encode()).hexdigest()
+            or record.get("metadata")
+            != {"resource_type": "resource_type_channel"}
+        ):
+            raise ValueError("channel resolution lineage is invalid")
+        resolution.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
+        self._channel_resolution = resolution
+        return resolution
+
+    def _require_owned_resolution(
+        self,
+        resolution: ChannelResolution,
+    ) -> None:
+        if resolution is not self._channel_resolution:
+            raise ValueError(
+                "channel resolution was not issued by this coordinator"
+            )
+        resolution.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
 
     def _new_uploads_adapter(
         self,
@@ -1065,9 +1236,7 @@ class YouTubeMetadataCoordinator:
     ) -> MetadataRequest | None:
         if self._uploads_harness is not None:
             raise ValueError("uploads stage is already active")
-        resolution.validate(
-            expected_session_binding_sha256=self._session.binding_sha256
-        )
+        self._require_owned_resolution(resolution)
         self._uploads_resolution = resolution
         self._uploads_harness = OfflineConformanceHarness(
             self._new_uploads_adapter(resolution),
@@ -1087,9 +1256,7 @@ class YouTubeMetadataCoordinator:
     ) -> None:
         if self._uploads_harness is not None:
             raise ValueError("uploads stage is already active")
-        resolution.validate(
-            expected_session_binding_sha256=self._session.binding_sha256
-        )
+        self._require_owned_resolution(resolution)
         self._uploads_resolution = resolution
         self._uploads_harness = OfflineConformanceHarness.resume(
             self._new_uploads_adapter(resolution),

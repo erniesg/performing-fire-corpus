@@ -51,6 +51,9 @@ class StandardAdapterConformanceMixin:
             **bounds,
         )
 
+    def _resume_adapter(self, adapter: Any) -> Any:
+        return self.adapter_factory()
+
     def _response(
         self,
         body: bytes,
@@ -246,7 +249,7 @@ class StandardAdapterConformanceMixin:
         expected_bounds = copy.deepcopy(retry.bounds)
         checkpoint = retry.checkpoint()
         resumed = OfflineConformanceHarness.resume(
-            self.adapter_factory(),
+            self._resume_adapter(retry.adapter),
             self.registry,
             checkpoint,
             expected_bounds=expected_bounds,

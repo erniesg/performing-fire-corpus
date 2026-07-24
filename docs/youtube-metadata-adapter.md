@@ -42,9 +42,12 @@ and digest.
 `YouTubeQuotaStore` and owns one run-bound quota ledger. Every coordinator for
 the same run must use that durable authority; a new coordinator or reopened
 database connection observes the already-consumed units instead of minting a
-fresh budget. Reservations use an immediate SQLite transaction, so separate
-coordinators cannot each spend the final unit. The coordinator exposes only
-an immutable quota snapshot.
+fresh budget. The database creates a random, non-secret authority identifier
+with the run and binds every reservation and checkpoint restore to it. A
+checkpoint copied into a fresh database therefore cannot recreate the same
+budget. Reservations use an immediate SQLite transaction, so separate
+coordinators cannot each spend the final unit. The coordinator exposes only an
+immutable quota snapshot.
 
 The coordinator is the only normal constructor for all three stages. Every
 request builder reserves its reviewed method cost before returning a request;
@@ -60,12 +63,17 @@ reduced at the transport boundary to the same body-free blocker.
 accounts, projects, credentials, or endpoints.
 
 Channel resolution produces a non-publicly-constructible, integrity-bound
-artifact. The coordinator creates and retains the sole uploads harness;
-callers can request the next bounded request, submit a response, record a
-retry, or obtain a checkpoint, but finalization accepts no harness or
-manifest. Only the coordinator's exact adapter/session/resolution and a
-complete terminal result with no rejected records can issue an uploads
-inventory; every record identity digest is rechecked against its video ID.
+artifact. The coordinator owns the channel harness as well as the uploads
+harness: it issues the exact-handle request, accounts for its quota unit,
+accepts the response, and finalizes only a complete one-record terminal
+manifest. The public uploads lifecycle accepts only the exact channel
+resolution issued by that coordinator, so directly invoking a parser cannot
+authorize an uploads request. Callers can request the next bounded request,
+submit a response, record a retry, or obtain a checkpoint, but finalization
+accepts no caller-supplied harness or manifest. Only the coordinator's exact
+adapter/session/resolution and a complete terminal result with no rejected
+records can issue an uploads inventory; every record identity digest is
+rechecked against its video ID.
 `videos.list` accepts only a sorted subset of that inventory, so arbitrary
 public-looking video IDs cannot enter enrichment. Every harness checkpoint
 also binds the adapter-lineage digest, preventing resume under another channel
