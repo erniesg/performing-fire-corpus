@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from adapter_conformance_suite import StandardAdapterConformanceMixin
 from performing_fire_corpus.adapter_conformance import (
@@ -563,6 +565,64 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             resumed.next_request().url,
         )
 
+    def test_checkpoint_restore_rejects_mismatched_embedded_ordinal(
+        self,
+    ) -> None:
+        adapter = uploads_adapter()
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        request = harness.next_request()
+        harness.ingest(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=upload_page(
+                    [upload_item("item001", video_id="video001")],
+                    next_cursor="opaque-1~PageToken002",
+                    next_ordinal=1,
+                    terminal=False,
+                    expected_total=2,
+                ),
+                final_url=request.url,
+            )
+        )
+        checkpoint = harness.checkpoint()
+        mismatched = copy.deepcopy(checkpoint)
+        mismatched["state"]["next_cursor"] = (
+            "opaque-999~PageToken002"
+        )
+        mismatched["state"]["seen_cursors"] = [
+            "opaque-999~PageToken002"
+        ]
+        unsigned = {
+            key: mismatched[key]
+            for key in (
+                "adapter_lineage_sha256",
+                "adapter_runtime_checkpoint",
+                "bounds",
+                "declaration_sha256",
+                "state",
+            )
+        }
+        mismatched["checkpoint_sha256"] = hashlib.sha256(
+            json.dumps(
+                unsigned,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                adapter,
+                REGISTRY,
+                mismatched,
+                expected_bounds=mismatched["bounds"],
+                expected_checkpoint_sha256=mismatched[
+                    "checkpoint_sha256"
+                ],
+            )
+
     def test_opaque_ids_are_shape_checked_without_word_scanning(self) -> None:
         coordinator = youtube_coordinator()
         request = coordinator.begin_channel(REGISTRY)
@@ -1009,6 +1069,90 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             self.assertIsNotNone(harness.next_request())
             self.assertEqual(3, reopened.quota.consumed_units)
             reopened_connection.close()
+
+    def test_terminal_channel_is_persisted_before_ingest_reports_completion(
+        self,
+    ) -> None:
+        quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
+        coordinator = youtube_coordinator(
+            max_quota_units=1,
+            quota_store=quota_store,
+        )
+        request = coordinator.begin_channel(REGISTRY)
+        result = coordinator.ingest_channel(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=channel_page(
+                    [
+                        channel_item(
+                            "Channel001",
+                            channel_id="UCinventedChannel001",
+                            uploads_playlist_id="UUinventedUploads001",
+                        )
+                    ]
+                ),
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("complete_for_observed_endpoint", result["state"])
+
+        restarted = youtube_coordinator(
+            max_quota_units=1,
+            quota_store=quota_store,
+        )
+        self.assertEqual(
+            "UCinventedChannel001",
+            restarted.issued_channel_resolution().channel_id,
+        )
+
+    def test_terminal_uploads_are_persisted_before_ingest_reports_completion(
+        self,
+    ) -> None:
+        quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
+        coordinator = youtube_coordinator(
+            max_quota_units=2,
+            quota_store=quota_store,
+        )
+        resolution = channel_resolution(coordinator)
+        request = coordinator.begin_uploads(resolution, REGISTRY)
+        result = coordinator.ingest_uploads(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=upload_page(
+                    [upload_item("item001", video_id="video001")],
+                    expected_total=1,
+                ),
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("complete_for_observed_endpoint", result["state"])
+
+        restarted = youtube_coordinator(
+            max_quota_units=2,
+            quota_store=quota_store,
+        )
+        self.assertEqual(
+            ("video001",),
+            restarted.issued_uploads_inventory().video_ids,
+        )
+
+    def test_adapter_version_change_invalidates_durable_stage_artifacts(
+        self,
+    ) -> None:
+        quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
+        coordinator = youtube_coordinator(quota_store=quota_store)
+        uploads_inventory(coordinator, ("video001",))
+
+        with patch.object(
+            YouTubeUploadsAdapter,
+            "adapter_version",
+            "2.0.0",
+        ):
+            restarted = youtube_coordinator(quota_store=quota_store)
+            with self.assertRaisesRegex(ValueError, "lineage"):
+                restarted.issued_channel_resolution()
 
     def test_quota_error_is_a_durable_body_free_blocker(self) -> None:
         harness = OfflineConformanceHarness(uploads_adapter(), REGISTRY)

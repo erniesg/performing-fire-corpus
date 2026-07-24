@@ -1122,6 +1122,14 @@ class OfflineConformanceHarness:
                 not _cursor_is_valid(self.declaration, item)
                 for item in seen
             )
+            or any(
+                not _cursor_ordinal_matches(
+                    self.declaration,
+                    item,
+                    ordinal,
+                )
+                for ordinal, item in enumerate(seen, start=1)
+            )
             or len(
                 {
                     _cursor_identity(self.declaration, item)

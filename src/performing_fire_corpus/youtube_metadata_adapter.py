@@ -599,6 +599,23 @@ class _YouTubeSession:
     ledger: YouTubeQuotaLedger
 
 
+def _session_binding_sha256(*, max_units: int, run_id: str) -> str:
+    return _digest(
+        {
+            "adapter_versions": {
+                "channel_resolver": (
+                    YouTubeChannelResolverAdapter.adapter_version
+                ),
+                "uploads_playlist": YouTubeUploadsAdapter.adapter_version,
+                "videos": YouTubeVideosAdapter.adapter_version,
+            },
+            "max_units": max_units,
+            "run_id": run_id,
+            "source_id": "njp-youtube-official",
+        }
+    )
+
+
 class _QuotaBoundAdapter:
     quota_method: str
 
@@ -607,12 +624,9 @@ class _QuotaBoundAdapter:
             not isinstance(session, _YouTubeSession)
             or session.run_id != session.ledger.run_id
             or session.binding_sha256
-            != _digest(
-                {
-                    "max_units": session.ledger.max_units,
-                    "run_id": session.run_id,
-                    "source_id": "njp-youtube-official",
-                }
+            != _session_binding_sha256(
+                max_units=session.ledger.max_units,
+                run_id=session.run_id,
             )
         ):
             raise ValueError("YouTube metadata session is invalid")
@@ -1197,12 +1211,9 @@ class YouTubeMetadataCoordinator:
         )
         self._session = _YouTubeSession(
             run_id=run_id,
-            binding_sha256=_digest(
-                {
-                    "max_units": max_quota_units,
-                    "run_id": run_id,
-                    "source_id": "njp-youtube-official",
-                }
+            binding_sha256=_session_binding_sha256(
+                max_units=max_quota_units,
+                run_id=run_id,
             ),
             ledger=ledger,
         )
@@ -1239,7 +1250,10 @@ class YouTubeMetadataCoordinator:
     ) -> dict[str, Any]:
         if self._channel_harness is None:
             raise ValueError("channel stage is not active")
-        return self._channel_harness.ingest(response)
+        result = self._channel_harness.ingest(response)
+        if result["state"] == "complete_for_observed_endpoint":
+            self.finalize_channel()
+        return result
 
     def resume_channel(
         self,
@@ -1455,7 +1469,10 @@ class YouTubeMetadataCoordinator:
     ) -> dict[str, Any]:
         if self._uploads_harness is None:
             raise ValueError("uploads stage is not active")
-        return self._uploads_harness.ingest(response)
+        result = self._uploads_harness.ingest(response)
+        if result["state"] == "complete_for_observed_endpoint":
+            self.finalize_uploads()
+        return result
 
     def record_uploads_retry(self, code: str) -> dict[str, Any]:
         if self._uploads_harness is None:

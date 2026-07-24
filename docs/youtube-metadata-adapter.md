@@ -49,14 +49,17 @@ with the run and binds every reservation and checkpoint restore to it. A
 checkpoint copied into a fresh database therefore cannot recreate the same
 budget. Reservations use an immediate SQLite transaction, so separate
 coordinators cannot each spend the final unit. The coordinator exposes only an
-immutable quota snapshot.
+immutable quota snapshot. The durable session binding includes the versions of
+all three adapters, so an upgraded declaration cannot silently reuse artifacts
+parsed under an older implementation.
 
 The same authority stores canonical channel-resolution and uploads-inventory
-artifacts only after their coordinator-owned stages finalize. A restarted
-coordinator can reload those issued artifacts and resume the next stage without
-spending another channel-resolution unit. A caller-created artifact, an
-artifact from a fresh store, or a conflicting artifact for the same run cannot
-authorize a downstream request.
+artifacts only after their coordinator-owned stages finalize. Terminal ingest
+persists the corresponding artifact before reporting completion to its caller.
+A restarted coordinator can therefore reload a completed stage and resume the
+next stage without spending another channel-resolution or uploads-list unit. A
+caller-created artifact, an artifact from a fresh store, or a conflicting
+artifact for the same run cannot authorize a downstream request.
 
 The coordinator is the only normal constructor for all three stages. Every
 request builder reserves its reviewed method cost before returning a request;
