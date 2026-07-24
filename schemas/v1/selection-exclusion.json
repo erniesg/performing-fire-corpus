@@ -36,9 +36,14 @@
         "retrieval_unknown",
         "rights_not_approved",
         "rights_expired",
+        "source_governance_not_approved",
+        "source_governance_expired",
         "retention_not_approved",
+        "retention_expired",
         "privacy_not_approved",
+        "privacy_expired",
         "transformation_not_approved",
+        "transformation_expired",
         "proof_requires_review"
       ]
     },

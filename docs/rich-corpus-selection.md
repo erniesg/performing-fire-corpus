@@ -15,6 +15,7 @@ retrieval.
 
 A candidate is eligible only when all of these current facts are approved:
 
+- canonical source governance;
 - operation-specific rights and an unexpired rights snapshot;
 - retention;
 - privacy or consent;
@@ -35,11 +36,14 @@ for an ordinary candidate.
 The v1 contracts are:
 
 - `selection-candidate`: stable source/asset identity, evidence scope, declared
-  strata, duplicate cluster, and current authority states;
+  strata, duplicate cluster, and current authority states. It content-binds
+  the exact inventory observation and snapshot plus source-governance, rights,
+  retention, privacy, and transformation snapshot hashes and expiries. It is a
+  compiled input from those authorities, not a way to manufacture approval;
 - `coverage-target`: a versioned, explained minimum for one declared stratum;
 - `selection-decision`: a hash-bound include, exclude, or unresolved decision
-  with authority, rationale, rights snapshot, expiry, policy version, and
-  review trigger;
+  with the full candidate digest, authority, rationale, rights snapshot,
+  expiry, policy version, and review trigger;
 - `selection-exclusion`: a non-destructive explanation linked to its decision;
 - `selection-manifest`: the exact inventory snapshot, policy version,
   decisions, exclusions, coverage results, unresolved metadata, and honest
@@ -67,6 +71,10 @@ controls, or weaken rights and consent.
 Changing the inventory snapshot, policy version, candidate facts, targets, or
 decision facts changes the bound identifiers. Identical inputs produce
 identical bytes and decisions, including deterministic tie handling.
+Manifest validation recomputes coverage and universe accounting from the
+embedded content-bound candidates, targets, and decisions. It also requires
+each exclusion to match its exact decision, so recomputing only the outer hash
+cannot falsify those facts.
 
 ## Review boundary
 
@@ -75,6 +83,10 @@ expiry, review trigger, evidence scope, and policy version. Re-evaluation is
 required when inventory evidence, rights, retention, privacy, transformation
 eligibility, duplicate evidence, coverage priorities, or policy versions
 change.
+An include decision and its manifest expire no later than the earliest
+underlying source-governance, rights, retention, privacy, or transformation
+authority. Expired and unresolved authority can only produce a non-authorizing
+exclusion or unresolved decision.
 
 Selection manifests queue only stable IDs and reviewed object identifiers for
 later workers. They contain no proposal material, personal identities, local

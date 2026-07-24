@@ -9,6 +9,7 @@
     "record_type",
     "selection_decision_id",
     "candidate_id",
+    "candidate_sha256",
     "source_id",
     "asset_id",
     "decision",
@@ -27,6 +28,7 @@
     "record_type": {"const": "selection_decision"},
     "selection_decision_id": {"type": "string", "pattern": "^selection_decision_[0-9a-f]{24}$"},
     "candidate_id": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
     "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
     "decision": {"enum": ["include", "exclude", "unresolved"]},
@@ -43,9 +45,15 @@
         "retrieval_unknown",
         "rights_not_approved",
         "rights_expired",
+        "source_governance_not_approved",
+        "source_governance_expired",
         "retention_not_approved",
+        "retention_expired",
         "privacy_not_approved",
+        "privacy_expired",
         "transformation_not_approved",
+        "transformation_expired",
+        "metadata_unresolved",
         "proof_requires_review"
       ]
     },
@@ -65,5 +73,25 @@
       "maxLength": 512,
       "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"decision": {"const": "include"}}},
+      "then": {"properties": {"reason_code": {"const": "selected_for_coverage"}}}
+    },
+    {
+      "if": {"properties": {"decision": {"const": "unresolved"}}},
+      "then": {"properties": {"reason_code": {"const": "metadata_unresolved"}}}
+    },
+    {
+      "if": {"properties": {"decision": {"const": "exclude"}}},
+      "then": {
+        "properties": {
+          "reason_code": {
+            "not": {"enum": ["selected_for_coverage", "metadata_unresolved"]}
+          }
+        }
+      }
+    }
+  ]
 }

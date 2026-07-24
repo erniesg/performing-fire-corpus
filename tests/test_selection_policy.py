@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import unittest
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from performing_fire_corpus.selection import (
     SelectionPolicyError,
+    bind_selection_candidate,
     evaluate_selection,
     validate_coverage_target,
     validate_selection_candidate,
@@ -24,6 +27,11 @@ from performing_fire_corpus.selection import (
 SCHEMA_DIR = ROOT / "schemas" / "v1"
 RIGHTS_SHA = "a" * 64
 INVENTORY_SHA = "b" * 64
+GOVERNANCE_SHA = "c" * 64
+RETENTION_SHA = "d" * 64
+PRIVACY_SHA = "e" * 64
+TRANSFORMATION_SHA = "f" * 64
+OBSERVATION_SHA = "1" * 64
 NOW = "2026-07-24T00:00:00Z"
 EXPIRES = "2026-08-24T00:00:00Z"
 
@@ -41,19 +49,23 @@ def candidate(
     duplicate_cluster_id: str | None = None,
     inventory_state: str = "observed",
     retrieval_state: str = "available",
+    source_governance_state: str = "approved",
     rights_state: str = "approved",
     retention_state: str = "approved",
     privacy_state: str = "approved",
     transformation_state: str = "approved",
     pipeline_proof: bool = False,
+    authority_expires_at: str = EXPIRES,
 ) -> dict[str, object]:
-    return {
+    return bind_selection_candidate({
         "schema_version": 1,
         "record_type": "selection_candidate",
         "candidate_id": f"candidate_{suffix}",
         "source_id": source_id,
         "asset_id": f"asset_{suffix}",
         "inventory_observation_id": f"observation_{suffix}",
+        "inventory_observation_sha256": OBSERVATION_SHA,
+        "inventory_snapshot_sha256": INVENTORY_SHA,
         "inventory_state": inventory_state,
         "retrieval_state": retrieval_state,
         "dimensions": {
@@ -66,15 +78,50 @@ def candidate(
         },
         "technical_quality": technical_quality,
         "duplicate_cluster_id": duplicate_cluster_id,
+        "source_governance_state": source_governance_state,
+        "source_governance_snapshot_sha256": GOVERNANCE_SHA,
+        "source_governance_expires_at": authority_expires_at,
         "rights_state": rights_state,
         "rights_snapshot_sha256": RIGHTS_SHA,
-        "rights_expires_at": EXPIRES,
+        "rights_expires_at": authority_expires_at,
         "retention_state": retention_state,
+        "retention_snapshot_sha256": RETENTION_SHA,
+        "retention_expires_at": authority_expires_at,
         "privacy_state": privacy_state,
+        "privacy_snapshot_sha256": PRIVACY_SHA,
+        "privacy_expires_at": authority_expires_at,
         "transformation_state": transformation_state,
+        "transformation_snapshot_sha256": TRANSFORMATION_SHA,
+        "transformation_expires_at": authority_expires_at,
         "pipeline_proof": pipeline_proof,
         "evidence_scope": "Synthetic metadata fixture only.",
+    })
+
+
+def rebind_candidate(value: dict[str, object]) -> dict[str, object]:
+    facts = copy.deepcopy(value)
+    facts.pop("candidate_sha256", None)
+    return bind_selection_candidate(facts)
+
+
+def rebind_record(
+    value: dict[str, object], *, prefix: str, id_field: str
+) -> dict[str, object]:
+    rebound = copy.deepcopy(value)
+    payload = {
+        key: child for key, child in rebound.items() if key != id_field
     }
+    encoded = (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    rebound[id_field] = f"{prefix}_{hashlib.sha256(encoded).hexdigest()[:24]}"
+    return rebound
 
 
 def target(
@@ -204,6 +251,7 @@ class SelectionPolicyTests(unittest.TestCase):
     def test_expired_rights_never_enter_the_rich_corpus(self) -> None:
         expired = candidate("expired", technical_quality="high")
         expired["rights_expires_at"] = "2026-07-23T00:00:00Z"
+        expired = rebind_candidate(expired)
         current = candidate("current", technical_quality="low")
         manifest = evaluate(
             [expired, current],
@@ -278,6 +326,7 @@ class SelectionPolicyTests(unittest.TestCase):
     def test_coverage_gaps_and_unresolved_candidates_are_explicit(self) -> None:
         missing_metadata = candidate("missing")
         missing_metadata["dimensions"]["period"] = "unknown"
+        missing_metadata = rebind_candidate(missing_metadata)
         manifest = evaluate(
             [missing_metadata],
             [
@@ -290,11 +339,13 @@ class SelectionPolicyTests(unittest.TestCase):
         }
         self.assertEqual("underrepresented", coverage["coverage_period"]["state"])
         self.assertEqual(1, coverage["coverage_period"]["shortfall"])
-        self.assertEqual("met", coverage["coverage_video"]["state"])
+        self.assertEqual("underrepresented", coverage["coverage_video"]["state"])
         self.assertEqual(
             ["candidate_missing"],
             manifest["unresolved_metadata_candidate_ids"],
         )
+        self.assertEqual(1, manifest["universe_counts"]["unresolved"])
+        self.assertEqual("unresolved", manifest["decisions"][0]["decision"])
 
     def test_policy_version_changes_bound_ids_but_not_selection_facts(self) -> None:
         candidates = [candidate("001")]
@@ -340,6 +391,130 @@ class SelectionPolicyTests(unittest.TestCase):
         mutation["reason_code"] = "coverage_not_needed"
         with self.assertRaises(SelectionPolicyError):
             validate_selection_exclusion(mutation)
+
+    def test_decision_and_manifest_expiry_clip_to_every_authority(self) -> None:
+        authority_expiry = "2026-07-30T00:00:00Z"
+        manifest = evaluate(
+            [candidate("short", authority_expires_at=authority_expiry)],
+            [target("video", dimension="medium", value="video")],
+        )
+        self.assertEqual(authority_expiry, manifest["expires_at"])
+        self.assertEqual(authority_expiry, manifest["decisions"][0]["expires_at"])
+
+    def test_noncanonical_source_and_inventory_snapshot_fail_closed(self) -> None:
+        facts = candidate("source")
+        facts["source_id"] = "unregistered-source"
+        facts["dimensions"]["source"] = "unregistered-source"
+        with self.assertRaises(SelectionPolicyError):
+            rebind_candidate(facts)
+
+        stale = candidate("stale")
+        stale["inventory_snapshot_sha256"] = "9" * 64
+        stale = rebind_candidate(stale)
+        with self.assertRaises(SelectionPolicyError):
+            evaluate(
+                [stale],
+                [target("video", dimension="medium", value="video")],
+            )
+
+    def test_contradictory_bound_decision_fails_closed(self) -> None:
+        manifest = evaluate(
+            [candidate("001")],
+            [target("video", dimension="medium", value="video")],
+        )
+        contradictory = copy.deepcopy(manifest["decisions"][0])
+        contradictory["decision"] = "exclude"
+        contradictory = rebind_record(
+            contradictory,
+            prefix="selection_decision",
+            id_field="selection_decision_id",
+        )
+        with self.assertRaises(SelectionPolicyError):
+            validate_selection_decision(contradictory)
+
+    def test_manifest_recomputes_coverage_despite_a_valid_hash(self) -> None:
+        manifest = evaluate(
+            [candidate("001")],
+            [target("video", dimension="medium", value="video")],
+        )
+        forged = copy.deepcopy(manifest)
+        forged["coverage"][0]["selected_candidates"] = 0
+        forged["coverage"][0]["shortfall"] = 1
+        forged["coverage"][0]["state"] = "underrepresented"
+        forged = rebind_record(
+            forged,
+            prefix="selection_manifest",
+            id_field="selection_manifest_id",
+        )
+        with self.assertRaises(SelectionPolicyError):
+            validate_selection_manifest(forged)
+
+    def test_target_priority_selects_duplicate_representative(self) -> None:
+        priority = candidate(
+            "priority",
+            topic="priority_topic",
+            duplicate_cluster_id="duplicate_cluster_priority",
+            technical_quality="low",
+        )
+        broad = candidate(
+            "broad",
+            topic="secondary_topic",
+            performance_context="secondary_context",
+            duplicate_cluster_id="duplicate_cluster_priority",
+            technical_quality="high",
+        )
+        manifest = evaluate(
+            [broad, priority],
+            [
+                target(
+                    "priority",
+                    dimension="topic",
+                    value="priority_topic",
+                    priority=1,
+                ),
+                target(
+                    "secondary_topic",
+                    dimension="topic",
+                    value="secondary_topic",
+                    priority=99,
+                ),
+                target(
+                    "secondary_context",
+                    dimension="performance_context",
+                    value="secondary_context",
+                    priority=99,
+                ),
+            ],
+        )
+        decisions = {
+            item["candidate_id"]: item for item in manifest["decisions"]
+        }
+        self.assertEqual("include", decisions["candidate_priority"]["decision"])
+        self.assertEqual(
+            "duplicate_not_representative",
+            decisions["candidate_broad"]["reason_code"],
+        )
+
+    def test_manifest_schema_rejects_loose_nested_records_and_target_bounds(self) -> None:
+        manifest = evaluate(
+            [candidate("001"), candidate("blocked", rights_state="blocked")],
+            [target("video", dimension="medium", value="video")],
+        )
+        schema = json.loads(
+            (SCHEMA_DIR / "selection-manifest.json").read_text(encoding="utf-8")
+        )
+        validator = Draft202012Validator(
+            schema, format_checker=FormatChecker()
+        )
+        for field in ("candidates", "decisions", "exclusions"):
+            malformed = copy.deepcopy(manifest)
+            malformed[field] = [{}]
+            with self.assertRaises(ValidationError):
+                validator.validate(malformed)
+        excessive = copy.deepcopy(manifest)
+        excessive["coverage_targets"][0]["priority"] = 100
+        with self.assertRaises(ValidationError):
+            validator.validate(excessive)
 
 
 if __name__ == "__main__":

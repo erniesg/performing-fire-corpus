@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
+from performing_fire_corpus.governance import CANONICAL_SOURCE_IDS
 from performing_fire_corpus.redaction import sanitize
 
 
@@ -96,6 +97,27 @@ def _parse_time(value: str, field: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _utc_text(value: datetime) -> str:
+    return (
+        value.astimezone(UTC)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _candidate_authority_expiry(candidate: Mapping[str, Any]) -> datetime:
+    return min(
+        _parse_time(str(candidate[field]), field)
+        for field in (
+            "source_governance_expires_at",
+            "rights_expires_at",
+            "retention_expires_at",
+            "privacy_expires_at",
+            "transformation_expires_at",
+        )
+    )
+
+
 def _validate_window(decided_at: str, expires_at: str) -> None:
     if _parse_time(decided_at, "decided_at") >= _parse_time(
         expires_at, "expires_at"
@@ -113,16 +135,48 @@ def validate_selection_candidate(value: Mapping[str, Any]) -> dict[str, Any]:
     """Validate one source-universe candidate without changing its facts."""
 
     record = _validate_schema("selection-candidate", value)
+    if record["source_id"] not in CANONICAL_SOURCE_IDS:
+        raise SelectionPolicyError(
+            "candidate source is not in the canonical registry"
+        )
     if record["dimensions"]["source"] != record["source_id"]:
         raise SelectionPolicyError("candidate source dimension is not bound")
     _parse_time(record["rights_expires_at"], "rights_expires_at")
+    for field in (
+        "source_governance_expires_at",
+        "retention_expires_at",
+        "privacy_expires_at",
+        "transformation_expires_at",
+    ):
+        _parse_time(record[field], field)
     for field in ("languages", "mediums", "topics", "performance_contexts"):
         values = record["dimensions"][field]
         if values != sorted(set(values)):
             raise SelectionPolicyError(
                 f"candidate dimension {field} must be unique and sorted"
             )
+    if record["candidate_sha256"] != _candidate_sha256(record):
+        raise SelectionPolicyError("selection candidate binding is invalid")
     return record
+
+
+def _candidate_sha256(value: Mapping[str, Any]) -> str:
+    payload = {
+        key: child
+        for key, child in value.items()
+        if key != "candidate_sha256"
+    }
+    return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+
+
+def bind_selection_candidate(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind exact inventory and authority facts into one candidate."""
+
+    if "candidate_sha256" in value:
+        raise SelectionPolicyError("candidate binding accepts facts without a hash")
+    record = copy.deepcopy(dict(value))
+    record["candidate_sha256"] = _candidate_sha256(record)
+    return validate_selection_candidate(record)
 
 
 def validate_coverage_target(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -142,6 +196,18 @@ def validate_selection_decision(value: Mapping[str, Any]) -> dict[str, Any]:
     )
     if record["selection_decision_id"] != expected:
         raise SelectionPolicyError("selection decision binding is invalid")
+    reason = record["reason_code"]
+    if record["decision"] == "include" and reason != "selected_for_coverage":
+        raise SelectionPolicyError("include decisions require a selection reason")
+    if record["decision"] == "exclude" and reason in {
+        "selected_for_coverage",
+        "metadata_unresolved",
+    }:
+        raise SelectionPolicyError("exclude decision reason is contradictory")
+    if record["decision"] == "unresolved" and reason != "metadata_unresolved":
+        raise SelectionPolicyError(
+            "unresolved decisions require unresolved metadata"
+        )
     return record
 
 
@@ -172,6 +238,8 @@ def _reason_for(
         return f"inventory_{candidate['inventory_state']}"
     if candidate["retrieval_state"] != "available":
         return f"retrieval_{candidate['retrieval_state']}"
+    if candidate["source_governance_state"] != "approved":
+        return "source_governance_not_approved"
     for field, reason in (
         ("rights_state", "rights_not_approved"),
         ("retention_state", "retention_not_approved"),
@@ -180,12 +248,20 @@ def _reason_for(
     ):
         if candidate[field] != "approved":
             return reason
-    if _parse_time(
-        str(candidate["rights_expires_at"]), "rights_expires_at"
-    ) <= _parse_time(evaluated_at, "decided_at"):
-        return "rights_expired"
+    evaluated = _parse_time(evaluated_at, "decided_at")
+    for field, reason in (
+        ("source_governance_expires_at", "source_governance_expired"),
+        ("rights_expires_at", "rights_expired"),
+        ("retention_expires_at", "retention_expired"),
+        ("privacy_expires_at", "privacy_expired"),
+        ("transformation_expires_at", "transformation_expired"),
+    ):
+        if _parse_time(str(candidate[field]), field) <= evaluated:
+            return reason
     if candidate["pipeline_proof"]:
         return "proof_requires_review"
+    if _unknown_dimensions(candidate):
+        return "metadata_unresolved"
     return None
 
 
@@ -200,12 +276,14 @@ _RATIONALES = {
     ),
     "inventory_unavailable": "Excluded because the inventory record is unavailable.",
     "privacy_not_approved": "Excluded because current privacy authority is not approved.",
+    "privacy_expired": "Excluded because current privacy authority expired.",
     "proof_requires_review": (
         "Excluded from automatic selection; proof assets require ordinary reviewed selection."
     ),
     "retention_not_approved": (
         "Excluded because current retention authority is not approved."
     ),
+    "retention_expired": "Excluded because current retention authority expired.",
     "retrieval_blocked": "Excluded because retrieval is blocked.",
     "retrieval_unavailable": "Excluded because retrievable content is unavailable.",
     "retrieval_unknown": "Excluded because retrieval availability is unknown.",
@@ -215,11 +293,23 @@ _RATIONALES = {
     "rights_expired": (
         "Excluded because operation-specific rights are no longer current."
     ),
+    "source_governance_not_approved": (
+        "Excluded because current source governance is not approved."
+    ),
+    "source_governance_expired": (
+        "Excluded because current source governance expired."
+    ),
+    "metadata_unresolved": (
+        "Unresolved because declared selection metadata is incomplete."
+    ),
     "selected_for_coverage": (
         "Included to satisfy declared coverage after all authority gates passed."
     ),
     "transformation_not_approved": (
         "Excluded because downstream transformation is not approved."
+    ),
+    "transformation_expired": (
+        "Excluded because downstream transformation authority expired."
     ),
 }
 
@@ -240,6 +330,7 @@ def _build_decision(
         "record_type": "selection_decision",
         "selection_decision_id": "selection_decision_pending",
         "candidate_id": candidate["candidate_id"],
+        "candidate_sha256": candidate["candidate_sha256"],
         "source_id": candidate["source_id"],
         "asset_id": candidate["asset_id"],
         "decision": decision,
@@ -293,6 +384,78 @@ def _unknown_dimensions(candidate: Mapping[str, Any]) -> bool:
     )
 
 
+def _selection_outcome(
+    candidates: Sequence[Mapping[str, Any]],
+    targets: Sequence[Mapping[str, Any]],
+    *,
+    decided_at: str,
+) -> tuple[dict[str, str], set[str]]:
+    reasons: dict[str, str] = {}
+    eligible: list[Mapping[str, Any]] = []
+    for item in candidates:
+        reason = _reason_for(item, evaluated_at=decided_at)
+        if reason is None:
+            eligible.append(item)
+        else:
+            reasons[str(item["candidate_id"])] = reason
+
+    remaining = {str(item["candidate_id"]): item for item in eligible}
+    selected: set[str] = set()
+    selected_by_target = {
+        str(target["coverage_target_id"]): 0 for target in targets
+    }
+    while True:
+        unmet = [
+            target
+            for target in targets
+            if selected_by_target[str(target["coverage_target_id"])]
+            < target["minimum_selected"]
+        ]
+        if not unmet:
+            break
+        ranked: list[
+            tuple[tuple[Any, ...], Mapping[str, Any], list[Mapping[str, Any]]]
+        ] = []
+        for item in remaining.values():
+            contributions = [
+                target for target in unmet if _matches(item, target)
+            ]
+            if not contributions:
+                continue
+            ranked.append(
+                (
+                    (
+                        -sum(
+                            max(1, 100 - int(target["priority"]))
+                            for target in contributions
+                        ),
+                        -len(contributions),
+                        -_QUALITY_RANK[str(item["technical_quality"])],
+                        str(item["candidate_id"]),
+                    ),
+                    item,
+                    contributions,
+                )
+            )
+        if not ranked:
+            break
+        _, chosen, contributions = min(ranked, key=lambda value: value[0])
+        chosen_id = str(chosen["candidate_id"])
+        selected.add(chosen_id)
+        remaining.pop(chosen_id)
+        cluster_id = chosen["duplicate_cluster_id"]
+        if cluster_id is not None:
+            for candidate_id, duplicate in list(remaining.items()):
+                if duplicate["duplicate_cluster_id"] == cluster_id:
+                    reasons[candidate_id] = "duplicate_not_representative"
+                    remaining.pop(candidate_id)
+        for target in contributions:
+            selected_by_target[str(target["coverage_target_id"])] += 1
+    for candidate_id in remaining:
+        reasons[candidate_id] = "coverage_not_needed"
+    return reasons, selected
+
+
 def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     """Validate one complete, reproducible selection snapshot."""
 
@@ -305,11 +468,69 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     exclusions = [
         validate_selection_exclusion(item) for item in record["exclusions"]
     ]
+    candidates = [
+        validate_selection_candidate(item) for item in record["candidates"]
+    ]
+    targets = [
+        validate_coverage_target(item) for item in record["coverage_targets"]
+    ]
+    if targets != sorted(
+        targets, key=lambda item: (item["priority"], item["coverage_target_id"])
+    ):
+        raise SelectionPolicyError("manifest coverage targets are not canonical")
     candidate_ids = [item["candidate_id"] for item in decisions]
     if candidate_ids != sorted(set(candidate_ids)):
         raise SelectionPolicyError(
             "manifest decisions must cover unique, sorted candidates"
         )
+    if [item["candidate_id"] for item in candidates] != candidate_ids:
+        raise SelectionPolicyError(
+            "manifest candidates must exactly match its decisions"
+        )
+    candidate_index = {item["candidate_id"]: item for item in candidates}
+    expected_reasons, expected_selected = _selection_outcome(
+        candidates,
+        targets,
+        decided_at=record["decided_at"],
+    )
+    for decision in decisions:
+        candidate = candidate_index[decision["candidate_id"]]
+        expected_reason = (
+            "selected_for_coverage"
+            if decision["candidate_id"] in expected_selected
+            else expected_reasons[decision["candidate_id"]]
+        )
+        expected_decision = (
+            "include"
+            if decision["candidate_id"] in expected_selected
+            else "unresolved"
+            if expected_reason == "metadata_unresolved"
+            else "exclude"
+        )
+        if (
+            decision["source_id"] != candidate["source_id"]
+            or decision["asset_id"] != candidate["asset_id"]
+            or decision["candidate_sha256"] != candidate["candidate_sha256"]
+            or decision["rights_snapshot_sha256"]
+            != candidate["rights_snapshot_sha256"]
+            or decision["evidence_scope"] != candidate["evidence_scope"]
+            or decision["selection_policy_version"]
+            != record["selection_policy_version"]
+            or decision["authority_class"] != record["decision_authority"]
+            or decision["decided_at"] != record["decided_at"]
+            or decision["decision"] != expected_decision
+            or decision["reason_code"] != expected_reason
+            or decision["rationale"] != _RATIONALES[expected_reason]
+            or decision["review_trigger"] != record["review_trigger"]
+            or (
+                decision["decision"] == "include"
+                and _parse_time(decision["expires_at"], "expires_at")
+                > _candidate_authority_expiry(candidate)
+            )
+        ):
+            raise SelectionPolicyError(
+                "manifest decision is not bound to current candidate authority"
+            )
     excluded_ids = [
         item["candidate_id"]
         for item in decisions
@@ -319,6 +540,24 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         raise SelectionPolicyError(
             "manifest exclusions must exactly match excluded decisions"
         )
+    decision_index = {item["candidate_id"]: item for item in decisions}
+    for exclusion in exclusions:
+        decision = decision_index[exclusion["candidate_id"]]
+        if any(
+            exclusion[field] != decision[field]
+            for field in (
+                "selection_decision_id",
+                "candidate_id",
+                "source_id",
+                "asset_id",
+                "reason_code",
+                "rationale",
+                "review_trigger",
+            )
+        ):
+            raise SelectionPolicyError(
+                "manifest exclusion does not match its exact decision"
+            )
     counts = record["universe_counts"]
     if counts != {
         "known_candidates": len(decisions),
@@ -327,6 +566,62 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         "unresolved": sum(item["decision"] == "unresolved" for item in decisions),
     }:
         raise SelectionPolicyError("manifest universe accounting is inconsistent")
+    expected_manifest_expiry = min(
+        _parse_time(item["expires_at"], "expires_at")
+        for item in decisions
+    )
+    if _parse_time(record["expires_at"], "expires_at") != expected_manifest_expiry:
+        raise SelectionPolicyError(
+            "manifest expiry is not bound to its decisions"
+        )
+    if any(
+        item["inventory_snapshot_sha256"]
+        != record["inventory_snapshot_sha256"]
+        for item in candidates
+    ):
+        raise SelectionPolicyError("manifest candidate inventory binding is stale")
+    expected_coverage = []
+    selected_ids = {
+        item["candidate_id"]
+        for item in decisions
+        if item["decision"] == "include"
+    }
+    for target in sorted(targets, key=lambda item: item["coverage_target_id"]):
+        observed = sum(_matches(item, target) for item in candidates)
+        eligible = sum(
+            _matches(item, target)
+            and _reason_for(item, evaluated_at=record["decided_at"]) is None
+            for item in candidates
+        )
+        selected = sum(
+            _matches(candidate_index[candidate_id], target)
+            for candidate_id in selected_ids
+        )
+        shortfall = max(0, target["minimum_selected"] - selected)
+        expected_coverage.append(
+            {
+                "coverage_target_id": target["coverage_target_id"],
+                "dimension": target["dimension"],
+                "value": target["value"],
+                "minimum_selected": target["minimum_selected"],
+                "observed_candidates": observed,
+                "eligible_candidates": eligible,
+                "selected_candidates": selected,
+                "shortfall": shortfall,
+                "state": "met" if shortfall == 0 else "underrepresented",
+            }
+        )
+    if record["coverage"] != expected_coverage:
+        raise SelectionPolicyError("manifest coverage facts are inconsistent")
+    unresolved_ids = sorted(
+        item["candidate_id"]
+        for item in decisions
+        if item["decision"] == "unresolved"
+    )
+    if record["unresolved_metadata_candidate_ids"] != unresolved_ids:
+        raise SelectionPolicyError(
+            "manifest unresolved candidate accounting is inconsistent"
+        )
     expected = _bound_id(
         "selection_manifest", record, "selection_manifest_id"
     )
@@ -369,103 +664,50 @@ def evaluate_selection(
     target_ids = [item["coverage_target_id"] for item in checked_targets]
     if len(target_ids) != len(set(target_ids)):
         raise SelectionPolicyError("coverage target IDs must be unique")
-
-    reasons: dict[str, str] = {}
-    eligible: list[dict[str, Any]] = []
-    for item in checked_candidates:
-        reason = _reason_for(item, evaluated_at=decided_at)
-        if reason is None:
-            eligible.append(item)
-        else:
-            reasons[item["candidate_id"]] = reason
-
-    target_match_count = {
-        item["candidate_id"]: sum(
-            _matches(item, target) for target in checked_targets
+    if any(
+        item["inventory_snapshot_sha256"] != inventory_snapshot_sha256
+        for item in checked_candidates
+    ):
+        raise SelectionPolicyError(
+            "candidate inventory binding does not match the selected snapshot"
         )
-        for item in eligible
-    }
-    clusters: dict[str, list[dict[str, Any]]] = {}
-    unclustered: list[dict[str, Any]] = []
-    for item in eligible:
-        cluster_id = item["duplicate_cluster_id"]
-        if cluster_id is None:
-            unclustered.append(item)
-        else:
-            clusters.setdefault(cluster_id, []).append(item)
-    representatives = list(unclustered)
-    for members in clusters.values():
-        ordered = sorted(
-            members,
-            key=lambda item: (
-                -target_match_count[item["candidate_id"]],
-                -_QUALITY_RANK[item["technical_quality"]],
-                item["candidate_id"],
-            ),
-        )
-        representatives.append(ordered[0])
-        for duplicate in ordered[1:]:
-            reasons[duplicate["candidate_id"]] = "duplicate_not_representative"
 
-    remaining = {
-        item["candidate_id"]: item for item in representatives
-    }
-    selected: set[str] = set()
-    selected_by_target = {
-        target["coverage_target_id"]: 0 for target in checked_targets
-    }
-    while True:
-        unmet = [
-            target
-            for target in checked_targets
-            if selected_by_target[target["coverage_target_id"]]
-            < target["minimum_selected"]
-        ]
-        if not unmet:
-            break
-        ranked: list[tuple[tuple[Any, ...], dict[str, Any], list[dict[str, Any]]]] = []
-        for item in remaining.values():
-            contributions = [target for target in unmet if _matches(item, target)]
-            if not contributions:
-                continue
-            ranked.append(
-                (
-                    (
-                        -sum(
-                            max(1, 100 - int(target["priority"]))
-                            for target in contributions
-                        ),
-                        -len(contributions),
-                        -_QUALITY_RANK[item["technical_quality"]],
-                        item["candidate_id"],
-                    ),
-                    item,
-                    contributions,
-                )
-            )
-        if not ranked:
-            break
-        _, chosen, contributions = min(ranked, key=lambda value: value[0])
-        selected.add(chosen["candidate_id"])
-        remaining.pop(chosen["candidate_id"])
-        for target in contributions:
-            selected_by_target[target["coverage_target_id"]] += 1
-    for candidate_id in remaining:
-        reasons[candidate_id] = "coverage_not_needed"
+    reasons, selected = _selection_outcome(
+        checked_candidates,
+        checked_targets,
+        decided_at=decided_at,
+    )
 
+    global_expiry = _parse_time(expires_at, "expires_at")
     decisions = []
     for item in checked_candidates:
         included = item["candidate_id"] in selected
-        reason = "selected_for_coverage" if included else reasons[item["candidate_id"]]
+        reason = (
+            "selected_for_coverage"
+            if included
+            else reasons[item["candidate_id"]]
+        )
+        unresolved = reason == "metadata_unresolved"
+        decision_expiry = (
+            min(global_expiry, _candidate_authority_expiry(item))
+            if included
+            else global_expiry
+        )
         decisions.append(
             _build_decision(
                 item,
-                decision="include" if included else "exclude",
+                decision=(
+                    "include"
+                    if included
+                    else "unresolved"
+                    if unresolved
+                    else "exclude"
+                ),
                 reason_code=reason,
                 policy_version=policy_version,
                 decision_authority=decision_authority,
                 decided_at=decided_at,
-                expires_at=expires_at,
+                expires_at=_utc_text(decision_expiry),
                 review_trigger=review_trigger,
             )
         )
@@ -506,6 +748,12 @@ def evaluate_selection(
             }
         )
 
+    included_expiries = [
+        _parse_time(item["expires_at"], "expires_at")
+        for item in decisions
+        if item["decision"] == "include"
+    ]
+    manifest_expiry = min([global_expiry, *included_expiries])
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "record_type": "selection_manifest",
@@ -514,7 +762,8 @@ def evaluate_selection(
         "selection_policy_version": policy_version,
         "decision_authority": decision_authority,
         "decided_at": decided_at,
-        "expires_at": expires_at,
+        "expires_at": _utc_text(manifest_expiry),
+        "candidates": checked_candidates,
         "review_trigger": review_trigger,
         "coverage_targets": checked_targets,
         "decisions": decisions,
@@ -530,8 +779,8 @@ def evaluate_selection(
         },
         "unresolved_metadata_candidate_ids": sorted(
             item["candidate_id"]
-            for item in checked_candidates
-            if _unknown_dimensions(item)
+            for item in decisions
+            if item["decision"] == "unresolved"
         ),
     }
     manifest["selection_manifest_id"] = _bound_id(
