@@ -41,6 +41,7 @@ _DURATION = re.compile(
     r"^P(?=.+)(?:[0-9]+D)?(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?$"
 )
 _SAFE_QUERY_LITERAL = re.compile(r"^[A-Za-z0-9@._~,-]{1,256}$")
+_OPAQUE_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
 _OFFICIAL_METADATA_PARTS = frozenset(
     {"contentDetails", "id", "liveStreamingDetails", "status"}
 )
@@ -337,6 +338,35 @@ def validate_adapter_declaration(
         ):
             continue
         if (
+            contract.get("value_type") == "opaque_identifier"
+            and set(contract) == {"exact_value", "value_type"}
+            and parameter == "playlistId"
+            and isinstance(contract["exact_value"], str)
+            and _OPAQUE_PUBLIC_IDENTIFIER.fullmatch(
+                contract["exact_value"]
+            )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "opaque_identifier_list"
+            and set(contract)
+            == {"exact_value", "max_items", "value_type"}
+            and parameter == "id"
+            and contract["max_items"] == 50
+            and isinstance(contract["exact_value"], str)
+        ):
+            identifiers = contract["exact_value"].split(",")
+            if (
+                identifiers
+                and len(identifiers) <= contract["max_items"]
+                and identifiers == sorted(set(identifiers))
+                and all(
+                    _OPAQUE_PUBLIC_IDENTIFIER.fullmatch(identifier)
+                    for identifier in identifiers
+                )
+            ):
+                continue
+        if (
             contract.get("value_type") == "metadata_parts"
             and set(contract) == {"allowed_values", "value_type"}
             and isinstance(contract["allowed_values"], list)
@@ -542,10 +572,14 @@ def _validate_request(
                 raise AdapterConformanceError(
                     "request query is not bound to the checkpoint cursor"
                 )
-        elif value_type == "literal":
+        elif value_type in {
+            "literal",
+            "opaque_identifier",
+            "opaque_identifier_list",
+        }:
             if query_values.get(parameter) != contract["exact_value"]:
                 raise AdapterConformanceError(
-                    "request query value is outside its reviewed literal"
+                    "request query value is outside its reviewed contract"
                 )
         elif value_type == "metadata_parts":
             if query_values.get(parameter) != ",".join(
@@ -881,9 +915,12 @@ class OfflineConformanceHarness:
             "adapter_lineage_sha256",
             None,
         )
-        current_lineage = (
-            None if lineage_builder is None else lineage_builder()
-        )
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            current_lineage = (
+                None if lineage_builder is None else lineage_builder()
+            )
         if (
             current_lineage != checkpoint["adapter_lineage_sha256"]
             or (
@@ -912,7 +949,10 @@ class OfflineConformanceHarness:
                     "checkpoint omits adapter runtime state"
                 )
             try:
-                restore_runtime(copy.deepcopy(runtime_checkpoint))
+                with deny_live_network(
+                    additional_entry_points=self._network_entry_points
+                ):
+                    restore_runtime(copy.deepcopy(runtime_checkpoint))
             except Exception as error:
                 raise AdapterConformanceError(
                     "adapter runtime checkpoint is invalid"
@@ -1223,7 +1263,10 @@ class OfflineConformanceHarness:
             None,
         )
         if runtime_checkpoint_builder is not None:
-            runtime_checkpoint = runtime_checkpoint_builder()
+            with deny_live_network(
+                additional_entry_points=self._network_entry_points
+            ):
+                runtime_checkpoint = runtime_checkpoint_builder()
             if (
                 not isinstance(runtime_checkpoint, Mapping)
                 or sanitize(runtime_checkpoint, environ={})
@@ -1237,9 +1280,12 @@ class OfflineConformanceHarness:
             "adapter_lineage_sha256",
             None,
         )
-        adapter_lineage_sha256 = (
-            None if lineage_builder is None else lineage_builder()
-        )
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            adapter_lineage_sha256 = (
+                None if lineage_builder is None else lineage_builder()
+            )
         if (
             adapter_lineage_sha256 is not None
             and (
@@ -1317,7 +1363,10 @@ class OfflineConformanceHarness:
             None,
         )
         if lineage_builder is not None:
-            lineage_sha256 = lineage_builder()
+            with deny_live_network(
+                additional_entry_points=self._network_entry_points
+            ):
+                lineage_sha256 = lineage_builder()
             if (
                 not isinstance(lineage_sha256, str)
                 or not re.fullmatch(r"[0-9a-f]{64}", lineage_sha256)

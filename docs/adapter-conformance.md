@@ -30,7 +30,10 @@ and parse one bounded page. `MetadataRequest` intentionally has no headers,
 cookies, request body, credentials, or browser-state surface. A pagination
 value must be derived exactly from the current content-free checkpoint cursor.
 Optional constant query values may be exact reviewed literals or a sorted,
-explicit metadata-part projection;
+explicit metadata-part projection. Opaque platform identifiers use separate
+shape-only contracts: one reviewed playlist identifier or a sorted unique
+batch of at most 50 identifiers. Their random Base64url-compatible contents
+are never interpreted as semantic query instructions;
 credential, signed, content, media, transcript, caption, prose, raw, or
 download-expanding names and values fail closed. Query-key matching is
 case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
@@ -88,11 +91,12 @@ exercises the same cases:
   values, personal data, and machine-local paths.
 
 Network denial is automatic around every adapter request builder, blocker
-detector, parser, identity check, and the complete inherited matrix. It rejects
-DNS lookups, raw socket connect/send entry points, standard-library HTTP
+detector, parser, identity check, runtime-checkpoint builder/restorer,
+adapter-lineage builder, and the complete inherited matrix. It rejects DNS
+lookups, raw socket connect/send entry points, standard-library HTTP
 open/request methods, URL retrieval, and browser open methods. Pass every
 source-specific SDK request method through `additional_network_entry_points`;
-an adapter is non-conformant if its parser or tests require a live SDK,
+an adapter is non-conformant if any callback or test requires a live SDK,
 browser, credential, cache, or remote fixture.
 
 The offline checkpoint is integrity checked and declaration bound. Resume also

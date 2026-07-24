@@ -419,6 +419,55 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         self.assertIn("pageToken=PageToken002", next_request.url)
         self.assertNotIn("key=", next_request.url)
 
+    def test_opaque_ids_are_shape_checked_without_word_scanning(self) -> None:
+        coordinator = youtube_coordinator()
+        resolution = coordinator.channel_adapter().resolve_channel(
+            channel_page(
+                [
+                    channel_item(
+                        "Channel001",
+                        channel_id="UCinventedChannel001",
+                        uploads_playlist_id="UUrawIdentifier001",
+                    )
+                ]
+            )
+        )
+        uploads = coordinator._new_uploads_adapter(resolution)
+        validate_adapter_declaration(uploads, REGISTRY)
+        request = OfflineConformanceHarness(uploads, REGISTRY).next_request()
+        self.assertIn("playlistId=UUrawIdentifier001", request.url)
+
+        video_coordinator = youtube_coordinator()
+        video_inventory = uploads_inventory(
+            video_coordinator,
+            ("rawIdentifier001",),
+        )
+        videos = video_coordinator.videos_adapter(
+            video_inventory,
+            ("rawIdentifier001",),
+        )
+        validate_adapter_declaration(videos, REGISTRY)
+        self.assertIn(
+            "id=rawIdentifier001",
+            OfflineConformanceHarness(videos, REGISTRY).next_request().url,
+        )
+        self.assertEqual(
+            ("rawIdentifier001",),
+            video_inventory.video_ids,
+        )
+
+    def test_base64url_prefix_video_ids_complete_inventory(self) -> None:
+        coordinator = youtube_coordinator()
+        inventory = complete_uploads(
+            coordinator,
+            channel_resolution(coordinator),
+            ("-abcDEF123", "_abcDEF123"),
+        )
+        self.assertEqual(
+            ("-abcDEF123", "_abcDEF123"),
+            inventory.video_ids,
+        )
+
     def test_impossible_publish_timestamp_shape_drifts(self) -> None:
         harness = OfflineConformanceHarness(uploads_adapter(), REGISTRY)
         request = harness.next_request()

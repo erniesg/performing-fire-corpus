@@ -58,6 +58,10 @@ def _digest(value: object) -> str:
     return hashlib.sha256(_canonical(value).encode()).hexdigest()
 
 
+def _video_source_identity(video_id: str) -> str:
+    return f"youtube-id-{hashlib.sha256(video_id.encode()).hexdigest()}"
+
+
 @dataclass(frozen=True, init=False)
 class ChannelResolution:
     handle: str
@@ -666,7 +670,7 @@ class YouTubeUploadsAdapter(_QuotaBoundAdapter):
             },
             "playlistId": {
                 "exact_value": resolution.uploads_playlist_id,
-                "value_type": "literal",
+                "value_type": "opaque_identifier",
             },
         }
 
@@ -730,7 +734,7 @@ class YouTubeUploadsAdapter(_QuotaBoundAdapter):
             records.append(
                 {
                     "record_id": record_id,
-                    "source_identity": video_id,
+                    "source_identity": _video_source_identity(video_id),
                     "metadata": metadata,
                 }
             )
@@ -837,7 +841,8 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
         self.query_parameter_contracts = {
             "id": {
                 "exact_value": ",".join(video_ids),
-                "value_type": "literal",
+                "max_items": 50,
+                "value_type": "opaque_identifier_list",
             },
             "part": {
                 "allowed_values": [
@@ -973,7 +978,7 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
                         if item is None
                         else self.stable_record_id(item)
                     ),
-                    "source_identity": video_id,
+                    "source_identity": _video_source_identity(video_id),
                     "metadata": metadata,
                 }
             )
@@ -1173,7 +1178,9 @@ class YouTubeMetadataCoordinator:
             if (
                 not _PUBLIC_ID.fullmatch(video_id)
                 or record["source_identity_sha256"]
-                != hashlib.sha256(video_id.encode()).hexdigest()
+                != hashlib.sha256(
+                    _video_source_identity(video_id).encode()
+                ).hexdigest()
             ):
                 raise ValueError("uploads manifest video identifier is invalid")
             video_ids.append(video_id)

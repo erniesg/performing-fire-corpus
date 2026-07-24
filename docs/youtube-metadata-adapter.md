@@ -69,7 +69,11 @@ inventory; every record identity digest is rechecked against its video ID.
 `videos.list` accepts only a sorted subset of that inventory, so arbitrary
 public-looking video IDs cannot enter enrichment. Every harness checkpoint
 also binds the adapter-lineage digest, preventing resume under another channel
-or uploads inventory.
+or uploads inventory. Platform playlist and video IDs are validated as opaque
+Base64url-compatible identifiers, not scanned for accidental word fragments;
+normalized source identities use a fixed safe-prefixed digest so valid IDs
+beginning with `-` or `_` remain representable without exceeding shared
+identity bounds.
 
 ## Completeness and asset boundary
 

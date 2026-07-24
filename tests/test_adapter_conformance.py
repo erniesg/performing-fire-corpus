@@ -216,6 +216,78 @@ class AdapterDeclarationTests(unittest.TestCase):
         with self.assertRaises(AdapterConformanceError):
             OfflineConformanceHarness(adapter, REGISTRY).next_request()
 
+    def test_checkpoint_lineage_and_restore_hooks_are_network_denied(
+        self,
+    ) -> None:
+        class InventedHookClient:
+            @staticmethod
+            def call() -> None:
+                return None
+
+        class HookAdapter(SyntheticMetadataAdapter):
+            network_checkpoint = False
+            network_lineage = False
+            network_restore = False
+
+            def runtime_checkpoint(self) -> dict[str, object]:
+                if self.network_checkpoint:
+                    InventedHookClient.call()
+                return {"runtime_type": "invented"}
+
+            def adapter_lineage_sha256(self) -> str:
+                if self.network_lineage:
+                    InventedHookClient.call()
+                return hashlib.sha256(b"invented-lineage").hexdigest()
+
+            def restore_runtime_checkpoint(
+                self,
+                value: dict[str, object],
+            ) -> None:
+                self.assert_runtime_checkpoint(value)
+                if self.network_restore:
+                    InventedHookClient.call()
+
+            @staticmethod
+            def assert_runtime_checkpoint(value: dict[str, object]) -> None:
+                if value != {"runtime_type": "invented"}:
+                    raise ValueError("invented runtime checkpoint changed")
+
+        entry_points = ((InventedHookClient, "call"),)
+
+        checkpoint_adapter = HookAdapter()
+        checkpoint_adapter.network_checkpoint = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness(
+                checkpoint_adapter,
+                REGISTRY,
+                additional_network_entry_points=entry_points,
+            ).checkpoint()
+
+        lineage_adapter = HookAdapter()
+        lineage_adapter.network_lineage = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness(
+                lineage_adapter,
+                REGISTRY,
+                additional_network_entry_points=entry_points,
+            ).manifest()
+
+        source = OfflineConformanceHarness(HookAdapter(), REGISTRY)
+        checkpoint = source.checkpoint()
+        restore_adapter = HookAdapter()
+        restore_adapter.network_restore = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                restore_adapter,
+                REGISTRY,
+                checkpoint,
+                expected_bounds=source.bounds,
+                expected_checkpoint_sha256=checkpoint[
+                    "checkpoint_sha256"
+                ],
+                additional_network_entry_points=entry_points,
+            )
+
     def test_opaque_case_sensitive_pagination_is_bound_but_not_reported(
         self,
     ) -> None:
