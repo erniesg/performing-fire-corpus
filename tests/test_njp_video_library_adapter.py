@@ -414,6 +414,15 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                 malformed_ordinal,
                 cursor="page-002",
             )
+        repeated_cursor = body.replace(
+            b'<meta name="next-cursor" content="page-003">',
+            b'<meta name="next-cursor" content="page-002">',
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(
+                repeated_cursor,
+                cursor="page-002",
+            )
 
     def test_candidates_require_the_same_admitted_page_and_records(
         self,
@@ -481,6 +490,44 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             adapter.asset_candidates(valueless_asset_marker)
+
+        blocked_page = invented_page(
+            [invented_item("catalogue-001")],
+            access_state="login_required",
+            assets=[
+                {
+                    "record_id": "catalogue-001",
+                    "asset_kind": "asset_kind_video",
+                    "mime_type": "video/mp4",
+                    "url": "/invented-assets/1",
+                }
+            ],
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(blocked_page)
+
+        conflicting_records = invented_page(
+            [
+                invented_item(
+                    "catalogue-001",
+                    language="language_en",
+                ),
+                invented_item(
+                    "catalogue-001",
+                    language="language_ko",
+                ),
+            ],
+            assets=[
+                {
+                    "record_id": "catalogue-001",
+                    "asset_kind": "asset_kind_video",
+                    "mime_type": "video/mp4",
+                    "url": "/invented-assets/1",
+                }
+            ],
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(conflicting_records)
 
     def test_duplicate_controls_and_attributes_fail_closed(self) -> None:
         adapter = InventedVideoLibraryAdapter()

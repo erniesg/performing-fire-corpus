@@ -560,15 +560,32 @@ class NJPVideoLibraryAdapter:
     ) -> tuple[VideoLibraryAssetCandidate, ...]:
         self._require_reviewed_shape()
         admitted = self.parse_page(body, cursor=cursor)
+        if self.detect_access_blocker(body) is not None:
+            raise ValueError("asset page has an access blocker")
         current_page = 1 if cursor is None else _page_number(cursor)
         if (
             not admitted["terminal"]
-            and admitted["next_ordinal"] != current_page
+            and (
+                admitted["next_ordinal"] != current_page
+                or _page_number(admitted["next_cursor"])
+                != current_page + 1
+            )
         ):
-            raise ValueError("asset page ordinal is not admitted")
-        admitted_record_ids = {
-            item["record_id"] for item in admitted["records"]
-        }
+            raise ValueError("asset page pagination is not admitted")
+        admitted_records: dict[str, dict[str, Any]] = {}
+        for record in admitted["records"]:
+            prior = admitted_records.get(record["record_id"])
+            if (
+                prior is not None
+                and (
+                    prior["source_identity"]
+                    != record["source_identity"]
+                    or prior["metadata"] != record["metadata"]
+                )
+            ):
+                raise ValueError("asset page has an identity collision")
+            admitted_records[record["record_id"]] = record
+        admitted_record_ids = set(admitted_records)
         page = _parsed(body)
         candidates: list[VideoLibraryAssetCandidate] = []
         for item in page.assets:
