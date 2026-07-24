@@ -1,0 +1,149 @@
+{
+  "registry_id": "performing-fire-approved-sources",
+  "schema_version": 1,
+  "sources": [
+    {
+      "aliases": [
+        "antiegg-editorial"
+      ],
+      "canonical_url": "https://antiegg.kr/25502",
+      "endpoints": [
+        {
+          "endpoint_id": "antiegg-article",
+          "endpoint_kind": "article",
+          "public_url": "https://antiegg.kr/25502",
+          "verification_state": "registered"
+        },
+        {
+          "endpoint_id": "antiegg-media-api",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://antiegg.kr/wp-json/wp/v2/media",
+          "verification_state": "registered"
+        },
+        {
+          "endpoint_id": "antiegg-posts-api",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://antiegg.kr/wp-json/wp/v2/posts",
+          "verification_state": "registered"
+        },
+        {
+          "endpoint_id": "antiegg-sitemap",
+          "endpoint_kind": "sitemap",
+          "public_url": "https://antiegg.kr/wp-sitemap.xml",
+          "verification_state": "registered"
+        }
+      ],
+      "host_policy_id": "antiegg-public-web",
+      "source_class": "editorial_context",
+      "source_id": "antiegg-fluxus"
+    },
+    {
+      "aliases": [
+        "njp-main-site"
+      ],
+      "canonical_url": "https://njp.ggcf.kr/",
+      "endpoints": [
+        {
+          "endpoint_id": "njp-center-main-home",
+          "endpoint_kind": "homepage",
+          "public_url": "https://njp.ggcf.kr/",
+          "verification_state": "registered"
+        }
+      ],
+      "host_policy_id": "njp-center-public-web",
+      "source_class": "institutional_site",
+      "source_id": "njp-center-main"
+    },
+    {
+      "aliases": [
+        "njp-video-archive-page"
+      ],
+      "canonical_url": "https://njp.ggcf.kr/pages/videoarchive",
+      "endpoints": [
+        {
+          "endpoint_id": "njp-center-video-archive-page",
+          "endpoint_kind": "archive_page",
+          "public_url": "https://njp.ggcf.kr/pages/videoarchive",
+          "verification_state": "registered"
+        }
+      ],
+      "host_policy_id": "njp-center-public-web",
+      "source_class": "archive_page",
+      "source_id": "njp-center-video-archive"
+    },
+    {
+      "aliases": [
+        "njp-center-video-library"
+      ],
+      "canonical_url": "https://njpvideo.ggcf.kr/",
+      "endpoints": [
+        {
+          "endpoint_id": "njp-video-library-home",
+          "endpoint_kind": "catalogue",
+          "public_url": "https://njpvideo.ggcf.kr/",
+          "verification_state": "registered"
+        }
+      ],
+      "host_policy_id": "njp-video-library-public-web",
+      "source_class": "video_library",
+      "source_id": "njp-video-library"
+    },
+    {
+      "aliases": [
+        "njp-center-youtube"
+      ],
+      "canonical_url": "https://www.youtube.com/@NamJunePaikArtCenter/videos",
+      "endpoints": [
+        {
+          "endpoint_id": "njp-youtube-handle",
+          "endpoint_kind": "channel_handle",
+          "public_url": "https://www.youtube.com/@NamJunePaikArtCenter/videos",
+          "verification_state": "unverified"
+        }
+      ],
+      "host_policy_id": "youtube-official-api",
+      "source_class": "official_channel",
+      "source_id": "njp-youtube-official"
+    },
+    {
+      "aliases": [],
+      "canonical_url": null,
+      "endpoints": [],
+      "host_policy_id": "project-native-private",
+      "source_class": "project_native",
+      "source_id": "project-native-artist-submissions"
+    },
+    {
+      "aliases": [],
+      "canonical_url": null,
+      "endpoints": [],
+      "host_policy_id": "project-native-private",
+      "source_class": "project_native",
+      "source_id": "project-native-generated-scores"
+    },
+    {
+      "aliases": [],
+      "canonical_url": null,
+      "endpoints": [],
+      "host_policy_id": "project-native-private",
+      "source_class": "project_native",
+      "source_id": "project-native-performer-annotations"
+    },
+    {
+      "aliases": [],
+      "canonical_url": null,
+      "endpoints": [],
+      "host_policy_id": "project-native-private",
+      "source_class": "project_native",
+      "source_id": "project-native-visitor-inputs"
+    },
+    {
+      "aliases": [],
+      "canonical_url": null,
+      "endpoints": [],
+      "host_policy_id": "project-native-private",
+      "source_class": "project_native",
+      "source_id": "project-native-visual-system-state"
+    }
+  ]
+}

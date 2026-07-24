@@ -1,0 +1,142 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/source-registry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "registry_id": {
+      "const": "performing-fire-approved-sources"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "sources": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "aliases": {
+            "items": {
+              "pattern": "^[a-z]+(?:-[a-z]+)*$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "canonical_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2048,
+                "pattern": "^https://[^\\s?#]+(?:/[^\\s?#]*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endpoints": {
+            "items": {
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "platform_identifier"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "verification_state": {
+                        "const": "confirmed"
+                      }
+                    }
+                  }
+                }
+              ],
+              "properties": {
+                "endpoint_id": {
+                  "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "endpoint_kind": {
+                  "enum": [
+                    "archive_page",
+                    "article",
+                    "catalogue",
+                    "channel_handle",
+                    "homepage",
+                    "metadata_api",
+                    "sitemap"
+                  ]
+                },
+                "verification_state": {
+                  "enum": [
+                    "registered",
+                    "unverified",
+                    "confirmed"
+                  ]
+                },
+                "platform_identifier": {
+                  "maxLength": 128,
+                  "minLength": 8,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "public_url": {
+                  "format": "uri",
+                  "maxLength": 2048,
+                  "pattern": "^https://[^\\s?#]+(?:/[^\\s?#]*)?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "endpoint_id",
+                "endpoint_kind",
+                "verification_state",
+                "public_url"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "host_policy_id": {
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "source_class": {
+            "enum": [
+              "archive_page",
+              "editorial_context",
+              "institutional_site",
+              "official_channel",
+              "project_native",
+              "video_library"
+            ]
+          },
+          "source_id": {
+            "pattern": "^[a-z]+(?:-[a-z]+)*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "aliases",
+          "canonical_url",
+          "endpoints",
+          "host_policy_id",
+          "source_class",
+          "source_id"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "registry_id",
+    "schema_version",
+    "sources"
+  ],
+  "title": "Performing Fire source registry v1",
+  "type": "object"
+}
