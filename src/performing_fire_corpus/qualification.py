@@ -70,6 +70,9 @@ _ASSET_KEYS = frozenset(
         "source_id",
         "endpoint_id",
         "asset_id",
+        "inventory_record_id",
+        "inventory_record_sha256",
+        "source_item_id",
         "asset_kind",
         "public_url",
         "expected_host",
@@ -110,6 +113,10 @@ _APPROVAL_FIELDS = (
     "retention_class",
 )
 _ASSET_ID = re.compile(r"^asset_[a-z0-9][a-z0-9._-]{0,127}$")
+_INVENTORY_ID = re.compile(
+    r"^inventory_[a-z0-9][a-z0-9._-]{0,127}$"
+)
+_SOURCE_ITEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _HOST = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
 _MEDIA_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/"
@@ -287,6 +294,23 @@ def _validate_asset_facts(value: Mapping[str, Any]) -> dict[str, Any]:
     asset_id = record["asset_id"]
     if not isinstance(asset_id, str) or _ASSET_ID.fullmatch(asset_id) is None:
         raise QualificationError("asset identifier is invalid")
+    inventory_record_id = record["inventory_record_id"]
+    if (
+        not isinstance(inventory_record_id, str)
+        or _INVENTORY_ID.fullmatch(inventory_record_id) is None
+    ):
+        raise QualificationError("inventory record identifier is invalid")
+    if (
+        not isinstance(record["inventory_record_sha256"], str)
+        or _HASH.fullmatch(record["inventory_record_sha256"]) is None
+    ):
+        raise QualificationError("inventory record hash is invalid")
+    source_item_id = record["source_item_id"]
+    if (
+        not isinstance(source_item_id, str)
+        or _SOURCE_ITEM_ID.fullmatch(source_item_id) is None
+    ):
+        raise QualificationError("source item identifier is invalid")
     if record["asset_kind"] not in _ASSET_KINDS:
         raise QualificationError("asset kind is invalid")
     expected_host = record["expected_host"]
@@ -333,14 +357,19 @@ def _validate_asset_facts(value: Mapping[str, Any]) -> dict[str, Any]:
         raise QualificationError(
             "public URL query is outside the endpoint-specific reviewed shape"
         )
-    if "v" in query_keys:
+    if endpoint_id == "njp-youtube-videos-api":
+        if query_keys != ["v"]:
+            raise QualificationError(
+                "YouTube video locator requires one reviewed video identifier"
+            )
         video_id = next(value for key, value in query if key == "v")
         if (
             parsed_url.path != "/watch"
             or _YOUTUBE_VIDEO_ID.fullmatch(video_id) is None
+            or video_id != source_item_id
         ):
             raise QualificationError(
-                "YouTube locator is outside the reviewed watch shape"
+                "YouTube locator is not bound to the reviewed inventory item"
             )
     media_type = record["media_type"]
     if not isinstance(media_type, str) or _MEDIA_TYPE.fullmatch(media_type) is None:
@@ -634,6 +663,18 @@ def compile_asset_qualification(
         raise QualificationError(
             "source governance registry has no authority for the asset"
         )
+    governance_targets = {
+        (record.get("endpoint_id"), record.get("asset_id"))
+        for record in governance_records
+    }
+    required_targets = {
+        (None, None),
+        (asset_value["endpoint_id"], None),
+    }
+    if not required_targets.issubset(governance_targets):
+        raise QualificationError(
+            "source governance registry omits a required source or endpoint layer"
+        )
     decision_map: dict[str, Mapping[str, Any]] = {}
     if not isinstance(operation_decisions, Sequence) or isinstance(
         operation_decisions, (str, bytes, bytearray)
@@ -846,12 +887,17 @@ def _current_qualification(
             or set(authority) != _AUTHORITY_BUNDLE_KEYS
         ):
             return None
+        candidate_time = _parse_time(
+            candidate["evaluated_at"],
+            "evaluated_at",
+        )
         checked = compile_asset_qualification(
             authority["asset"],
             authority["source_governance_registry"],
             authority["operation_decisions"],
-            now=now,
+            now=candidate_time,
         )
+        checked = validate_asset_qualification(checked, now=now)
     except Exception:
         return None
     if (

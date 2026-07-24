@@ -98,9 +98,23 @@ def _credential_query_key(value: str) -> bool:
         )
         if word
     }
+    lowered_words = {word.lower() for word in words}
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
-        or bool(words & _CREDENTIAL_QUERY_WORDS)
+        or bool(lowered_words & _CREDENTIAL_QUERY_WORDS)
+        or {"api", "key"}.issubset(lowered_words)
+        or (
+            "signature" in lowered_words
+            and bool(
+                lowered_words
+                & {
+                    "hmac",
+                    "request",
+                    "signed",
+                    "url",
+                }
+            )
+        )
     )
 
 

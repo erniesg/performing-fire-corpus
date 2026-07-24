@@ -213,9 +213,10 @@ class GovernanceTests(unittest.TestCase):
         )
         endpoint_record = copy.deepcopy(governance["records"][0])
         endpoint_record["source_governance_id"] = (
-            "source_governance_antiegg_fluxus_posts"
+            "source_governance_antiegg_fluxus_posts_asset"
         )
         endpoint_record["endpoint_id"] = "antiegg-posts-api"
+        endpoint_record["asset_id"] = "asset_synthetic_001"
         governance["records"].append(endpoint_record)
         governance["records"].sort(
             key=lambda item: (
@@ -235,7 +236,7 @@ class GovernanceTests(unittest.TestCase):
                 path, source_registry=source_registry
             )
         self.assertEqual(
-            2,
+            len(CANONICAL_ENDPOINT_IDS["antiegg-fluxus"]) + 2,
             sum(
                 record["source_id"] == "antiegg-fluxus"
                 for record in loaded["records"]

@@ -5,7 +5,7 @@ import hashlib
 import json
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -133,6 +133,27 @@ def governance_registry(
     }
 
 
+def complete_governance_registry(
+    record: dict[str, object],
+) -> dict[str, object]:
+    source_wide = copy.deepcopy(record)
+    source_wide["source_governance_id"] = (
+        f"source_governance_{str(record['source_id']).replace('-', '_')}_source"
+    )
+    source_wide["endpoint_id"] = None
+    source_wide["asset_id"] = None
+    endpoint = copy.deepcopy(record)
+    endpoint["source_governance_id"] = (
+        f"source_governance_{str(record['endpoint_id']).replace('-', '_')}_endpoint"
+    )
+    endpoint["asset_id"] = None
+    asset_scoped = copy.deepcopy(record)
+    asset_scoped["source_governance_id"] = (
+        f"source_governance_{str(record['source_id']).replace('-', '_')}_asset"
+    )
+    return governance_registry(source_wide, endpoint, asset_scoped)
+
+
 def asset(
     source_id: str = "njp-video-library",
     *,
@@ -157,6 +178,9 @@ def asset(
         "source_id": source_id,
         "endpoint_id": ENDPOINTS[source_id],
         "asset_id": asset_id,
+        "inventory_record_id": "inventory_synthetic_001",
+        "inventory_record_sha256": "b" * 64,
+        "source_item_id": "synthetic001",
         "asset_kind": asset_kind,
         "public_url": public_url,
         "expected_host": host,
@@ -279,7 +303,9 @@ class AssetQualificationTests(unittest.TestCase):
             else governance
         )
         if "records" not in governance_value:
-            governance_value = governance_registry(governance_value)
+            governance_value = complete_governance_registry(
+                governance_value
+            )
         return compile_asset_qualification(
             asset_value,
             governance_value,
@@ -515,6 +541,26 @@ class AssetQualificationTests(unittest.TestCase):
                 ):
                     self.qualify(asset_value)
 
+        youtube = asset(
+            "njp-youtube-official",
+            asset_kind="media",
+            public_url="https://www.youtube.com/watch?v=synthetic001",
+        )
+        for public_url in (
+            "https://www.youtube.com/watch",
+            "https://www.youtube.com/synthetic-object",
+            "https://www.youtube.com/@anotherchannel/videos",
+            "https://www.youtube.com/watch?v=another001",
+        ):
+            with self.subTest(public_url=public_url):
+                invalid = copy.deepcopy(youtube)
+                invalid["public_url"] = public_url
+                with self.assertRaisesRegex(
+                    QualificationError,
+                    "YouTube|query",
+                ):
+                    self.qualify(invalid)
+
     def test_all_content_requires_an_affirmative_basis_and_authority(self) -> None:
         for source_id in (
             "njp-center-main",
@@ -637,32 +683,15 @@ class AssetQualificationTests(unittest.TestCase):
             download["reasons"],
         )
 
-        permissive = self.qualify(
-            asset_value,
-            decisions(asset_value),
-            governance_registry(source_wide),
-        )
-        authority = SyntheticQualificationAuthority(
-            [
-                {
-                    "asset": asset_value,
-                    "source_governance_registry": governance_registry(
-                        source_wide,
-                        endpoint,
-                    ),
-                    "operation_decisions": decisions(asset_value),
-                }
-            ]
-        )
-        self.assertEqual(
-            [],
-            query_qualified_assets(
-                [permissive],
-                operation="download",
-                authority_resolver=authority,
-                now=NOW,
-            ),
-        )
+        with self.assertRaisesRegex(
+            QualificationError,
+            "omits a required",
+        ):
+            self.qualify(
+                asset_value,
+                decisions(asset_value),
+                governance_registry(source_wide),
+            )
 
     def test_njp_access_blockers_hold_content_but_not_reviewed_metadata(
         self,
@@ -788,7 +817,7 @@ class AssetQualificationTests(unittest.TestCase):
             str(asset_value["source_id"]),
             asset_id=str(asset_value["asset_id"]),
         )
-        governance_value = governance_registry(governance)
+        governance_value = complete_governance_registry(governance)
         decision_values = decisions(asset_value)
         value = self.qualify(
             asset_value,
@@ -808,6 +837,13 @@ class AssetQualificationTests(unittest.TestCase):
             now=NOW,
         )
         self.assertEqual([value], results)
+        later_results = query_qualified_assets(
+            [value],
+            operation="transcription",
+            authority_resolver=authority,
+            now=NOW + timedelta(minutes=1),
+        )
+        self.assertEqual([value], later_results)
         job = build_qualified_job(
             value,
             operation="transcription",
@@ -860,7 +896,9 @@ class AssetQualificationTests(unittest.TestCase):
             asset_id=str(asset_value["asset_id"]),
             operation_overrides={"media_acquisition": "blocked"},
         )
-        governance_value = governance_registry(blocked_governance)
+        governance_value = complete_governance_registry(
+            blocked_governance
+        )
         decision_values = decisions(asset_value)
         blocked = self.qualify(
             asset_value,

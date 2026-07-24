@@ -211,6 +211,23 @@ def load_source_governance_registry(
     source_ids = {item["source_id"] for item in records}
     if source_ids != set(canonical_sources):
         raise GovernanceError("governance must cover the canonical source registry exactly")
+    expected_unscoped_targets = {
+        (source_id, None)
+        for source_id in canonical_sources
+    } | {
+        (source_id, endpoint["endpoint_id"])
+        for source_id, source in canonical_sources.items()
+        for endpoint in source.get("endpoints", [])
+    }
+    actual_unscoped_targets = {
+        (item["source_id"], item["endpoint_id"])
+        for item in records
+        if item.get("asset_id") is None
+    }
+    if actual_unscoped_targets != expected_unscoped_targets:
+        raise GovernanceError(
+            "governance must cover every canonical source and endpoint layer"
+        )
     for record in records:
         endpoint_id = record["endpoint_id"]
         endpoint_ids = {

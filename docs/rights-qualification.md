@@ -21,10 +21,11 @@ binds an asset-specific or reviewed source-policy scope, factual basis,
 authority class, sanitized evidence reference, decision and expiry times,
 review trigger, exact asset-facts hash, and retention class. The asset-facts
 hash covers the stable IDs, exact public HTTPS URL and expected host, MIME,
-maximum bytes, access state, retention/deletion/derivative/retrieval policies,
-and any exact immutable raw-object key. Missing approval fields affect only
-that operation and leave it pending. Changed facts, expired authority,
-revocation, conflicting decisions, or a retention mismatch fail closed.
+maximum bytes, durable inventory-record ID and hash, source item ID, access
+state, retention/deletion/derivative/retrieval policies, and any exact
+immutable raw-object key. Missing approval fields affect only that operation
+and leave it pending. Changed facts, expired authority, revocation,
+conflicting decisions, or a retention mismatch fail closed.
 Every content operation additionally requires an affirmative
 `asset_specific_permission` or `reviewed_lawful_basis` from a reviewed rights,
 legal, copyright-holder, or licensor authority. Labels such as
@@ -50,7 +51,7 @@ or media.
 | NJP Video Library | May be evaluated from current reviewed metadata policy | Attachment/media operations remain blocked after 401/403, login, signed/expired URL, unclear permission, or any missing asset-specific decision |
 | NJP Center main site | May be evaluated from current reviewed metadata policy | Attachments remain operation-specific; public presentation and a stable URL do not authorize download or derivatives |
 | NJP video archive page | Descriptive catalogue facts remain distinct from analogue-tape counts | The page does not imply that tapes are digitized, downloadable, or usable |
-| Official NJP YouTube | Official API metadata is a separate operation | Caption/media operations require current platform authority plus an explicit asset-specific lawful basis |
+| Official NJP YouTube | Official API metadata is a separate operation | Caption/media operations require current platform authority, an exact `/watch?v=` item bound to the durable official inventory record, and an explicit asset-specific lawful basis |
 | ANTIEGG | Editorial metadata can remain inventory-only | Prose/media require permission or a clearly reviewed lawful basis; public visibility is never sufficient |
 | Project-native families | Not compiled through this external-asset path | Existing consent, privacy, retention, deletion, and withdrawal contracts remain authoritative |
 
@@ -69,19 +70,24 @@ The runtime detects duplicate source/asset candidates before work creation and
 re-resolves the complete current qualification through an authority boundary.
 The compiler consumes a complete, strict governance registry and reconciles
 every applicable source-wide, endpoint-scoped, and asset-scoped record; any
-blocking layer wins. Deletion authority participates in every qualification;
-caption/prose retention participates in content operations for those asset
-kinds; and search visibility participates in indexing and public retrieval. A
-blocked source operation therefore holds only its affected qualification
-operations.
+blocking layer wins. The checked-in registry must contain a source-wide and
+exact endpoint layer for every canonical endpoint; the compiler rejects a
+target bundle missing either required layer. Deletion authority participates
+in every qualification; caption/prose retention participates in content
+operations for those asset kinds; and search visibility participates in
+indexing and public retrieval. A blocked source operation therefore holds
+only its affected qualification operations.
 
 Derived qualification hashes are evidence bindings, not self-authorizing
 signatures. Before a query or downstream job becomes executable, the trusted
 authority resolver returns the current raw asset facts, complete governance
 registry, and operation decisions. The runtime recompiles the qualification
-and requires exact canonical equality with the candidate. Clearing a blocker
-or selecting only a permissive governance layer and recomputing public hashes
-therefore cannot create executable work.
+at the candidate's recorded evaluation time, validates expiry and revocation
+at the current wall-clock time, and requires exact canonical equality with
+the candidate. Clearing a blocker or selecting only a permissive governance
+layer and recomputing public hashes therefore cannot create executable work,
+while an unchanged current qualification remains usable until its authority
+actually expires.
 Object-backed downstream jobs carry only the qualification ID, source ID,
 asset ID, operation, and exact immutable R2 object key. They never carry source
 bytes, public or signed URLs, credentials, cookies, headers, response bodies,

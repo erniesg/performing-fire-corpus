@@ -12,6 +12,9 @@
     "source_id",
     "endpoint_id",
     "asset_id",
+    "inventory_record_id",
+    "inventory_record_sha256",
+    "source_item_id",
     "asset_kind",
     "public_url",
     "expected_host",
@@ -45,6 +48,15 @@
     "asset_id": {
       "type": "string",
       "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "inventory_record_id": {
+      "type": "string",
+      "pattern": "^inventory_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "inventory_record_sha256": {"$ref": "#/$defs/hash"},
+    "source_item_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
     },
     "asset_kind": {
       "enum": ["attachment", "caption", "document", "image", "media", "prose"]
