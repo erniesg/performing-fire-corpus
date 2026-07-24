@@ -5,15 +5,23 @@ provenance boundaries even though both use the reviewed public
 `njp.ggcf.kr` host. Each adapter is bound to its own canonical endpoint and
 completeness checkpoint.
 
-The portable implementation is deliberately offline. Tests use invented
-HTML-shaped fixtures whose factual fields are explicit data attributes:
+The portable implementation is deliberately held: constructing either
+production adapter without a reviewed source-shape binding raises
+`SourceShapeUnreviewed` before it can build a request. The endpoint governance
+records remain `unknown`/`pending`. This is a durable conservative outcome,
+not a claim that the current site uses the fixture shape.
+
+Tests alone enable a private invented-fixture contract. Those fixtures use
+HTML-shaped factual fields as explicit data attributes:
 stable public record identifier, record type, language, year, and a bounded
 classification enum. Text nodes and display titles are ignored. A changed or
 missing structural contract fails closed instead of widening the retained
 projection.
 
-Passing these tests is not a live-source approval. Before a network request,
-the exact endpoint still needs current robots, terms, access, authentication,
+Passing these tests is not a live-source approval and does not make the
+invented fixture parser source-useful. Before a network request, the exact
+endpoint needs a bounded reviewed observation that defines the real factual
+projection, plus current robots, terms, access, authentication,
 copyright/lawful-basis, retention, rate, byte, page, retry, and elapsed-time
 decisions through the shared governance and discovery engines.
 

@@ -32,12 +32,24 @@ class AttachmentCandidate:
     retry_allowed: bool = False
 
 
+class SourceShapeUnreviewed(RuntimeError):
+    pass
+
+
 class _MetadataHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.meta: dict[str, str] = {}
         self.records: list[dict[str, str]] = []
         self.attachments: list[dict[str, str]] = []
+        self.stack: list[str] = []
+        self.seen_doctype = False
+        self.seen_html = False
+        self.seen_head = False
+        self.seen_body = False
+
+    def handle_decl(self, decl: str) -> None:
+        self.seen_doctype = decl.lower() == "doctype html"
 
     def handle_starttag(
         self,
@@ -45,6 +57,11 @@ class _MetadataHTMLParser(HTMLParser):
         attrs: list[tuple[str, str | None]],
     ) -> None:
         values = {key: value for key, value in attrs if value is not None}
+        if tag in {"html", "head", "body", "article", "a"}:
+            self.stack.append(tag)
+        self.seen_html = self.seen_html or tag == "html"
+        self.seen_head = self.seen_head or tag == "head"
+        self.seen_body = self.seen_body or tag == "body"
         if tag == "meta" and values.get("name", "").startswith(
             ("terminal", "next-", "expected-", "rejected-", "access-")
         ):
@@ -57,6 +74,11 @@ class _MetadataHTMLParser(HTMLParser):
         elif tag == "a" and "data-attachment-record" in values:
             self.attachments.append(values)
 
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"html", "head", "body", "article", "a"}:
+            if not self.stack or self.stack.pop() != tag:
+                raise ValueError("metadata HTML structure changed")
+
 
 def _parsed(body: bytes) -> _MetadataHTMLParser:
     try:
@@ -66,6 +88,14 @@ def _parsed(body: bytes) -> _MetadataHTMLParser:
     parser = _MetadataHTMLParser()
     parser.feed(text)
     parser.close()
+    if (
+        not parser.seen_doctype
+        or not parser.seen_html
+        or not parser.seen_head
+        or not parser.seen_body
+        or parser.stack
+    ):
+        raise ValueError("metadata HTML is incomplete")
     return parser
 
 
@@ -119,7 +149,17 @@ class _BaseNJPCenterAdapter:
     blocker_states = _BLOCKERS
     public_url: str
 
+    def __init__(self, *, _invented_fixture_contract: bool = False) -> None:
+        self._invented_fixture_contract = _invented_fixture_contract
+
+    def _require_reviewed_shape(self) -> None:
+        if not self._invented_fixture_contract:
+            raise SourceShapeUnreviewed(
+                "current source shape is unreviewed; metadata adapter is held"
+            )
+
     def build_request(self, cursor: str | None) -> MetadataRequest:
+        self._require_reviewed_shape()
         url = self.public_url
         if cursor is not None:
             page = int(cursor.removeprefix("page-"))
@@ -131,6 +171,7 @@ class _BaseNJPCenterAdapter:
         )
 
     def detect_access_blocker(self, body: bytes) -> str | None:
+        self._require_reviewed_shape()
         state = _parsed(body).meta.get("access-state")
         if state is None:
             return None
@@ -153,6 +194,7 @@ class _BaseNJPCenterAdapter:
         *,
         cursor: str | None,
     ) -> dict[str, Any]:
+        self._require_reviewed_shape()
         del cursor
         page = _parsed(body)
         if page.meta.get("terminal") not in {"true", "false"}:
@@ -167,19 +209,20 @@ class _BaseNJPCenterAdapter:
         for item in page.records:
             if not required_attributes.issubset(item):
                 raise ValueError("metadata record shape changed")
-            year = item.get("data-year", "unknown")
+            metadata = {
+                "classification": item["data-classification"],
+                "language": item["data-language"],
+                "record_type": item["data-record-type"],
+            }
+            if "data-year" in item:
+                metadata["year"] = item["data-year"]
             records.append(
                 {
                     "record_id": self.stable_record_id(item),
-                    "source_identity": (
-                        f"{self.source_id}-record-{item['data-record-id']}"
-                    ),
-                    "metadata": {
-                        "classification": item["data-classification"],
-                        "language": item["data-language"],
-                        "record_type": item["data-record-type"],
-                        "year": year,
-                    },
+                    "source_identity": hashlib.sha256(
+                        f"{self.source_id}\0{item['data-record-id']}".encode()
+                    ).hexdigest(),
+                    "metadata": metadata,
                 }
             )
         try:
@@ -206,18 +249,29 @@ class _BaseNJPCenterAdapter:
         }
 
     def attachment_candidates(self, body: bytes) -> tuple[AttachmentCandidate, ...]:
+        self._require_reviewed_shape()
+        page = _parsed(body)
+        record_ids = {
+            item.get("data-record-id", "")
+            for item in page.records
+        }
         candidates: list[AttachmentCandidate] = []
-        for item in _parsed(body).attachments:
+        for item in page.attachments:
             record_id = item.get("data-attachment-record", "")
             mime_type = item.get("data-attachment-mime", "")
             locator = item.get("href", "")
-            if not _SAFE_ID.fullmatch(record_id) or not _MIME.fullmatch(mime_type):
+            if (
+                not _SAFE_ID.fullmatch(record_id)
+                or record_id not in record_ids
+                or not _MIME.fullmatch(mime_type)
+            ):
                 raise ValueError("attachment candidate shape changed")
             public_url = urljoin(self.public_url, locator)
             parsed = urlsplit(public_url)
             if (
                 parsed.scheme != "https"
                 or parsed.hostname != "njp.ggcf.kr"
+                or parsed.port not in {None, 443}
                 or parsed.username is not None
                 or parsed.password is not None
                 or parsed.query
@@ -242,9 +296,28 @@ class _BaseNJPCenterAdapter:
         candidate: AttachmentCandidate,
         status: int,
     ) -> AttachmentCandidate:
-        if candidate.source_id != self.source_id or status != 403:
+        self._require_reviewed_shape()
+        parsed = urlsplit(candidate.public_url)
+        if (
+            candidate.source_id != self.source_id
+            or status != 403
+            or parsed.scheme != "https"
+            or parsed.hostname != "njp.ggcf.kr"
+            or parsed.port not in {None, 443}
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.startswith("/storage/upload/")
+        ):
             raise ValueError("only an exact 403 attachment observation is supported")
-        return replace(candidate, access_blocker="access_forbidden")
+        return replace(
+            candidate,
+            rights_state="blocked",
+            acquisition_eligible=False,
+            access_blocker="access_forbidden",
+            retry_allowed=False,
+        )
 
 
 class NJPCenterMainAdapter(_BaseNJPCenterAdapter):
