@@ -151,6 +151,10 @@ class SchemaContractTests(unittest.TestCase):
             ["boto3>=1.37.32,<2", "jsonschema>=4.10,<5"],
             project["dependencies"],
         )
+        self.assertEqual(
+            {"dev": ["setuptools>=68,<76"]},
+            project["optional-dependencies"],
+        )
 
 
 if __name__ == "__main__":
