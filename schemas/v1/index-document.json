@@ -28,7 +28,7 @@
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
     "labels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:[Aa][Bb][Oo][Uu][Tt]|[Bb][Ll][Oo][Bb]|[Dd][Aa][Tt][Aa]|[Ff][Ii][Ll][Ee]|[Ff][Tt][Pp][Ss]?|[Gg][Ss]|[Hh][Tt][Tt][Pp][Ss]?|[Ii][Pp][Ff][Ss]|[Ii][Pp][Nn][Ss]|[Jj][Aa][Vv][Aa][Ss][Cc][Rr][Ii][Pp][Tt]|[Mm][Aa][Ii][Ll][Tt][Oo]|[Rr]2|[Ss]3|[Ss][Ss][Hh]|[Tt][Ee][Ll]|[Uu][Rr][Nn]|[Ww][Ss][Ss]?):[ \\t]+)(?!.*[A-Za-z][A-Za-z0-9+.-]*:(?:$|[^ \\t]))(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"},
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*[A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"},
     "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
     "field": {
       "type": "object",

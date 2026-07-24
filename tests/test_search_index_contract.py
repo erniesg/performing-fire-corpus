@@ -1003,6 +1003,12 @@ class SearchIndexContractTests(unittest.TestCase):
             "javascript:alert(1)",
             "javascript: alert(1)",
             "JavaScript: alert(1)",
+            "custom: payload",
+            "vscode: file/private",
+            "vscode: file%3A%2F%2FUsers%2Fprivate",
+            "custom: s3%3A%2F%2Fprivate-bucket%2Fobject",
+            "unknown: javascript%3Aalert(1)",
+            "Title: Synthetic catalogue entry",
             "~/private/catalogue.json",
             "../private/catalogue.json",
         ):
@@ -1017,11 +1023,6 @@ class SearchIndexContractTests(unittest.TestCase):
             )
             with self.assertRaises(ValidationError):
                 Draft202012Validator(schema).validate(unsafe)
-
-        safe_label = document()
-        safe_label["fields"][0]["value"] = "Title: Synthetic catalogue entry"
-        self.assertEqual(safe_label, validate_index_document(safe_label))
-        Draft202012Validator(schema).validate(safe_label)
 
         unsafe_policy = policy()
         unsafe_policy["review_trigger"] = "https://example.invalid/review"

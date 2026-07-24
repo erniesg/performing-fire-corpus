@@ -19,9 +19,7 @@ from performing_fire_corpus.redaction import sanitize
 
 UTC = timezone.utc
 _UNSAFE_VALUE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:(?![ \t])|"
-    r"(?:about|blob|data|file|ftp|ftps|gs|http|https|ipfs|ipns|"
-    r"javascript|mailto|r2|s3|ssh|tel|urn|ws|wss):[ \t]+|"
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*:|"
     r"x-amz-|signature=|credential=|full source prose)",
     re.IGNORECASE,
 )
