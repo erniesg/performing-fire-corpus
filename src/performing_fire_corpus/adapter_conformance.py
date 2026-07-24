@@ -28,6 +28,7 @@ _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
 _YEAR = re.compile(r"^[0-9]{4}$")
+_SAFE_ENUM_LITERAL = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
 _FORBIDDEN_FIELD_PARTS = frozenset(
     {
         "body",
@@ -53,15 +54,34 @@ _SENSITIVE_QUERY_PARTS = frozenset(
     {
         "access_token",
         "api_key",
+        "auth",
         "authorization",
         "cookie",
         "credential",
+        "jwt",
         "key",
+        "password",
         "secret",
         "session",
         "signature",
         "sig",
+        "ticket",
         "token",
+    }
+)
+_ACQUISITION_QUERY_VALUES = frozenset(
+    {
+        "body",
+        "caption",
+        "content",
+        "download",
+        "full",
+        "html",
+        "media",
+        "prose",
+        "raw",
+        "text",
+        "transcript",
     }
 )
 _STANDARD_BLOCKERS = frozenset(
@@ -106,6 +126,7 @@ class ConformantMetadataAdapter(Protocol):
     allowed_methods: tuple[str, ...]
     allowed_hosts: tuple[str, ...]
     allowed_query_parameters: tuple[str, ...]
+    query_parameter_contracts: Mapping[str, Mapping[str, Any]]
     expected_mime_types: tuple[str, ...]
     approved_metadata_fields: tuple[str, ...]
     required_metadata_fields: tuple[str, ...]
@@ -207,6 +228,52 @@ def validate_adapter_declaration(
         for part in _SENSITIVE_QUERY_PARTS
     ):
         raise AdapterConformanceError("signed or credential query parameters are forbidden")
+    query_contracts = adapter.query_parameter_contracts
+    if (
+        not isinstance(query_contracts, Mapping)
+        or set(query_contracts) != set(query_parameters)
+    ):
+        raise AdapterConformanceError(
+            "query contracts must exactly cover the approved parameters"
+        )
+    cursor_contracts = 0
+    for parameter, contract in query_contracts.items():
+        if not isinstance(contract, Mapping):
+            raise AdapterConformanceError(
+                f"{parameter} has an invalid query contract"
+            )
+        if (
+            contract.get("value_type") == "cursor_integer"
+            and set(contract) == {"cursor_prefix", "value_type"}
+            and contract["cursor_prefix"] in {"offset-", "page-"}
+        ):
+            cursor_contracts += 1
+            continue
+        if (
+            contract.get("value_type") == "enum"
+            and set(contract) == {"allowed_values", "value_type"}
+            and isinstance(contract["allowed_values"], list)
+            and contract["allowed_values"]
+            and contract["allowed_values"]
+            == sorted(set(contract["allowed_values"]))
+            and all(
+                isinstance(item, str)
+                and _SAFE_ENUM_LITERAL.fullmatch(item)
+                and not any(
+                    part in item
+                    for part in _ACQUISITION_QUERY_VALUES
+                )
+                for item in contract["allowed_values"]
+            )
+        ):
+            continue
+        raise AdapterConformanceError(
+            f"{parameter} has an invalid query contract"
+        )
+    if cursor_contracts > 1:
+        raise AdapterConformanceError(
+            "only one query parameter may carry the checkpoint cursor"
+        )
     mime_types = _canonical_tuple(
         adapter.expected_mime_types,
         "expected_mime_types",
@@ -250,7 +317,8 @@ def validate_adapter_declaration(
             and contract["allowed_values"] == sorted(set(contract["allowed_values"]))
             and all(isinstance(item, str) and item for item in contract["allowed_values"])
             and all(
-                "://" not in item and sanitize(item, environ={}) == item
+                _SAFE_ENUM_LITERAL.fullmatch(item)
+                and sanitize(item, environ={}) == item
                 for item in contract["allowed_values"]
             )
         ):
@@ -283,6 +351,7 @@ def validate_adapter_declaration(
         "allowed_methods": list(methods),
         "allowed_hosts": list(hosts),
         "allowed_query_parameters": list(query_parameters),
+        "query_parameter_contracts": copy.deepcopy(dict(query_contracts)),
         "expected_mime_types": list(mime_types),
         "approved_metadata_fields": list(approved),
         "required_metadata_fields": list(required),
@@ -296,6 +365,7 @@ def validate_adapter_declaration(
 def _validate_request(
     declaration: Mapping[str, Any],
     request: MetadataRequest,
+    cursor: str | None,
 ) -> MetadataRequest:
     if not isinstance(request, MetadataRequest):
         raise AdapterConformanceError("adapter returned an invalid request")
@@ -336,6 +406,39 @@ def _validate_request(
         or any(sanitize(value, environ={}) != value for _, value in query)
     ):
         raise AdapterConformanceError("request query is outside the approved projection")
+    query_values = dict(query)
+    cursor_parameters: list[str] = []
+    for parameter, contract in declaration["query_parameter_contracts"].items():
+        value_type = contract["value_type"]
+        if value_type == "cursor_integer":
+            cursor_parameters.append(parameter)
+            if cursor is None:
+                if parameter in query_values:
+                    raise AdapterConformanceError(
+                        "first-page request cannot invent a pagination cursor"
+                    )
+                continue
+            prefix = contract["cursor_prefix"]
+            if not cursor.startswith(prefix):
+                raise AdapterConformanceError(
+                    "request cursor does not match its declared query contract"
+                )
+            expected_value = str(int(cursor.removeprefix(prefix)))
+            if query_values.get(parameter) != expected_value:
+                raise AdapterConformanceError(
+                    "request query is not bound to the checkpoint cursor"
+                )
+        elif (
+            parameter in query_values
+            and query_values[parameter] not in contract["allowed_values"]
+        ):
+            raise AdapterConformanceError(
+                "request query value is outside its reviewed contract"
+            )
+    if cursor is not None and not cursor_parameters:
+        raise AdapterConformanceError(
+            "paginated request lacks a cursor-bound query contract"
+        )
     return request
 
 
@@ -416,15 +519,20 @@ def _normalize_page(
 
     normalized_records: list[dict[str, Any]] = []
     for record in page["records"]:
-        if not isinstance(record, Mapping) or set(record) != {"record_id", "metadata"}:
+        if (
+            not isinstance(record, Mapping)
+            or set(record) != {"record_id", "source_identity", "metadata"}
+            or not isinstance(record["source_identity"], str)
+            or not _RECORD_ID.fullmatch(record["source_identity"])
+        ):
             raise AdapterConformanceError("shape_drift")
-        normalized_records.append(
-            _validate_normalized_record(
+        normalized = _validate_normalized_record(
                 declaration,
                 record["record_id"],
                 record["metadata"],
             )
-        )
+        normalized["source_identity"] = record["source_identity"]
+        normalized_records.append(normalized)
     value = dict(page)
     value["records"] = normalized_records
     return value
@@ -439,7 +547,8 @@ def assert_stable_identity(
     if not variants:
         raise AdapterConformanceError("at least one synthetic identity input is required")
     try:
-        identifiers = [adapter.stable_record_id(item) for item in variants]
+        with deny_live_network():
+            identifiers = [adapter.stable_record_id(item) for item in variants]
     except Exception as error:
         raise AdapterConformanceError("stable identity could not be derived") from error
     if (
@@ -465,6 +574,7 @@ class OfflineConformanceHarness:
         max_response_bytes: int = 8192,
         max_retries: int = 2,
         robots_allowed: bool = True,
+        additional_network_entry_points: Sequence[tuple[object, str]] = (),
         _checkpoint: Mapping[str, Any] | None = None,
     ) -> None:
         self.adapter = adapter
@@ -490,6 +600,16 @@ class OfflineConformanceHarness:
             "max_retries": max_retries,
             "robots_allowed": robots_allowed,
         }
+        self._network_entry_points = tuple(additional_network_entry_points)
+        if any(
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not isinstance(item[1], str)
+            for item in self._network_entry_points
+        ):
+            raise AdapterConformanceError(
+                "additional network entry points are invalid"
+            )
         self._active_request: MetadataRequest | None = None
         self._state = self._new_state()
         if _checkpoint is not None:
@@ -517,6 +637,10 @@ class OfflineConformanceHarness:
         adapter: ConformantMetadataAdapter,
         registry: Mapping[str, Any],
         checkpoint: Mapping[str, Any],
+        *,
+        expected_bounds: Mapping[str, Any],
+        expected_checkpoint_sha256: str,
+        additional_network_entry_points: Sequence[tuple[object, str]] = (),
     ) -> OfflineConformanceHarness:
         if not isinstance(checkpoint, Mapping):
             raise AdapterConformanceError("checkpoint is invalid")
@@ -533,6 +657,19 @@ class OfflineConformanceHarness:
             }
         ):
             raise AdapterConformanceError("checkpoint bounds are invalid")
+        if (
+            not isinstance(expected_bounds, Mapping)
+            or dict(expected_bounds) != dict(bounds)
+            or not isinstance(expected_checkpoint_sha256, str)
+            or not re.fullmatch(
+                r"[0-9a-f]{64}", expected_checkpoint_sha256
+            )
+            or checkpoint.get("checkpoint_sha256")
+            != expected_checkpoint_sha256
+        ):
+            raise AdapterConformanceError(
+                "checkpoint lacks its external bounds and digest binding"
+            )
         return cls(
             adapter,
             registry,
@@ -541,6 +678,7 @@ class OfflineConformanceHarness:
             max_response_bytes=bounds.get("max_response_bytes"),
             max_retries=bounds.get("max_retries"),
             robots_allowed=bounds.get("robots_allowed"),
+            additional_network_entry_points=additional_network_entry_points,
             _checkpoint=checkpoint,
         )
 
@@ -617,7 +755,20 @@ class OfflineConformanceHarness:
         ):
             raise AdapterConformanceError("checkpoint exceeds its declared bounds")
         for record_id, metadata in restored["records"].items():
-            _validate_normalized_record(self.declaration, record_id, metadata)
+            if (
+                not isinstance(metadata, Mapping)
+                or set(metadata) != {"source_identity", "metadata"}
+                or not isinstance(metadata["source_identity"], str)
+                or not _RECORD_ID.fullmatch(metadata["source_identity"])
+            ):
+                raise AdapterConformanceError(
+                    "checkpoint record identity is invalid"
+                )
+            _validate_normalized_record(
+                self.declaration,
+                record_id,
+                metadata["metadata"],
+            )
         expected_total = restored["expected_total"]
         if (
             expected_total is not None
@@ -628,6 +779,15 @@ class OfflineConformanceHarness:
             )
         ):
             raise AdapterConformanceError("checkpoint completeness state is invalid")
+        if (
+            restored["requests_attempted"]
+            < restored["pages_committed"] + restored["current_retries"]
+            or len(seen) != restored["pages_committed"]
+            or restored["next_ordinal"] != restored["pages_committed"]
+        ):
+            raise AdapterConformanceError(
+                "checkpoint counters are not monotonic"
+            )
         self._state = restored
 
     def _stop(self, state: str, reason: str) -> dict[str, Any]:
@@ -656,10 +816,14 @@ class OfflineConformanceHarness:
         if self._state["pages_committed"] >= self.bounds["max_pages"]:
             self._stop("bounded_partial", "page_budget_exhausted")
             return None
-        request = _validate_request(
-            self.declaration,
-            self.adapter.build_request(self._state["next_cursor"]),
-        )
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            request = _validate_request(
+                self.declaration,
+                self.adapter.build_request(self._state["next_cursor"]),
+                self._state["next_cursor"],
+            )
         self._state["requests_attempted"] += 1
         self._state["stop_reason"] = None
         self._active_request = request
@@ -708,23 +872,26 @@ class OfflineConformanceHarness:
             return self._stop("changed", "mime_mismatch")
         if len(response.body) > self.bounds["max_response_bytes"]:
             return self._stop("changed", "response_oversized")
-        try:
-            access_blocker = self.adapter.detect_access_blocker(response.body)
-        except Exception:
-            return self._stop("changed", "shape_drift")
-        if access_blocker is not None:
-            if access_blocker not in self.declaration["blocker_states"]:
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            try:
+                access_blocker = self.adapter.detect_access_blocker(response.body)
+            except Exception:
                 return self._stop("changed", "shape_drift")
-            return self._stop("blocked", access_blocker)
-        try:
-            page = _normalize_page(
-                self.adapter,
-                self.declaration,
-                response.body,
-                self._state["next_cursor"],
-            )
-        except AdapterConformanceError:
-            return self._stop("changed", "shape_drift")
+            if access_blocker is not None:
+                if access_blocker not in self.declaration["blocker_states"]:
+                    return self._stop("changed", "shape_drift")
+                return self._stop("blocked", access_blocker)
+            try:
+                page = _normalize_page(
+                    self.adapter,
+                    self.declaration,
+                    response.body,
+                    self._state["next_cursor"],
+                )
+            except AdapterConformanceError:
+                return self._stop("changed", "shape_drift")
 
         terminal = page["terminal"]
         next_cursor = page["next_cursor"]
@@ -757,11 +924,17 @@ class OfflineConformanceHarness:
             record_id = record["record_id"]
             prior = candidate.get(record_id)
             if prior is not None:
-                if prior != record["metadata"]:
+                if (
+                    prior["source_identity"] != record["source_identity"]
+                    or prior["metadata"] != record["metadata"]
+                ):
                     return self._stop("changed", "stable_id_collision")
                 duplicates += 1
             else:
-                candidate[record_id] = record["metadata"]
+                candidate[record_id] = {
+                    "source_identity": record["source_identity"],
+                    "metadata": record["metadata"],
+                }
         projected_total = (
             self._state["expected_total"]
             if expected_total is None
@@ -804,8 +977,12 @@ class OfflineConformanceHarness:
 
     def manifest(self) -> dict[str, Any]:
         records = [
-            {"record_id": record_id, "metadata": copy.deepcopy(metadata)}
-            for record_id, metadata in sorted(self._state["records"].items())
+            {
+                "record_id": record_id,
+                "source_identity": record["source_identity"],
+                "metadata": copy.deepcopy(record["metadata"]),
+            }
+            for record_id, record in sorted(self._state["records"].items())
         ]
         observed_unique_records = len(records)
         expected_total = self._state["expected_total"]
@@ -847,13 +1024,28 @@ def deny_live_network(
 
     targets: tuple[tuple[object, str], ...] = (
         (socket, "getaddrinfo"),
+        (socket, "gethostbyaddr"),
+        (socket, "gethostbyname"),
+        (socket, "gethostbyname_ex"),
+        (socket, "getnameinfo"),
         (socket, "create_connection"),
         (socket.socket, "connect"),
+        (socket.socket, "connect_ex"),
+        (socket.socket, "send"),
+        (socket.socket, "sendall"),
+        (socket.socket, "sendfile"),
+        (socket.socket, "sendmsg"),
+        (socket.socket, "sendto"),
         (urllib.request, "urlopen"),
         (urllib.request, "build_opener"),
+        (urllib.request, "urlretrieve"),
+        (urllib.request.OpenerDirector, "open"),
         (http.client.HTTPConnection, "connect"),
+        (http.client.HTTPConnection, "request"),
         (http.client.HTTPSConnection, "connect"),
         (webbrowser, "open"),
+        (webbrowser, "open_new"),
+        (webbrowser, "open_new_tab"),
         *tuple(additional_entry_points),
     )
     with ExitStack() as stack:

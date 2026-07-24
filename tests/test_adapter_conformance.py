@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import socket
 import unittest
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from performing_fire_corpus.adapter_conformance import (
     AdapterConformanceError,
+    MetadataRequest,
     MetadataResponse,
     OfflineConformanceHarness,
     assert_stable_identity,
@@ -17,6 +19,7 @@ from performing_fire_corpus.adapter_conformance import (
     validate_adapter_declaration,
 )
 from performing_fire_corpus.registry import load_registry
+from adapter_conformance_suite import StandardAdapterConformanceMixin
 from synthetic_adapter_builders import (
     SyntheticMetadataAdapter,
     synthetic_item,
@@ -42,6 +45,17 @@ def response(
         body=body,
         final_url=final_url,
     )
+
+
+class SyntheticAdapterAdmissionMatrixTests(
+    StandardAdapterConformanceMixin,
+    unittest.TestCase,
+):
+    adapter_factory = SyntheticMetadataAdapter
+    registry = REGISTRY
+    make_item = staticmethod(synthetic_item)
+    make_page = staticmethod(synthetic_page)
+    identity_variants = staticmethod(varied_identity_inputs)
 
 
 class AdapterDeclarationTests(unittest.TestCase):
@@ -72,6 +86,28 @@ class AdapterDeclarationTests(unittest.TestCase):
             ):
                 validate_adapter_declaration(adapter, REGISTRY)
 
+        unsafe_query = SyntheticMetadataAdapter()
+        unsafe_query.allowed_query_parameters = ("auth",)
+        unsafe_query.query_parameter_contracts = {
+            "auth": {
+                "allowed_values": ["opaque_value"],
+                "value_type": "enum",
+            }
+        }
+        with self.assertRaises(AdapterConformanceError):
+            validate_adapter_declaration(unsafe_query, REGISTRY)
+
+        acquisition_query = SyntheticMetadataAdapter()
+        acquisition_query.allowed_query_parameters = ("fields",)
+        acquisition_query.query_parameter_contracts = {
+            "fields": {
+                "allowed_values": ["content"],
+                "value_type": "enum",
+            }
+        }
+        with self.assertRaises(AdapterConformanceError):
+            validate_adapter_declaration(acquisition_query, REGISTRY)
+
         unsafe_contract = SyntheticMetadataAdapter()
         unsafe_contract.metadata_field_contracts = copy.deepcopy(
             unsafe_contract.metadata_field_contracts
@@ -100,11 +136,47 @@ class AdapterDeclarationTests(unittest.TestCase):
             OfflineConformanceHarness(adapter, REGISTRY).next_request()
 
         adapter = SyntheticMetadataAdapter()
-        adapter.build_request = lambda cursor: copy.copy(request).__class__(
+        adapter.build_request = lambda cursor: MetadataRequest(
             endpoint_id=adapter.endpoint_id,
             method="GET",
             url="https://antiegg.kr:invalid/wp-json/wp/v2/posts",
         )
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness(adapter, REGISTRY).next_request()
+
+    def test_pagination_query_is_bound_to_the_exact_checkpoint_cursor(self) -> None:
+        adapter = SyntheticMetadataAdapter()
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        harness.next_request()
+        harness.ingest(
+            response(
+                synthetic_page(
+                    [synthetic_item("001")],
+                    next_cursor="page-002",
+                    next_ordinal=1,
+                    terminal=False,
+                )
+            )
+        )
+        adapter.build_request = lambda cursor: copy.copy(
+            MetadataRequest(
+                endpoint_id=adapter.endpoint_id,
+                method="GET",
+                url="https://antiegg.kr/wp-json/wp/v2/posts?page=99",
+            )
+        )
+        with self.assertRaises(AdapterConformanceError):
+            harness.next_request()
+
+    def test_adapter_callbacks_are_automatically_network_denied(self) -> None:
+        adapter = SyntheticMetadataAdapter()
+
+        def networked_request(cursor: str | None) -> MetadataRequest:
+            del cursor
+            socket.gethostbyname("localhost")
+            raise AssertionError("network denial did not run")
+
+        adapter.build_request = networked_request
         with self.assertRaises(AdapterConformanceError):
             OfflineConformanceHarness(adapter, REGISTRY).next_request()
 
@@ -234,8 +306,14 @@ class OfflineConformanceTests(unittest.TestCase):
             retry["state"], retry["stop_reason"]
         ))
 
+        expected_bounds = copy.deepcopy(harness.bounds)
+        checkpoint = harness.checkpoint()
         resumed = OfflineConformanceHarness.resume(
-            adapter, REGISTRY, harness.checkpoint()
+            adapter,
+            REGISTRY,
+            checkpoint,
+            expected_bounds=expected_bounds,
+            expected_checkpoint_sha256=checkpoint["checkpoint_sha256"],
         )
         self.assertEqual(first_request, resumed.next_request())
         completed = resumed.ingest(
@@ -256,6 +334,8 @@ class OfflineConformanceTests(unittest.TestCase):
             SyntheticMetadataAdapter(), REGISTRY
         )
         checkpoint = harness.checkpoint()
+        expected_bounds = copy.deepcopy(harness.bounds)
+        expected_digest = checkpoint["checkpoint_sha256"]
         tampered_values = []
 
         extra_bound = copy.deepcopy(checkpoint)
@@ -280,8 +360,46 @@ class OfflineConformanceTests(unittest.TestCase):
                 AdapterConformanceError
             ):
                 OfflineConformanceHarness.resume(
-                    SyntheticMetadataAdapter(), REGISTRY, tampered
+                    SyntheticMetadataAdapter(),
+                    REGISTRY,
+                    tampered,
+                    expected_bounds=expected_bounds,
+                    expected_checkpoint_sha256=expected_digest,
                 )
+
+    def test_checkpoint_cannot_self_authorize_reset_or_wider_bounds(self) -> None:
+        harness = OfflineConformanceHarness(
+            SyntheticMetadataAdapter(), REGISTRY, request_budget=1
+        )
+        harness.next_request()
+        harness.record_retry("temporary_unavailable")
+        checkpoint = harness.checkpoint()
+        expected_bounds = copy.deepcopy(checkpoint["bounds"])
+        expected_digest = checkpoint["checkpoint_sha256"]
+
+        checkpoint["bounds"]["request_budget"] = 4
+        checkpoint["state"]["requests_attempted"] = 0
+        checkpoint["state"]["current_retries"] = 0
+        unsigned = {
+            key: checkpoint[key]
+            for key in ("bounds", "declaration_sha256", "state")
+        }
+        checkpoint["checkpoint_sha256"] = hashlib.sha256(
+            json.dumps(
+                unsigned,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                SyntheticMetadataAdapter(),
+                REGISTRY,
+                checkpoint,
+                expected_bounds=expected_bounds,
+                expected_checkpoint_sha256=expected_digest,
+            )
 
     def test_duplicate_items_dedupe_but_identity_collisions_block(self) -> None:
         duplicate = synthetic_item("001")
@@ -308,6 +426,27 @@ class OfflineConformanceTests(unittest.TestCase):
             changed["state"], changed["stop_reason"]
         ))
         self.assertEqual([], changed["records"])
+
+        class CollidingAdapter(SyntheticMetadataAdapter):
+            def stable_record_id(self, item: dict[str, str]) -> str:
+                del item
+                return "synthetic-collision"
+
+        collision_harness = OfflineConformanceHarness(
+            CollidingAdapter(), REGISTRY
+        )
+        collision_harness.next_request()
+        same_metadata_collision = collision_harness.ingest(
+            response(
+                synthetic_page(
+                    [synthetic_item("001"), synthetic_item("002")]
+                )
+            )
+        )
+        self.assertEqual(("changed", "stable_id_collision"), (
+            same_metadata_collision["state"],
+            same_metadata_collision["stop_reason"],
+        ))
 
     def test_manifest_is_deterministic_when_source_order_changes(self) -> None:
         items = [synthetic_item("002"), synthetic_item("001")]
@@ -384,6 +523,7 @@ class OfflineConformanceTests(unittest.TestCase):
         ):
             for operation in (
                 lambda: socket.getaddrinfo("example.invalid", 443),
+                lambda: socket.gethostbyname("localhost"),
                 lambda: socket.create_connection(("example.invalid", 443)),
                 lambda: urllib.request.urlopen("https://example.invalid/"),
                 lambda: webbrowser.open("https://example.invalid/"),

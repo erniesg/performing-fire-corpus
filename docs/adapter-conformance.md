@@ -8,8 +8,9 @@ content.
 
 The implementation is in
 `src/performing_fire_corpus/adapter_conformance.py`. The shared synthetic matrix
-is in `tests/test_adapter_conformance.py`, and its invented response builders
-are in `tests/synthetic_adapter_builders.py`.
+is the reusable mixin in `tests/adapter_conformance_suite.py`; the protocol
+tests are in `tests/test_adapter_conformance.py`, and the current invented
+response builders are in `tests/synthetic_adapter_builders.py`.
 
 ## Adapter contract
 
@@ -17,7 +18,8 @@ An adapter declares one canonical `source_id` and `endpoint_id` from the source
 registry, a semantic adapter version, whether robots applies, and sorted exact
 allowlists for:
 
-- request methods, the canonical endpoint host, and pagination query names;
+- request methods, the canonical endpoint host, and pagination query names
+  plus exact per-parameter value contracts;
 - accepted MIME types;
 - approved and minimum-required factual metadata fields;
 - bounded terminal states and content-free blocker states.
@@ -25,11 +27,17 @@ allowlists for:
 The adapter also supplies pure functions to build a content-free request,
 detect a declared login or subscription blocker, derive a stable record ID,
 and parse one bounded page. `MetadataRequest` intentionally has no headers,
-cookies, request body, credentials, or browser-state surface.
+cookies, request body, credentials, or browser-state surface. A pagination
+value must be derived exactly from the current content-free checkpoint cursor.
+Optional constant query values must be identifier-like reviewed enum literals;
+credential, signed, content, media, transcript, caption, prose, raw, or
+download-expanding names and values fail closed.
 
 The approved metadata projection uses exact value contracts. The current
-shared types are bounded enums and four-digit years. Adding a new value type is
-a reviewed common-harness change, not a source-adapter escape hatch.
+shared types are identifier-like bounded enums and four-digit years. An enum
+cannot bless a sentence, person name with spaces, URL, signed value, or local
+path. Adding a new value type is a reviewed common-harness change, not a
+source-adapter escape hatch.
 
 ## Synthetic fixture rule
 
@@ -39,15 +47,20 @@ media URLs, signed values, account data, or private project material into a
 fixture. A source-specific parser should receive a response assembled by a
 synthetic builder rather than a saved live response.
 
-Stable-ID variants must change the invented title, result ordering, page
+Each normalized record carries both its stable record ID and a separate,
+content-free synthetic source identity. Stable-ID variants must change the
+invented title, result ordering, page
 position, pagination value, tracking query, and presentation metadata while
 keeping the stable source identifier fixed. The adapter must return the same
-record ID for every variant.
+record ID for every variant. Two distinct source identities mapping to one
+record ID are a collision even if their approved metadata is identical.
 
 ## Required shared matrix
 
-Every adapter test module must instantiate the common
-`OfflineConformanceHarness` and exercise the same cases:
+Every adapter test module subclasses `StandardAdapterConformanceMixin` and
+provides only its adapter factory plus invented item, page, and identity-variant
+builders. The inherited matrix instantiates `OfflineConformanceHarness` and
+exercises the same cases:
 
 - zero request budget and robots denial before request construction;
 - `401`, `403`, `429`, login-required, and subscription-required blockers;
@@ -59,16 +72,22 @@ Every adapter test module must instantiate the common
 - rejection of prose, HTML, captions, transcripts, unapproved URLs, signed
   values, personal data, and machine-local paths.
 
-Use `deny_live_network()` around the portable matrix. It rejects DNS, raw
-socket, standard-library HTTP, and browser entry points. Pass every
-source-specific SDK request method through `additional_entry_points`; an
-adapter is non-conformant if its parser or tests require a live SDK, browser,
-credential, cache, or remote fixture.
+Network denial is automatic around every adapter request builder, blocker
+detector, parser, identity check, and the complete inherited matrix. It rejects
+DNS lookups, raw socket connect/send entry points, standard-library HTTP
+open/request methods, URL retrieval, and browser open methods. Pass every
+source-specific SDK request method through `additional_network_entry_points`;
+an adapter is non-conformant if its parser or tests require a live SDK,
+browser, credential, cache, or remote fixture.
 
-The offline checkpoint is integrity checked and declaration bound. Only a
-non-terminal `ready` or `retry_pending` checkpoint can resume. A page is
-committed only after pagination, metadata, collision, and completeness checks
-all pass.
+The offline checkpoint is integrity checked and declaration bound. Resume also
+requires the operator to provide the expected bounds and checkpoint digest
+from a separately trusted run-plan or receipt; never derive those expected
+values from the checkpoint being resumed. Counter, retry, page, cursor, and
+seen-page relationships must remain monotonic. Only a non-terminal `ready` or
+`retry_pending` checkpoint can resume. A page is committed only after
+pagination, metadata, source-identity collision, and completeness checks all
+pass.
 
 ## Evidence required before a live proof
 

@@ -76,6 +76,12 @@ class SyntheticMetadataAdapter:
     allowed_methods = ("GET",)
     allowed_hosts = ("antiegg.kr",)
     allowed_query_parameters = ("page",)
+    query_parameter_contracts = {
+        "page": {
+            "cursor_prefix": "page-",
+            "value_type": "cursor_integer",
+        }
+    }
     expected_mime_types = ("application/json",)
     approved_metadata_fields = ("kind", "year")
     required_metadata_fields = ("kind", "year")
@@ -121,6 +127,7 @@ class SyntheticMetadataAdapter:
             "records": [
                 {
                     "record_id": self.stable_record_id(item),
+                    "source_identity": f"synthetic-source-{item['id']}",
                     "metadata": {
                         "kind": item["kind"],
                         "year": item["year"],
