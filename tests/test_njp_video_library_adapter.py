@@ -350,6 +350,27 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                     )
                 )
 
+    def test_unreviewed_asset_marker_attributes_fail_closed(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        body = invented_page(
+            [invented_item("catalogue-001")],
+            assets=[
+                {
+                    "record_id": "catalogue-001",
+                    "asset_kind": "asset_kind_video",
+                    "mime_type": "video/mp4",
+                    "url": "/invented-assets/1",
+                }
+            ],
+        )
+        for marker in (
+            b'data-asset-signed-url="/invented-assets/private" ',
+            b'data-asset-extension="unreviewed" ',
+        ):
+            changed = body.replace(b"href=", marker + b"href=")
+            with self.subTest(marker=marker), self.assertRaises(ValueError):
+                adapter.asset_candidates(changed)
+
     def test_canonical_url_records_can_own_asset_candidates(self) -> None:
         adapter = InventedVideoLibraryAdapter()
         canonical_url = (

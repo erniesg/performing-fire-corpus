@@ -52,6 +52,14 @@ _RECORD_MARKERS = frozenset(
         "data-year",
     }
 )
+_ASSET_MARKERS = frozenset(
+    {
+        "data-asset-for",
+        "data-asset-for-url",
+        "data-asset-kind",
+        "data-asset-mime",
+    }
+)
 _ASSET_KINDS = frozenset(
     {
         "asset_kind_caption",
@@ -141,6 +149,11 @@ class _MetadataHTMLParser(HTMLParser):
             and tag != "a"
         ):
             raise ValueError("asset markers moved to an unknown element")
+        if any(
+            key.startswith("data-asset-") and key not in _ASSET_MARKERS
+            for key in attribute_names
+        ):
+            raise ValueError("asset candidate shape changed")
         if tag == "html":
             if (
                 not self.seen_doctype
