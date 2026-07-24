@@ -39,6 +39,11 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         self.assertIn("*.egg-info/", ignored)
 
+    def test_local_rucksack_session_state_is_ignored_exactly(self) -> None:
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".local/rucksack-vm-sessions.json", ignored)
+        self.assertIn(".local/rucksack-vm-sessions.json.lock", ignored)
+
     def test_repository_contains_no_source_documents_or_media(self) -> None:
         forbidden = [
             path.relative_to(ROOT).as_posix()

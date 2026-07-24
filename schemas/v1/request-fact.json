@@ -1,0 +1,133 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/request-fact.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "cursor_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "endpoint_id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "failure_code": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mime_type": {
+      "anyOf": [
+        {
+          "pattern": "^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observed_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "observed_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outcome": {
+      "enum": [
+        "aggregate_budget_exceeded",
+        "http_error",
+        "invalid_response_time",
+        "response_oversized",
+        "retryable_error",
+        "success"
+      ]
+    },
+    "record_type": {
+      "const": "request_fact"
+    },
+    "request_fact_id": {
+      "pattern": "^request_fact_[a-z0-9][a-z0-9._-]{0,160}$",
+      "type": "string"
+    },
+    "request_sequence": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "response_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "run_id": {
+      "pattern": "^discovery_run_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "attempt",
+    "cursor_hash",
+    "endpoint_id",
+    "failure_code",
+    "mime_type",
+    "observed_at",
+    "observed_bytes",
+    "outcome",
+    "record_type",
+    "request_fact_id",
+    "request_sequence",
+    "response_sha256",
+    "run_id",
+    "schema_version",
+    "source_id",
+    "status"
+  ],
+  "title": "Sanitized discovery request fact v1",
+  "type": "object"
+}

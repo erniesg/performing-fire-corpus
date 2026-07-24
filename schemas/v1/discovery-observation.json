@@ -1,0 +1,69 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/discovery-observation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adapter_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "endpoint_id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "maxLength": 512,
+        "minLength": 1,
+        "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$",
+        "type": "string"
+      },
+      "maxProperties": 32,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "type": "object"
+    },
+    "observation_id": {
+      "pattern": "^discovery_observation_[a-z0-9][a-z0-9._-]{0,160}$",
+      "type": "string"
+    },
+    "page_sequence": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "record_type": {
+      "const": "discovery_observation"
+    },
+    "run_id": {
+      "pattern": "^discovery_run_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "stable_record_id": {
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter_version",
+    "endpoint_id",
+    "metadata",
+    "observation_id",
+    "page_sequence",
+    "record_type",
+    "run_id",
+    "schema_version",
+    "source_id",
+    "stable_record_id"
+  ],
+  "title": "Sanitized discovery observation v1",
+  "type": "object"
+}

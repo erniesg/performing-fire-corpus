@@ -1,0 +1,157 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/page-checkpoint.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "nullableInteger": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableNonnegativeInteger": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "aggregate_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "committed_request_fact_id": {
+      "anyOf": [
+        {
+          "pattern": "^request_fact_[a-z0-9][a-z0-9._-]{0,160}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "duplicate_records": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "elapsed_seconds": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "endpoint_id": {
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "expected_total": {
+      "$ref": "#/$defs/nullableNonnegativeInteger"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "pattern": "^(?:page|offset)-[0-9]{1,18}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next_ordinal": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "page_sequence": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "policy_snapshot_id": {
+      "pattern": "^policy_snapshot_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "page_checkpoint"
+    },
+    "rejected_records": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requests_attempted": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "run_id": {
+      "pattern": "^discovery_run_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "seen_cursor_hashes": {
+      "items": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "source_id": {
+      "pattern": "^[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "terminal": {
+      "type": "boolean"
+    },
+    "terminal_pages": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "adapter_version",
+    "aggregate_bytes",
+    "committed_request_fact_id",
+    "duplicate_records",
+    "elapsed_seconds",
+    "endpoint_id",
+    "expected_total",
+    "next_cursor",
+    "next_ordinal",
+    "page_sequence",
+    "policy_snapshot_id",
+    "record_type",
+    "rejected_records",
+    "requests_attempted",
+    "run_id",
+    "schema_version",
+    "seen_cursor_hashes",
+    "source_id",
+    "terminal",
+    "terminal_pages"
+  ],
+  "title": "Bounded discovery page checkpoint v1",
+  "type": "object"
+}

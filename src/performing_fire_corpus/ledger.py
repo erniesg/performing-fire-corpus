@@ -147,17 +147,47 @@ class Ledger:
         self._migrate()
 
     def _migrate(self) -> None:
-        sql = (
-            files("performing_fire_corpus.migrations")
-            .joinpath("001_initial.sql")
-            .read_text(encoding="utf-8")
+        migrations = sorted(
+            (
+                resource
+                for resource in files("performing_fire_corpus.migrations").iterdir()
+                if resource.name.endswith(".sql")
+                and resource.name.split("_", 1)[0].isdigit()
+            ),
+            key=lambda resource: resource.name,
         )
         with self._lock:
-            self._connection.executescript(sql)
-            self._connection.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, ?)",
-                (utc_text(),),
+            migration_table_exists = self._connection.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'schema_migrations'
+                """
+            ).fetchone()
+            applied = (
+                {
+                    int(row["version"])
+                    for row in self._connection.execute(
+                        "SELECT version FROM schema_migrations"
+                    ).fetchall()
+                }
+                if migration_table_exists
+                else set()
             )
+            for migration in migrations:
+                version = int(migration.name.split("_", 1)[0])
+                if version in applied:
+                    continue
+                self._connection.executescript(
+                    migration.read_text(encoding="utf-8")
+                )
+                self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                    VALUES(?, ?)
+                    """,
+                    (version, utc_text()),
+                )
+                applied.add(version)
 
     def close(self) -> None:
         self._connection.close()

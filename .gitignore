@@ -12,6 +12,8 @@
 .rucksack/secrets/
 .env.live
 .local/r2-proof/
+.local/rucksack-vm-sessions.json
+.local/rucksack-vm-sessions.json.lock
 
 # Python caches and build artifacts
 __pycache__/
