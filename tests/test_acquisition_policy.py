@@ -21,7 +21,6 @@ class AcquisitionPolicyTests(unittest.TestCase):
         cases = {
             "https://NJPVIDEO.GGCF.KR/item?id=1": "njpvideo.ggcf.kr",
             "https://njp.ggcf.kr:443/pages/videoarchive": "njp.ggcf.kr",
-            "https://www.googleapis.com/youtube/v3/channels": "www.googleapis.com",
             "https://www.youtube.com/@NamJunePaikArtCenter/videos": "www.youtube.com",
             "https://antiegg.kr/25502/": "antiegg.kr",
         }
@@ -48,6 +47,7 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://[::1]/",
             "https://njp.ggcf.kr\\@evil.invalid/",
             "https://njp.ggcf.kr/%0aheader",
+            "https://www.googleapis.com/drive/v3/files/arbitrary",
             signed_query_url,
             credential_query_url,
         )

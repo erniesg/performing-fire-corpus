@@ -29,6 +29,9 @@ class StandardAdapterConformanceMixin:
     next_cursor = "page-002"
     alternate_cursor = "page-003"
     server_supplies_ordinal = True
+    supports_pagination = True
+    source_can_return_multiple = True
+    source_can_duplicate_items = True
 
     def setUp(self) -> None:
         super().setUp()
@@ -146,35 +149,36 @@ class StandardAdapterConformanceMixin:
         result = drift.ingest(self._response(b"{}", request.url))
         self.assertEqual("shape_drift", result["stop_reason"])
 
-        pagination = self._harness()
-        request = pagination.next_request()
-        first = pagination.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("001")],
-                    next_cursor=self.next_cursor,
-                    next_ordinal=1,
-                    terminal=False,
-                ),
-                request.url,
+        if self.supports_pagination:
+            pagination = self._harness()
+            request = pagination.next_request()
+            first = pagination.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("001")],
+                        next_cursor=self.next_cursor,
+                        next_ordinal=1,
+                        terminal=False,
+                    ),
+                    request.url,
+                )
             )
-        )
-        self.assertEqual("ready", first["state"])
-        request = pagination.next_request()
-        loop = pagination.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("002")],
-                    next_cursor=self.next_cursor,
-                    next_ordinal=2,
-                    terminal=False,
-                ),
-                request.url,
+            self.assertEqual("ready", first["state"])
+            request = pagination.next_request()
+            loop = pagination.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("002")],
+                        next_cursor=self.next_cursor,
+                        next_ordinal=2,
+                        terminal=False,
+                    ),
+                    request.url,
+                )
             )
-        )
-        self.assertEqual("pagination_loop", loop["stop_reason"])
+            self.assertEqual("pagination_loop", loop["stop_reason"])
 
-        if self.server_supplies_ordinal:
+        if self.supports_pagination and self.server_supplies_ordinal:
             ordinal = self._harness()
             request = ordinal.next_request()
             ordinal.ingest(
@@ -205,35 +209,36 @@ class StandardAdapterConformanceMixin:
                 ordinal_result["stop_reason"],
             )
 
-        changing_total = self._harness()
-        request = changing_total.next_request()
-        changing_total.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("001")],
-                    next_cursor=self.next_cursor,
-                    next_ordinal=1,
-                    terminal=False,
-                    expected_total=2,
-                ),
-                request.url,
+        if self.supports_pagination:
+            changing_total = self._harness()
+            request = changing_total.next_request()
+            changing_total.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("001")],
+                        next_cursor=self.next_cursor,
+                        next_ordinal=1,
+                        terminal=False,
+                        expected_total=2,
+                    ),
+                    request.url,
+                )
             )
-        )
-        request = changing_total.next_request()
-        total_result = changing_total.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("002")],
-                    terminal=True,
-                    expected_total=3,
-                ),
-                request.url,
+            request = changing_total.next_request()
+            total_result = changing_total.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("002")],
+                        terminal=True,
+                        expected_total=3,
+                    ),
+                    request.url,
+                )
             )
-        )
-        self.assertEqual(
-            "expected_total_changed",
-            total_result["stop_reason"],
-        )
+            self.assertEqual(
+                "expected_total_changed",
+                total_result["stop_reason"],
+            )
 
         retry = self._harness(max_retries=2)
         original_request = retry.next_request()
@@ -252,37 +257,39 @@ class StandardAdapterConformanceMixin:
         )
         self.assertEqual(original_request, resumed.next_request())
 
-        duplicate_item = self.make_item("001")
-        duplicate = self._harness()
-        request = duplicate.next_request()
-        result = duplicate.ingest(
-            self._response(
-                self.make_page(
-                    [duplicate_item, copy.deepcopy(duplicate_item)]
-                ),
-                request.url,
+        if self.source_can_duplicate_items:
+            duplicate_item = self.make_item("001")
+            duplicate = self._harness()
+            request = duplicate.next_request()
+            result = duplicate.ingest(
+                self._response(
+                    self.make_page(
+                        [duplicate_item, copy.deepcopy(duplicate_item)]
+                    ),
+                    request.url,
+                )
             )
-        )
-        self.assertEqual(1, result["duplicate_records"])
+            self.assertEqual(1, result["duplicate_records"])
 
-        colliding_adapter = self._colliding_adapter()
-        collision = OfflineConformanceHarness(
-            colliding_adapter,
-            self.registry,
-            additional_network_entry_points=(
-                self.additional_network_entry_points
-            ),
-        )
-        request = collision.next_request()
-        result = collision.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("001"), self.make_item("002")]
+        if self.source_can_return_multiple:
+            colliding_adapter = self._colliding_adapter()
+            collision = OfflineConformanceHarness(
+                colliding_adapter,
+                self.registry,
+                additional_network_entry_points=(
+                    self.additional_network_entry_points
                 ),
-                request.url,
             )
-        )
-        self.assertEqual("stable_id_collision", result["stop_reason"])
+            request = collision.next_request()
+            result = collision.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("001"), self.make_item("002")]
+                    ),
+                    request.url,
+                )
+            )
+            self.assertEqual("stable_id_collision", result["stop_reason"])
 
         stable_item = self.make_item("001")
         assert_stable_identity(
@@ -290,20 +297,21 @@ class StandardAdapterConformanceMixin:
             self.identity_variants(stable_item),
         )
 
-        manifests = []
-        ordered_items = [self.make_item("002"), self.make_item("001")]
-        for order in (ordered_items, list(reversed(ordered_items))):
-            harness = self._harness()
-            request = harness.next_request()
-            manifests.append(
-                harness.ingest(
-                    self._response(
-                        self.make_page(order, expected_total=2),
-                        request.url,
+        if self.source_can_return_multiple:
+            manifests = []
+            ordered_items = [self.make_item("002"), self.make_item("001")]
+            for order in (ordered_items, list(reversed(ordered_items))):
+                harness = self._harness()
+                request = harness.next_request()
+                manifests.append(
+                    harness.ingest(
+                        self._response(
+                            self.make_page(order, expected_total=2),
+                            request.url,
+                        )
                     )
                 )
-            )
-        self.assertEqual(manifests[0], manifests[1])
+            self.assertEqual(manifests[0], manifests[1])
 
         seed_adapter = self.adapter_factory()
         seed_page = seed_adapter.parse_page(

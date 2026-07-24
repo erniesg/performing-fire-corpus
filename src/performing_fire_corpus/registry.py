@@ -18,6 +18,9 @@ from performing_fire_corpus.policy import (
 
 
 _SOURCE_ID = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
+_REGISTRY_LOCATOR_HOSTS = PUBLIC_SOURCE_HOSTS | frozenset(
+    {"www.googleapis.com"}
+)
 _UNSAFE_IDENTIFIER = re.compile(
     r"(?:[/?#:@=\\]|(?:^|[-_\s])\d+(?:$|[-_\s])|/Users/|/home/|/tmp/)",
     re.IGNORECASE,
@@ -77,7 +80,7 @@ def canonicalize_public_url(value: str) -> str:
     normalized = urlunsplit(("https", host, path, "", ""))
     try:
         return validate_public_url(
-            normalized, allowed_hosts=PUBLIC_SOURCE_HOSTS
+            normalized, allowed_hosts=_REGISTRY_LOCATOR_HOSTS
         ).url
     except AcquisitionPolicyError as error:
         raise RegistryError("public locator violates acquisition host policy") from error

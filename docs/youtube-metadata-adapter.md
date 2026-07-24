@@ -8,8 +8,8 @@ YouTube Data API v3 metadata path:
    `contentDetails.relatedPlaylists.uploads`;
 3. enumerate stable video identifiers with bounded `playlistItems.list`
    pages; and
-4. enrich batches of at most 50 identifiers with factual duration and
-   availability observations from `videos.list`.
+4. enrich inventory-bound batches of at most 50 identifiers with factual
+   duration, availability, and live-lifecycle observations from `videos.list`.
 
 The checked-in API contract is based on the official documentation for
 [`channels.list`](https://developers.google.com/youtube/v3/docs/channels/list),
@@ -25,6 +25,9 @@ state, or expose caption, transcript, thumbnail, audio, or video download
 methods. The official handle remains unverified by a live observation.
 Endpoint governance for the handle and all three API methods remains
 `unknown`/`pending`, so no live API request is authorized by this change.
+`www.googleapis.com` is a registry-only locator host and is not in the generic
+content-acquisition allowlist. Each adapter declaration binds its exact
+documented YouTube API path.
 
 ## Pagination and quota boundary
 
@@ -35,19 +38,32 @@ also binds a monotonic page ordinal; repeated raw tokens and skipped ordinals
 fail closed. Checkpoint resume requires externally supplied expected bounds
 and digest.
 
-`YouTubeQuotaLedger` accounts for the three reviewed list methods and refuses
-an unknown method or a reservation beyond its configured unit budget. Its
-checkpoint binds the maximum, consumed units, and per-method counters.
-`quotaExceeded` and `dailyLimitExceeded` are durable quota blockers, not
-signals to switch accounts, projects, credentials, or endpoints.
+`YouTubeMetadataCoordinator` owns one run-bound quota ledger and is the only
+normal constructor for all three stages. Every request builder reserves its
+reviewed method cost before returning a request; a request cannot be built
+without the ledger. The common checkpoint stores the run ID, maximum,
+consumed units, and per-method counters inside its outer integrity binding,
+and restores them before a retry. Provider quota reasons are reduced at the
+transport boundary to the body-free `quota_exhausted` blocker.
+`quotaExceeded` and `dailyLimitExceeded` never signal permission to switch
+accounts, projects, credentials, or endpoints.
+
+Channel resolution produces a non-publicly-constructible, integrity-bound
+artifact. The uploads manifest carries an adapter-lineage digest bound to that
+resolution. Only a complete terminal manifest with no rejected records can
+produce an uploads inventory. `videos.list` accepts only a sorted subset of
+that inventory, so arbitrary public-looking video IDs cannot enter enrichment.
 
 ## Completeness and asset boundary
 
 Missing requested video identifiers are recorded as
 `availability_unavailable`; that is a partial metadata observation, not proof
 that a source record was deleted. Public, unlisted, private, region-restricted,
-and age-gated observations are reduced to bounded enums. Titles, descriptions,
-tags, thumbnails, URLs, prose, and source payloads are not retained.
+and age-gated observations are reduced to bounded enums. Live items are
+separately classified as upcoming, live, or completed from the reviewed
+`liveStreamingDetails` part; absent details are `not_live`, and an unknown
+lifecycle shape fails closed. Titles, descriptions, tags, thumbnails, URLs,
+prose, and source payloads are not retained.
 
 Caption, thumbnail, audio, and video entries are only non-acquirable candidate
 types with `rights_state = pending`. Metadata permission never implies asset
@@ -66,4 +82,3 @@ do not add it to `MetadataRequest`, a URL, checkpoint, manifest, issue, log,
 fixture, or commit. Any `401`, `403`, `429`, quota response, shape drift,
 redirect, or ambiguous handle resolution stops only this source lane and
 preserves resumable state.
-

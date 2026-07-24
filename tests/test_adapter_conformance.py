@@ -470,7 +470,12 @@ class OfflineConformanceTests(unittest.TestCase):
         checkpoint["state"]["current_retries"] = 0
         unsigned = {
             key: checkpoint[key]
-            for key in ("bounds", "declaration_sha256", "state")
+            for key in (
+                "adapter_runtime_checkpoint",
+                "bounds",
+                "declaration_sha256",
+                "state",
+            )
         }
         checkpoint["checkpoint_sha256"] = hashlib.sha256(
             json.dumps(

@@ -48,6 +48,8 @@ years, UTC timestamps, and ISO 8601 durations. An enum
 cannot bless a sentence, person name with spaces, URL, signed value, or local
 path. Adding a new value type is a reviewed common-harness change, not a
 source-adapter escape hatch.
+UTC timestamps must also parse as real calendar instants; range-shaped but
+impossible dates fail closed.
 
 ## Synthetic fixture rule
 
@@ -77,7 +79,8 @@ exercises the same cases:
   construction;
 - `401`, `403`, `429`, login-required, and subscription-required blockers;
 - redirect target, MIME, response-size, and parser-shape mismatch;
-- pagination loops, non-monotonic page ordinals, and changed expected totals;
+- pagination loops, non-monotonic page ordinals, and changed expected totals
+  for paginated sources;
 - retry checkpoint/resume at the same cursor;
 - duplicate records, stable-ID collisions, and expected-total changes;
 - deterministic final manifests under reordered source results;
@@ -100,6 +103,11 @@ seen-page relationships must remain monotonic. Only a non-terminal `ready` or
 `retry_pending` checkpoint can resume. A page is committed only after
 pagination, metadata, source-identity collision, and completeness checks all
 pass.
+Adapters with run-time safety state, such as a quota ledger, must expose it to
+the harness. The outer checkpoint binds that state and restores it before the
+next request. A content-free adapter-lineage digest may also be included in a
+manifest to bind dependent stages without exposing identifiers or raw
+responses.
 
 ## Evidence required before a live proof
 

@@ -13,6 +13,7 @@ import webbrowser
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from unittest.mock import patch
 from urllib.parse import parse_qsl, urlsplit
@@ -40,7 +41,9 @@ _DURATION = re.compile(
     r"^P(?=.+)(?:[0-9]+D)?(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?$"
 )
 _SAFE_QUERY_LITERAL = re.compile(r"^[A-Za-z0-9@._~,-]{1,256}$")
-_OFFICIAL_METADATA_PARTS = frozenset({"contentDetails", "id", "status"})
+_OFFICIAL_METADATA_PARTS = frozenset(
+    {"contentDetails", "id", "liveStreamingDetails", "status"}
+)
 _SAFE_ENUM_LITERAL = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
 _FORBIDDEN_FIELD_PARTS = frozenset(
     {
@@ -143,6 +146,7 @@ class MetadataResponse:
     mime_type: str
     body: bytes
     final_url: str
+    error_reason: str | None = None
 
 
 class ConformantMetadataAdapter(Protocol):
@@ -584,7 +588,13 @@ def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if contract["value_type"] == "year":
         return _YEAR.fullmatch(value) is not None
     if contract["value_type"] == "timestamp":
-        return _TIMESTAMP.fullmatch(value) is not None
+        if _TIMESTAMP.fullmatch(value) is None:
+            return False
+        try:
+            datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return False
+        return True
     if contract["value_type"] == "duration_iso8601":
         return _DURATION.fullmatch(value) is not None
     return value in contract["allowed_values"]
@@ -828,6 +838,7 @@ class OfflineConformanceHarness:
 
     def _restore(self, checkpoint: Mapping[str, Any]) -> None:
         expected_keys = {
+            "adapter_runtime_checkpoint",
             "bounds",
             "checkpoint_sha256",
             "declaration_sha256",
@@ -837,7 +848,12 @@ class OfflineConformanceHarness:
             raise AdapterConformanceError("checkpoint is invalid")
         unsigned = {
             key: copy.deepcopy(checkpoint[key])
-            for key in ("bounds", "declaration_sha256", "state")
+            for key in (
+                "adapter_runtime_checkpoint",
+                "bounds",
+                "declaration_sha256",
+                "state",
+            )
         }
         if checkpoint["checkpoint_sha256"] != hashlib.sha256(
             _canonical(unsigned).encode("utf-8")
@@ -848,6 +864,28 @@ class OfflineConformanceHarness:
         ).hexdigest()
         if checkpoint["declaration_sha256"] != fingerprint:
             raise AdapterConformanceError("checkpoint adapter declaration changed")
+        runtime_checkpoint = checkpoint["adapter_runtime_checkpoint"]
+        restore_runtime = getattr(
+            self.adapter,
+            "restore_runtime_checkpoint",
+            None,
+        )
+        if restore_runtime is None:
+            if runtime_checkpoint is not None:
+                raise AdapterConformanceError(
+                    "checkpoint has unsupported adapter runtime state"
+                )
+        else:
+            if not isinstance(runtime_checkpoint, Mapping):
+                raise AdapterConformanceError(
+                    "checkpoint omits adapter runtime state"
+                )
+            try:
+                restore_runtime(copy.deepcopy(runtime_checkpoint))
+            except Exception as error:
+                raise AdapterConformanceError(
+                    "adapter runtime checkpoint is invalid"
+                ) from error
         state = checkpoint["state"]
         if not isinstance(state, Mapping) or set(state) != set(self._new_state()):
             raise AdapterConformanceError("checkpoint state is invalid")
@@ -1014,15 +1052,28 @@ class OfflineConformanceHarness:
             or not _MIME_TYPE.fullmatch(response.mime_type)
             or not isinstance(response.body, bytes)
             or not isinstance(response.final_url, str)
+            or (
+                response.error_reason is not None
+                and (
+                    not isinstance(response.error_reason, str)
+                    or not _IDENTIFIER.fullmatch(response.error_reason)
+                )
+            )
         ):
             return self._stop("changed", "invalid_response")
         if response.final_url != request.url:
             return self._stop("changed", "redirect_mismatch")
-        status_reason = {
-            401: "login_required",
-            403: "access_forbidden",
-            429: "rate_limited",
-        }.get(response.status)
+        status_reason = (
+            "quota_exhausted"
+            if response.status == 403
+            and response.error_reason == "quota_exhausted"
+            and "quota_exhausted" in self.declaration["blocker_states"]
+            else {
+                401: "login_required",
+                403: "access_forbidden",
+                429: "rate_limited",
+            }.get(response.status)
+        )
         if status_reason is not None:
             return self._stop("blocked", status_reason)
         if response.status != 200:
@@ -1128,7 +1179,24 @@ class OfflineConformanceHarness:
     def checkpoint(self) -> dict[str, Any]:
         if self._active_request is not None:
             raise AdapterConformanceError("active synthetic request cannot be checkpointed")
+        runtime_checkpoint = None
+        runtime_checkpoint_builder = getattr(
+            self.adapter,
+            "runtime_checkpoint",
+            None,
+        )
+        if runtime_checkpoint_builder is not None:
+            runtime_checkpoint = runtime_checkpoint_builder()
+            if (
+                not isinstance(runtime_checkpoint, Mapping)
+                or sanitize(runtime_checkpoint, environ={})
+                != runtime_checkpoint
+            ):
+                raise AdapterConformanceError(
+                    "adapter runtime checkpoint is invalid"
+                )
         unsigned = {
+            "adapter_runtime_checkpoint": copy.deepcopy(runtime_checkpoint),
             "bounds": copy.deepcopy(self.bounds),
             "declaration_sha256": hashlib.sha256(
                 _canonical(self.declaration).encode("utf-8")
@@ -1155,7 +1223,7 @@ class OfflineConformanceHarness:
         ]
         observed_unique_records = len(records)
         expected_total = self._state["expected_total"]
-        return {
+        manifest = {
             "schema_version": 1,
             "manifest_type": "offline_adapter_conformance",
             "adapter_id": self.declaration["adapter_id"],
@@ -1184,6 +1252,22 @@ class OfflineConformanceHarness:
             ),
             "records": records,
         }
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        if lineage_builder is not None:
+            lineage_sha256 = lineage_builder()
+            if (
+                not isinstance(lineage_sha256, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", lineage_sha256)
+            ):
+                raise AdapterConformanceError(
+                    "adapter lineage digest is invalid"
+                )
+            manifest["adapter_lineage_sha256"] = lineage_sha256
+        return manifest
 
 
 def _deny_network(*_: Any, **__: Any) -> Any:
