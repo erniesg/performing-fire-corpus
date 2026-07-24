@@ -32,6 +32,26 @@ _RECORD_CLASSES = (
     "record_class_research_document",
     "record_class_video_work",
 )
+_CONTROL_NAMES = frozenset(
+    {
+        "access-state",
+        "expected-total",
+        "next-cursor",
+        "next-ordinal",
+        "rejected-count",
+        "terminal",
+    }
+)
+_RECORD_MARKERS = frozenset(
+    {
+        "data-canonical-url",
+        "data-catalogue-id",
+        "data-duration",
+        "data-language",
+        "data-record-class",
+        "data-year",
+    }
+)
 _ASSET_KINDS = frozenset(
     {
         "asset_kind_caption",
@@ -79,7 +99,14 @@ class _MetadataHTMLParser(HTMLParser):
         self.seen_body = False
 
     def handle_decl(self, decl: str) -> None:
-        self.seen_doctype = decl.lower() == "doctype html"
+        if (
+            self.seen_doctype
+            or self.stack
+            or self.seen_html
+            or decl.lower() != "doctype html"
+        ):
+            raise ValueError("metadata HTML doctype changed")
+        self.seen_doctype = True
 
     def handle_starttag(
         self,
@@ -92,39 +119,84 @@ class _MetadataHTMLParser(HTMLParser):
         values = {
             key: value for key, value in attrs if value is not None
         }
-        if tag in {"html", "head", "body", "article", "a"}:
+        if (
+            any(key in _RECORD_MARKERS for key in values)
+            and tag != "article"
+        ):
+            raise ValueError("record markers moved to an unknown element")
+        if (
+            any(key.startswith("data-asset-") for key in values)
+            and tag != "a"
+        ):
+            raise ValueError("asset markers moved to an unknown element")
+        if tag == "html":
+            if (
+                not self.seen_doctype
+                or self.seen_html
+                or self.stack
+            ):
+                raise ValueError("metadata HTML structure changed")
             self.stack.append(tag)
-        self.seen_html = self.seen_html or tag == "html"
-        self.seen_head = self.seen_head or tag == "head"
-        self.seen_body = self.seen_body or tag == "body"
-        if tag == "meta" and values.get("name", "").startswith(
-            (
-                "access-",
-                "expected-",
-                "next-",
-                "rejected-",
-                "terminal",
-            )
-        ):
-            name = values.get("name")
-            content = values.get("content")
-            if name and content is not None:
-                if name in self.meta:
-                    raise ValueError(
-                        "metadata HTML has duplicate control markers"
-                    )
-                self.meta[name] = content
+            self.seen_html = True
+        elif tag == "head":
+            if self.seen_head or self.stack != ["html"]:
+                raise ValueError("metadata HTML structure changed")
+            self.stack.append(tag)
+            self.seen_head = True
+        elif tag == "body":
+            if (
+                self.seen_body
+                or not self.seen_head
+                or self.stack != ["html"]
+            ):
+                raise ValueError("metadata HTML structure changed")
+            self.stack.append(tag)
+            self.seen_body = True
+        elif tag == "meta":
+            if (
+                self.stack != ["html", "head"]
+                or set(values) != {"content", "name"}
+                or values["name"] not in _CONTROL_NAMES
+            ):
+                raise ValueError("metadata control marker changed")
+            name = values["name"]
+            if name in self.meta:
+                raise ValueError(
+                    "metadata HTML has duplicate control markers"
+                )
+            self.meta[name] = values["content"]
         elif tag == "article":
+            if self.stack != ["html", "body"]:
+                raise ValueError("metadata HTML structure changed")
+            self.stack.append(tag)
             self.records.append(values)
-        elif tag == "a" and any(
-            key.startswith("data-asset-") for key in values
-        ):
-            self.assets.append(values)
+        elif tag == "a":
+            if self.stack != ["html", "body"]:
+                raise ValueError("metadata HTML structure changed")
+            self.stack.append(tag)
+            if any(
+                key.startswith("data-asset-") for key in values
+            ):
+                self.assets.append(values)
+        else:
+            raise ValueError("metadata HTML element changed")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in {"html", "head", "body", "article", "a"}:
-            if not self.stack or self.stack.pop() != tag:
-                raise ValueError("metadata HTML structure changed")
+        if (
+            tag not in {"a", "article", "body", "head", "html"}
+            or not self.stack
+            or self.stack.pop() != tag
+        ):
+            raise ValueError("metadata HTML structure changed")
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag != "meta":
+            raise ValueError("metadata HTML element changed")
+        self.handle_starttag(tag, attrs)
 
 
 def _parsed(body: bytes) -> _MetadataHTMLParser:
@@ -191,6 +263,18 @@ def _page_number(cursor: object) -> int:
     if page < 2 or cursor != f"page-{canonical}":
         raise ValueError("pagination cursor is not canonical")
     return page
+
+
+def _canonical_counter(value: object) -> int:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[0-9]+", value) is None
+    ):
+        raise ValueError("metadata counter is not canonical")
+    counter = int(value)
+    if str(counter) != value:
+        raise ValueError("metadata counter is not canonical")
+    return counter
 
 
 class NJPVideoLibraryAdapter:
@@ -289,7 +373,7 @@ class NJPVideoLibraryAdapter:
         cursor: str | None,
     ) -> dict[str, Any]:
         self._require_reviewed_shape()
-        del cursor
+        current_page = 1 if cursor is None else _page_number(cursor)
         page = _parsed(body)
         if page.meta.get("terminal") not in {"true", "false"}:
             raise ValueError("metadata page has no bounded terminal marker")
@@ -342,16 +426,16 @@ class NJPVideoLibraryAdapter:
             )
         try:
             next_ordinal = (
-                int(page.meta["next-ordinal"])
+                _canonical_counter(page.meta["next-ordinal"])
                 if "next-ordinal" in page.meta
                 else None
             )
             expected_total = (
-                int(page.meta["expected-total"])
+                _canonical_counter(page.meta["expected-total"])
                 if "expected-total" in page.meta
                 else None
             )
-            rejected_count = int(
+            rejected_count = _canonical_counter(
                 page.meta.get("rejected-count", "0")
             )
         except ValueError as error:
@@ -385,7 +469,14 @@ class NJPVideoLibraryAdapter:
         ):
             raise ValueError("metadata page controls are inconsistent")
         if not terminal:
-            _page_number(next_cursor)
+            next_page = _page_number(next_cursor)
+            if next_page not in {current_page, current_page + 1}:
+                raise ValueError(
+                    "metadata pagination is noncontiguous"
+                )
+            # The adapter binds the cursor suffix to the current page. The
+            # shared harness binds next_ordinal to its committed ordinal and
+            # classifies an ordinal mismatch as a resumable pagination loop.
         return {
             "records": records,
             "next_cursor": next_cursor,

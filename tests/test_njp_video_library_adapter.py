@@ -458,6 +458,87 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 adapter.parse_page(body, cursor=None)
 
+    def test_source_markers_require_their_exact_elements(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        changed_record_element = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<div data-catalogue-id="catalogue-001" '
+            b'data-record-class="record_class_video_work" '
+            b'data-language="language_en"></div>'
+            b"</body></html>"
+        )
+        changed_asset_element = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<video data-asset-for="catalogue-001" '
+            b'data-asset-kind="asset_kind_video" '
+            b'data-asset-mime="video/mp4" '
+            b'href="/invented-assets/1"></video>'
+            b"</body></html>"
+        )
+        for body in (
+            changed_record_element,
+            changed_asset_element,
+        ):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                adapter.parse_page(body, cursor=None)
+
+    def test_controls_and_document_structure_are_canonical(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        malformed = (
+            (
+                b"<!doctype html><html><head>"
+                b'<meta name="terminal">'
+                b"</head><body></body></html>"
+            ),
+            (
+                b"<!doctype html><html><head>"
+                b'<meta name="terminal" content="true">'
+                b'<meta name="access-state">'
+                b"</head><body></body></html>"
+            ),
+            (
+                b"<!doctype html><html><head>"
+                b'<meta name="terminal" content="true">'
+                b'<meta name="next-page" content="page-002">'
+                b"</head><body></body></html>"
+            ),
+            (
+                b"<!doctype html><html><head></head><body>"
+                b'<meta name="terminal" content="true">'
+                b"</body></html>"
+            ),
+            (
+                b"<!doctype html><html><head>"
+                b'<meta name="terminal" content="true">'
+                b'<article data-catalogue-id="catalogue-001" '
+                b'data-record-class="record_class_video_work" '
+                b'data-language="language_en"></article>'
+                b"</head><body></body></html>"
+            ),
+        )
+        for body in malformed:
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                adapter.parse_page(body, cursor=None)
+
+        for value in (" 1", "+1", "01", "١"):
+            body = invented_page(
+                [],
+                terminal=False,
+                next_cursor="page-002",
+                next_ordinal=1,
+            ).replace(
+                b'<meta name="next-ordinal" content="1">',
+                (
+                    f'<meta name="next-ordinal" content="{value}">'
+                ).encode(),
+            )
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                adapter.parse_page(body, cursor=None)
+
     def test_pagination_cursor_has_one_canonical_spelling(self) -> None:
         adapter = InventedVideoLibraryAdapter()
         canonical = invented_page(
@@ -492,6 +573,26 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                 ValueError
             ):
                 adapter.build_request(cursor)
+
+        for cursor, ordinal, current in (
+            ("page-999", 1, None),
+            ("page-003", 1, None),
+            ("page-004", 2, "page-002"),
+        ):
+            with self.subTest(
+                cursor=cursor,
+                ordinal=ordinal,
+                current=current,
+            ), self.assertRaises(ValueError):
+                adapter.parse_page(
+                    invented_page(
+                        [],
+                        terminal=False,
+                        next_cursor=cursor,
+                        next_ordinal=ordinal,
+                    ),
+                    cursor=current,
+                )
 
         with self.assertRaises(ValueError):
             adapter.asset_candidates(
