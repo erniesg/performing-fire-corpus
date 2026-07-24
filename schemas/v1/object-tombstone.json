@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/object-tombstone.json",
+  "title": "Exact-key object tombstone v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "tombstone_id",
+    "retention_work_id",
+    "receipt_id",
+    "source_id",
+    "asset_id",
+    "deleted_object_key",
+    "deleted_object_sha256",
+    "tombstone_object_key",
+    "deletion_state",
+    "deleted_at",
+    "reason_code",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "object_tombstone"},
+    "tombstone_id": {
+      "type": "string",
+      "pattern": "^tombstone_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "retention_work_id": {
+      "type": "string",
+      "pattern": "^retention_work_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "deleted_object_key": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+    },
+    "deleted_object_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tombstone_object_key": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}/v1/tombstones/source_[a-z0-9._-]+/asset_[a-z0-9._-]+/tombstone_[a-z0-9._-]+/[0-9a-f]{64}$"
+    },
+    "deletion_state": {
+      "enum": ["deleted_exact_key", "already_absent"]
+    },
+    "deleted_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    }
+  }
+}

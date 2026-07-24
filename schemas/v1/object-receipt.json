@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/object-receipt.json",
+  "title": "Verified corpus object receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "receipt_id",
+    "object_kind",
+    "source_id",
+    "asset_id",
+    "object_key",
+    "byte_size",
+    "media_type",
+    "sha256",
+    "rights_snapshot_sha256",
+    "retention_class",
+    "creation_run_id",
+    "evidence_ref",
+    "verification_state",
+    "create_disposition"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "object_receipt"},
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "object_kind": {
+      "enum": ["raw", "derived", "manifest"]
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "transformation_id": {
+      "type": "string",
+      "pattern": "^transform_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "object_key": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+    },
+    "byte_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rights_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "retention_class": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "creation_run_id": {
+      "type": "string",
+      "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "verification_state": {"const": "verified"},
+    "create_disposition": {
+      "enum": ["created", "reused", "recovered_after_lost_response"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"object_kind": {"const": "derived"}},
+        "required": ["object_kind"]
+      },
+      "then": {"required": ["transformation_id"]},
+      "else": {"not": {"required": ["transformation_id"]}}
+    }
+  ]
+}

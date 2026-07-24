@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/retention-work.json",
+  "title": "Exact-key retention work v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "retention_work_id",
+    "source_id",
+    "asset_id",
+    "root_receipt_id",
+    "retention_class",
+    "expires_at",
+    "evaluated_at",
+    "legal_hold_state",
+    "cleanup_authority",
+    "cleanup_run_id",
+    "reason_code",
+    "state",
+    "exact_object_keys",
+    "targets",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "retention_work"},
+    "retention_work_id": {
+      "type": "string",
+      "pattern": "^retention_work_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "root_receipt_id": {
+      "type": "string",
+      "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "retention_class": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "expires_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "legal_hold_state": {"enum": ["none", "active"]},
+    "cleanup_authority": {
+      "enum": ["held_for_review", "same_proof_disposable"]
+    },
+    "cleanup_run_id": {
+      "type": "string",
+      "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "state": {
+      "enum": [
+        "not_due",
+        "awaiting_review",
+        "legal_hold_conflict",
+        "ready_exact_cleanup"
+      ]
+    },
+    "exact_object_keys": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "receipt_id",
+          "object_key",
+          "sha256",
+          "byte_size",
+          "media_type",
+          "object_kind",
+          "creation_run_id",
+          "create_disposition"
+        ],
+        "properties": {
+          "receipt_id": {
+            "type": "string",
+            "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "object_key": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "byte_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "media_type": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+          },
+          "object_kind": {
+            "enum": ["raw", "derived", "manifest"]
+          },
+          "creation_run_id": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "create_disposition": {
+            "enum": ["created", "recovered_after_lost_response"]
+          }
+        }
+      }
+    },
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    }
+  }
+}
