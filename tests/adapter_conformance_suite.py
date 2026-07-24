@@ -26,6 +26,7 @@ class StandardAdapterConformanceMixin:
     additional_network_entry_points: Sequence[tuple[object, str]] = ()
     expected_mime_type = "application/json"
     next_cursor = "page-002"
+    alternate_cursor = "page-003"
 
     def setUp(self) -> None:
         super().setUp()
@@ -167,6 +168,66 @@ class StandardAdapterConformanceMixin:
         )
         self.assertEqual("pagination_loop", loop["stop_reason"])
 
+        ordinal = self._harness()
+        request = ordinal.next_request()
+        ordinal.ingest(
+            self._response(
+                self.make_page(
+                    [self.make_item("001")],
+                    next_cursor=self.next_cursor,
+                    next_ordinal=1,
+                    terminal=False,
+                ),
+                request.url,
+            )
+        )
+        request = ordinal.next_request()
+        ordinal_result = ordinal.ingest(
+            self._response(
+                self.make_page(
+                    [self.make_item("002")],
+                    next_cursor=self.alternate_cursor,
+                    next_ordinal=3,
+                    terminal=False,
+                ),
+                request.url,
+            )
+        )
+        self.assertEqual(
+            "pagination_loop",
+            ordinal_result["stop_reason"],
+        )
+
+        changing_total = self._harness()
+        request = changing_total.next_request()
+        changing_total.ingest(
+            self._response(
+                self.make_page(
+                    [self.make_item("001")],
+                    next_cursor=self.next_cursor,
+                    next_ordinal=1,
+                    terminal=False,
+                    expected_total=2,
+                ),
+                request.url,
+            )
+        )
+        request = changing_total.next_request()
+        total_result = changing_total.ingest(
+            self._response(
+                self.make_page(
+                    [self.make_item("002")],
+                    terminal=True,
+                    expected_total=3,
+                ),
+                request.url,
+            )
+        )
+        self.assertEqual(
+            "expected_total_changed",
+            total_result["stop_reason"],
+        )
+
         retry = self._harness(max_retries=2)
         original_request = retry.next_request()
         retry.record_retry("temporary_unavailable")
@@ -236,3 +297,50 @@ class StandardAdapterConformanceMixin:
                 )
             )
         self.assertEqual(manifests[0], manifests[1])
+
+        seed_adapter = self.adapter_factory()
+        seed_page = seed_adapter.parse_page(
+            self.make_page([self.make_item("001")]),
+            cursor=None,
+        )
+        seed_record = seed_page["records"][0]
+        approved_field = sorted(seed_record["metadata"])[0]
+        forbidden_records = []
+        for field in ("caption", "html", "prose", "transcript"):
+            record = copy.deepcopy(seed_record)
+            record["metadata"][field] = "Invented forbidden source value"
+            forbidden_records.append(record)
+        for value in (
+            "https://media.invalid/file?signature=private",
+            "person@example.invalid",
+            "/" + "Users/example/private",
+        ):
+            record = copy.deepcopy(seed_record)
+            record["metadata"][approved_field] = value
+            forbidden_records.append(record)
+
+        for forbidden_record in forbidden_records:
+            adapter = self.adapter_factory()
+            adapter.parse_page = (
+                lambda body, cursor, record=forbidden_record: {
+                    "records": [record],
+                    "next_cursor": None,
+                    "next_ordinal": None,
+                    "terminal": True,
+                    "expected_total": 1,
+                    "rejected_count": 0,
+                }
+            )
+            forbidden = OfflineConformanceHarness(
+                adapter,
+                self.registry,
+                additional_network_entry_points=(
+                    self.additional_network_entry_points
+                ),
+            )
+            request = forbidden.next_request()
+            result = forbidden.ingest(
+                self._response(self.make_page([]), request.url)
+            )
+            self.assertEqual("shape_drift", result["stop_reason"])
+            self.assertEqual([], result["records"])

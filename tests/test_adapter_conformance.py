@@ -108,6 +108,24 @@ class AdapterDeclarationTests(unittest.TestCase):
         with self.assertRaises(AdapterConformanceError):
             validate_adapter_declaration(acquisition_query, REGISTRY)
 
+        for parameter, allowed_value in (
+            ("download", "yes"),
+            ("fields", "description"),
+        ):
+            adapter = SyntheticMetadataAdapter()
+            adapter.allowed_query_parameters = (parameter,)
+            adapter.query_parameter_contracts = {
+                parameter: {
+                    "allowed_values": [allowed_value],
+                    "value_type": "enum",
+                }
+            }
+            with self.subTest(
+                parameter=parameter,
+                allowed_value=allowed_value,
+            ), self.assertRaises(AdapterConformanceError):
+                validate_adapter_declaration(adapter, REGISTRY)
+
         unsafe_contract = SyntheticMetadataAdapter()
         unsafe_contract.metadata_field_contracts = copy.deepcopy(
             unsafe_contract.metadata_field_contracts
@@ -179,6 +197,50 @@ class AdapterDeclarationTests(unittest.TestCase):
         adapter.build_request = networked_request
         with self.assertRaises(AdapterConformanceError):
             OfflineConformanceHarness(adapter, REGISTRY).next_request()
+
+    def test_opaque_case_sensitive_pagination_is_bound_but_not_reported(
+        self,
+    ) -> None:
+        class OpaqueCursorAdapter(SyntheticMetadataAdapter):
+            allowed_query_parameters = ("pageToken",)
+            query_parameter_contracts = {
+                "pageToken": {
+                    "cursor_prefix": "opaque-",
+                    "value_type": "cursor_opaque",
+                }
+            }
+
+            def build_request(self, cursor: str | None) -> MetadataRequest:
+                url = "https://antiegg.kr/wp-json/wp/v2/posts"
+                if cursor is not None:
+                    url = f"{url}?pageToken={cursor.removeprefix('opaque-')}"
+                return MetadataRequest(
+                    endpoint_id=self.endpoint_id,
+                    method="GET",
+                    url=url,
+                )
+
+        opaque_cursor = "opaque-InventedPage_002"
+        harness = OfflineConformanceHarness(OpaqueCursorAdapter(), REGISTRY)
+        request = harness.next_request()
+        result = harness.ingest(
+            response(
+                synthetic_page(
+                    [synthetic_item("001")],
+                    next_cursor=opaque_cursor,
+                    next_ordinal=1,
+                    terminal=False,
+                ),
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("ready", result["state"])
+        self.assertNotIn(opaque_cursor, json.dumps(result, sort_keys=True))
+        self.assertIn("next_cursor_sha256", result)
+        self.assertIn(
+            "pageToken=InventedPage_002",
+            harness.next_request().url,
+        )
 
 
 class OfflineConformanceTests(unittest.TestCase):
@@ -327,6 +389,14 @@ class OfflineConformanceTests(unittest.TestCase):
         self.assertEqual("complete_for_observed_endpoint", completed["state"])
         self.assertEqual(1, completed["observed_unique_records"])
         self.assertEqual(0, completed["unvisited_remainder"])
+        self.assertNotIn(
+            "synthetic-source-001",
+            json.dumps(completed, sort_keys=True),
+        )
+        self.assertIn(
+            "source_identity_sha256",
+            completed["records"][0],
+        )
         self.assertEqual(completed, resumed.manifest())
 
     def test_tampered_resume_checkpoint_fails_closed(self) -> None:
@@ -475,20 +545,20 @@ class OfflineConformanceTests(unittest.TestCase):
 
     def test_forbidden_content_and_private_values_never_enter_manifest(self) -> None:
         forbidden_records = (
-            {"record_id": "synthetic-001", "metadata": {
+            {"record_id": "synthetic-001", "source_identity": "synthetic-source-001", "metadata": {
                 "kind": "synthetic_catalogue_record",
                 "year": "2026",
                 "prose": "Invented source prose",
             }},
-            {"record_id": "synthetic-001", "metadata": {
+            {"record_id": "synthetic-001", "source_identity": "synthetic-source-001", "metadata": {
                 "kind": "https://media.invalid/file.mp4?signature=secret",
                 "year": "2026",
             }},
-            {"record_id": "synthetic-001", "metadata": {
+            {"record_id": "synthetic-001", "source_identity": "synthetic-source-001", "metadata": {
                 "kind": "person@example.invalid",
                 "year": "2026",
             }},
-            {"record_id": "synthetic-001", "metadata": {
+            {"record_id": "synthetic-001", "source_identity": "synthetic-source-001", "metadata": {
                 "kind": "/" + "Users/example/private",
                 "year": "2026",
             }},
@@ -509,6 +579,30 @@ class OfflineConformanceTests(unittest.TestCase):
             with self.subTest(record=record):
                 self.assertEqual("shape_drift", manifest["stop_reason"])
                 self.assertEqual([], manifest["records"])
+
+        adapter = SyntheticMetadataAdapter()
+        adapter.parse_page = lambda body, cursor: {
+            "records": [
+                {
+                    "record_id": "synthetic-001",
+                    "source_identity": "user_123456",
+                    "metadata": {
+                        "kind": "kind_synthetic_catalogue_record",
+                        "year": "2026",
+                    },
+                }
+            ],
+            "next_cursor": None,
+            "next_ordinal": None,
+            "terminal": True,
+            "expected_total": 1,
+            "rejected_count": 0,
+        }
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        harness.next_request()
+        manifest = harness.ingest(response(synthetic_page([])))
+        self.assertEqual("shape_drift", manifest["stop_reason"])
+        self.assertNotIn("user_123456", json.dumps(manifest, sort_keys=True))
 
     def test_network_guard_denies_dns_socket_http_browser_and_sdk_targets(self) -> None:
         calls: list[str] = []

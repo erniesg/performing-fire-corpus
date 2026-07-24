@@ -31,10 +31,14 @@ cookies, request body, credentials, or browser-state surface. A pagination
 value must be derived exactly from the current content-free checkpoint cursor.
 Optional constant query values must be identifier-like reviewed enum literals;
 credential, signed, content, media, transcript, caption, prose, raw, or
-download-expanding names and values fail closed.
+download-expanding names and values fail closed. Query-key matching is
+case-sensitive. Numeric `page-`/`offset-` cursors and sanitized `opaque-`
+platform pagination cursors have separate exact contracts. An opaque cursor is
+kept only in the local checkpoint; public manifests expose its SHA-256 digest.
 
 The approved metadata projection uses exact value contracts. The current
-shared types are identifier-like bounded enums and four-digit years. An enum
+shared types are field-prefixed, identifier-like bounded enums and four-digit
+years. An enum
 cannot bless a sentence, person name with spaces, URL, signed value, or local
 path. Adding a new value type is a reviewed common-harness change, not a
 source-adapter escape hatch.
@@ -47,8 +51,9 @@ media URLs, signed values, account data, or private project material into a
 fixture. A source-specific parser should receive a response assembled by a
 synthetic builder rather than a saved live response.
 
-Each normalized record carries both its stable record ID and a separate,
-content-free synthetic source identity. Stable-ID variants must change the
+Each normalized record carries both its stable record ID and a SHA-256 digest
+of a separate, sanitized, content-free synthetic source identity. Raw source
+identity is never emitted in the manifest. Stable-ID variants must change the
 invented title, result ordering, page
 position, pagination value, tracking query, and presentation metadata while
 keeping the stable source identifier fixed. The adapter must return the same
@@ -65,7 +70,7 @@ exercises the same cases:
 - zero request budget and robots denial before request construction;
 - `401`, `403`, `429`, login-required, and subscription-required blockers;
 - redirect target, MIME, response-size, and parser-shape mismatch;
-- pagination loops and non-monotonic page ordinals;
+- pagination loops, non-monotonic page ordinals, and changed expected totals;
 - retry checkpoint/resume at the same cursor;
 - duplicate records, stable-ID collisions, and expected-total changes;
 - deterministic final manifests under reordered source results;

@@ -14,7 +14,7 @@ def synthetic_item(
     *,
     title: str = "Invented catalogue label",
     year: str = "2026",
-    kind: str = "synthetic_catalogue_record",
+    kind: str = "kind_synthetic_catalogue_record",
     tracking: str = "campaign-a",
     presentation: str = "grid",
 ) -> dict[str, str]:
@@ -87,7 +87,7 @@ class SyntheticMetadataAdapter:
     required_metadata_fields = ("kind", "year")
     metadata_field_contracts = {
         "kind": {
-            "allowed_values": ["synthetic_catalogue_record"],
+            "allowed_values": ["kind_synthetic_catalogue_record"],
             "value_type": "enum",
         },
         "year": {"value_type": "year"},

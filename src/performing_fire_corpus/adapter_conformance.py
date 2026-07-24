@@ -22,8 +22,12 @@ from performing_fire_corpus.registry import require_source
 
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
+_QUERY_PARAMETER = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
-_CURSOR = re.compile(r"^(?:page|offset)-[0-9]{1,18}$")
+_CURSOR = re.compile(
+    r"^(?:(?:page|offset)-[0-9]{1,18}"
+    r"|opaque-[A-Za-z0-9._~-]{8,128})$"
+)
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
@@ -35,12 +39,19 @@ _FORBIDDEN_FIELD_PARTS = frozenset(
         "caption",
         "content",
         "description",
+        "email",
         "excerpt",
         "html",
         "lyrics",
+        "name",
+        "author",
+        "creator",
         "media_url",
         "notes",
+        "owner",
         "personal",
+        "person",
+        "phone",
         "prose",
         "signed",
         "summary",
@@ -48,6 +59,7 @@ _FORBIDDEN_FIELD_PARTS = frozenset(
         "title",
         "token",
         "transcript",
+        "user",
     }
 )
 _SENSITIVE_QUERY_PARTS = frozenset(
@@ -70,18 +82,23 @@ _SENSITIVE_QUERY_PARTS = frozenset(
     }
 )
 _ACQUISITION_QUERY_VALUES = frozenset(
-    {
+    _FORBIDDEN_FIELD_PARTS
+    | {
+        "asset",
         "body",
         "caption",
         "content",
         "download",
+        "file",
         "full",
         "html",
         "media",
         "prose",
         "raw",
+        "snippet",
         "text",
         "transcript",
+        "url",
     }
 )
 _STANDARD_BLOCKERS = frozenset(
@@ -219,15 +236,9 @@ def validate_adapter_declaration(
     query_parameters = _canonical_tuple(
         adapter.allowed_query_parameters,
         "allowed_query_parameters",
-        pattern=_IDENTIFIER,
+        pattern=_QUERY_PARAMETER,
         allow_empty=True,
     )
-    if any(
-        part in parameter.lower()
-        for parameter in query_parameters
-        for part in _SENSITIVE_QUERY_PARTS
-    ):
-        raise AdapterConformanceError("signed or credential query parameters are forbidden")
     query_contracts = adapter.query_parameter_contracts
     if (
         not isinstance(query_contracts, Mapping)
@@ -246,6 +257,13 @@ def validate_adapter_declaration(
             contract.get("value_type") == "cursor_integer"
             and set(contract) == {"cursor_prefix", "value_type"}
             and contract["cursor_prefix"] in {"offset-", "page-"}
+        ):
+            cursor_contracts += 1
+            continue
+        if (
+            contract.get("value_type") == "cursor_opaque"
+            and set(contract) == {"cursor_prefix", "value_type"}
+            and contract["cursor_prefix"] == "opaque-"
         ):
             cursor_contracts += 1
             continue
@@ -270,6 +288,27 @@ def validate_adapter_declaration(
         raise AdapterConformanceError(
             f"{parameter} has an invalid query contract"
         )
+    for parameter, contract in query_contracts.items():
+        normalized_parameter = parameter.lower()
+        if any(
+            part in normalized_parameter
+            for part in _ACQUISITION_QUERY_VALUES - {"signed", "token"}
+        ):
+            raise AdapterConformanceError(
+                "content or acquisition query parameters are forbidden"
+            )
+        sensitive_parts = {
+            part
+            for part in _SENSITIVE_QUERY_PARTS
+            if part in normalized_parameter
+        }
+        if sensitive_parts and not (
+            sensitive_parts == {"token"}
+            and contract["value_type"] == "cursor_opaque"
+        ):
+            raise AdapterConformanceError(
+                "signed or credential query parameters are forbidden"
+            )
     if cursor_contracts > 1:
         raise AdapterConformanceError(
             "only one query parameter may carry the checkpoint cursor"
@@ -318,6 +357,7 @@ def validate_adapter_declaration(
             and all(isinstance(item, str) and item for item in contract["allowed_values"])
             and all(
                 _SAFE_ENUM_LITERAL.fullmatch(item)
+                and item.startswith(f"{field}_")
                 and sanitize(item, environ={}) == item
                 for item in contract["allowed_values"]
             )
@@ -398,11 +438,6 @@ def _validate_request(
     if (
         len(keys) != len(set(keys))
         or not set(keys).issubset(declaration["allowed_query_parameters"])
-        or any(
-            part in key.lower()
-            for key in keys
-            for part in _SENSITIVE_QUERY_PARTS
-        )
         or any(sanitize(value, environ={}) != value for _, value in query)
     ):
         raise AdapterConformanceError("request query is outside the approved projection")
@@ -410,7 +445,7 @@ def _validate_request(
     cursor_parameters: list[str] = []
     for parameter, contract in declaration["query_parameter_contracts"].items():
         value_type = contract["value_type"]
-        if value_type == "cursor_integer":
+        if value_type in {"cursor_integer", "cursor_opaque"}:
             cursor_parameters.append(parameter)
             if cursor is None:
                 if parameter in query_values:
@@ -423,7 +458,12 @@ def _validate_request(
                 raise AdapterConformanceError(
                     "request cursor does not match its declared query contract"
                 )
-            expected_value = str(int(cursor.removeprefix(prefix)))
+            suffix = cursor.removeprefix(prefix)
+            expected_value = (
+                str(int(suffix))
+                if value_type == "cursor_integer"
+                else suffix
+            )
             if query_values.get(parameter) != expected_value:
                 raise AdapterConformanceError(
                     "request query is not bound to the checkpoint cursor"
@@ -467,6 +507,7 @@ def _validate_normalized_record(
     if (
         not isinstance(record_id, str)
         or not _RECORD_ID.fullmatch(record_id)
+        or sanitize(record_id, environ={}) != record_id
         or not isinstance(metadata, Mapping)
         or not required.issubset(metadata)
         or not set(metadata).issubset(approved)
@@ -524,6 +565,8 @@ def _normalize_page(
             or set(record) != {"record_id", "source_identity", "metadata"}
             or not isinstance(record["source_identity"], str)
             or not _RECORD_ID.fullmatch(record["source_identity"])
+            or sanitize(record["source_identity"], environ={})
+            != record["source_identity"]
         ):
             raise AdapterConformanceError("shape_drift")
         normalized = _validate_normalized_record(
@@ -531,7 +574,9 @@ def _normalize_page(
                 record["record_id"],
                 record["metadata"],
             )
-        normalized["source_identity"] = record["source_identity"]
+        normalized["source_identity_sha256"] = hashlib.sha256(
+            record["source_identity"].encode("utf-8")
+        ).hexdigest()
         normalized_records.append(normalized)
     value = dict(page)
     value["records"] = normalized_records
@@ -552,7 +597,12 @@ def assert_stable_identity(
     except Exception as error:
         raise AdapterConformanceError("stable identity could not be derived") from error
     if (
-        any(not isinstance(item, str) or not _RECORD_ID.fullmatch(item) for item in identifiers)
+        any(
+            not isinstance(item, str)
+            or not _RECORD_ID.fullmatch(item)
+            or sanitize(item, environ={}) != item
+            for item in identifiers
+        )
         or len(set(identifiers)) != 1
     ):
         raise AdapterConformanceError(
@@ -734,13 +784,19 @@ class OfflineConformanceHarness:
         seen = restored["seen_cursors"]
         if (
             not isinstance(seen, list)
-            or any(not isinstance(item, str) or not _CURSOR.fullmatch(item) for item in seen)
+            or any(
+                not isinstance(item, str)
+                or not _CURSOR.fullmatch(item)
+                or sanitize(item, environ={}) != item
+                for item in seen
+            )
             or len(set(seen)) != len(seen)
             or (
                 cursor is not None
                 and (
                     not isinstance(cursor, str)
                     or not _CURSOR.fullmatch(cursor)
+                    or sanitize(cursor, environ={}) != cursor
                     or cursor not in seen
                     or restored["next_ordinal"] < 1
                 )
@@ -757,9 +813,12 @@ class OfflineConformanceHarness:
         for record_id, metadata in restored["records"].items():
             if (
                 not isinstance(metadata, Mapping)
-                or set(metadata) != {"source_identity", "metadata"}
-                or not isinstance(metadata["source_identity"], str)
-                or not _RECORD_ID.fullmatch(metadata["source_identity"])
+                or set(metadata) != {"source_identity_sha256", "metadata"}
+                or not isinstance(metadata["source_identity_sha256"], str)
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    metadata["source_identity_sha256"],
+                )
             ):
                 raise AdapterConformanceError(
                     "checkpoint record identity is invalid"
@@ -903,6 +962,7 @@ class OfflineConformanceHarness:
             if (
                 not isinstance(next_cursor, str)
                 or not _CURSOR.fullmatch(next_cursor)
+                or sanitize(next_cursor, environ={}) != next_cursor
                 or not isinstance(next_ordinal, int)
                 or isinstance(next_ordinal, bool)
                 or next_ordinal != self._state["next_ordinal"] + 1
@@ -925,14 +985,17 @@ class OfflineConformanceHarness:
             prior = candidate.get(record_id)
             if prior is not None:
                 if (
-                    prior["source_identity"] != record["source_identity"]
+                    prior["source_identity_sha256"]
+                    != record["source_identity_sha256"]
                     or prior["metadata"] != record["metadata"]
                 ):
                     return self._stop("changed", "stable_id_collision")
                 duplicates += 1
             else:
                 candidate[record_id] = {
-                    "source_identity": record["source_identity"],
+                    "source_identity_sha256": (
+                        record["source_identity_sha256"]
+                    ),
                     "metadata": record["metadata"],
                 }
         projected_total = (
@@ -979,7 +1042,9 @@ class OfflineConformanceHarness:
         records = [
             {
                 "record_id": record_id,
-                "source_identity": record["source_identity"],
+                "source_identity_sha256": (
+                    record["source_identity_sha256"]
+                ),
                 "metadata": copy.deepcopy(record["metadata"]),
             }
             for record_id, record in sorted(self._state["records"].items())
@@ -1006,7 +1071,13 @@ class OfflineConformanceHarness:
                 if expected_total is None
                 else max(expected_total - observed_unique_records, 0)
             ),
-            "next_cursor": self._state["next_cursor"],
+            "next_cursor_sha256": (
+                None
+                if self._state["next_cursor"] is None
+                else hashlib.sha256(
+                    self._state["next_cursor"].encode("utf-8")
+                ).hexdigest()
+            ),
             "records": records,
         }
 
