@@ -84,10 +84,16 @@ Derived qualification hashes are evidence bindings, not self-authorizing
 signatures. Before a query or downstream job becomes executable, the trusted
 authority resolver returns the current raw asset facts, complete governance
 registry, hash-verified durable inventory record, and operation decisions. The
-runtime verifies the inventory record's source, endpoint, and item. For
-YouTube it also reconstructs and validates the issued channel resolution
+resolver must separately confirm the exact inventory record through a durable
+issuance lookup; absence, lookup failure, or a resolver that does not implement
+that check fails closed. For YouTube the lookup must match the exact channel
+resolution and uploads-inventory payloads issued by one durable coordinator
+run. Caller-supplied, self-consistent hashes are not issuance evidence.
+
+The runtime verifies the inventory record's source, endpoint, and item. For
+YouTube it also reconstructs and validates the lookup-verified channel resolution
 (`@NamJunePaikArtCenter`, channel ID, uploads-playlist ID, session binding, and
-channel-lineage hash) plus the issued uploads inventory (manifest hash,
+channel-lineage hash) plus the lookup-verified uploads inventory (manifest hash,
 channel lineage, sorted video-ID set, and inventory-lineage hash), then
 requires membership of the exact `v` item. It recompiles the qualification at
 the candidate's recorded evaluation time, validates expiry and revocation at

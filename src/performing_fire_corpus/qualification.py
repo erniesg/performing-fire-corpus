@@ -214,11 +214,21 @@ class QualificationError(ValueError):
 
 
 class QualificationAuthorityResolver(Protocol):
-    """Trusted resolver for raw current authority used by portable queries."""
+    """Trusted durable-authority resolver used by portable queries.
+
+    The issuance check must perform an exact durable-ledger lookup. For
+    YouTube records that lookup must bind the channel-resolution and uploads
+    inventory payloads to artifacts issued by one coordinator run; validating
+    caller-supplied lineage hashes is not sufficient.
+    """
 
     def resolve_asset_authority(
         self, *, source_id: str, asset_id: str
     ) -> Mapping[str, Any] | None: ...
+
+    def inventory_authority_was_issued(
+        self, *, inventory_record: Mapping[str, Any]
+    ) -> bool: ...
 
 
 def _schema_resource() -> Any:
@@ -1071,6 +1081,11 @@ def _current_qualification(
             or not isinstance(authority, Mapping)
             or set(authority) != _AUTHORITY_BUNDLE_KEYS
         ):
+            return None
+        issued = authority_resolver.inventory_authority_was_issued(
+            inventory_record=authority["inventory_record"]
+        )
+        if issued is not True:
             return None
         candidate_time = _parse_time(
             candidate["evaluated_at"],

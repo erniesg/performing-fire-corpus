@@ -410,7 +410,12 @@ def rebind_qualification(value: dict[str, object]) -> dict[str, object]:
 
 
 class SyntheticQualificationAuthority:
-    def __init__(self, bundles: list[dict[str, object]]) -> None:
+    def __init__(
+        self,
+        bundles: list[dict[str, object]],
+        *,
+        issued_inventory_records: list[dict[str, object]] | None = None,
+    ) -> None:
         self.records = {
             (
                 str(bundle["asset"]["source_id"]),
@@ -418,12 +423,42 @@ class SyntheticQualificationAuthority:
             ): copy.deepcopy(bundle)
             for bundle in bundles
         }
+        issued = (
+            [
+                copy.deepcopy(bundle["inventory_record"])
+                for bundle in bundles
+            ]
+            if issued_inventory_records is None
+            else copy.deepcopy(issued_inventory_records)
+        )
+        self.issued_inventory_records = {
+            json.dumps(
+                record,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            for record in issued
+        }
 
     def resolve_asset_authority(
         self, *, source_id: str, asset_id: str
     ) -> dict[str, object] | None:
         value = self.records.get((source_id, asset_id))
         return None if value is None else copy.deepcopy(value)
+
+    def inventory_authority_was_issued(
+        self, *, inventory_record: dict[str, object]
+    ) -> bool:
+        return (
+            json.dumps(
+                inventory_record,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            in self.issued_inventory_records
+        )
 
 
 class AssetQualificationTests(unittest.TestCase):
@@ -749,6 +784,94 @@ class AssetQualificationTests(unittest.TestCase):
             [],
             query_qualified_assets(
                 [value],
+                operation="download",
+                authority_resolver=authority,
+                now=NOW,
+            ),
+        )
+
+    def test_structurally_valid_foreign_youtube_lineage_is_not_issued(
+        self,
+    ) -> None:
+        asset_value = asset(
+            "njp-youtube-official",
+            asset_kind="media",
+            public_url="https://www.youtube.com/watch?v=synthetic001",
+        )
+        issued = inventory_authority(asset_value)
+        foreign = copy.deepcopy(issued)
+        foreign["youtube_channel_id"] = "UCforeignChannel001"
+        foreign["youtube_uploads_playlist_id"] = "UUforeignUploads001"
+        foreign["youtube_session_binding_sha256"] = "e" * 64
+        channel_payload = {
+            "channel_id": foreign["youtube_channel_id"],
+            "handle": foreign["youtube_handle"],
+            "session_binding_sha256": (
+                foreign["youtube_session_binding_sha256"]
+            ),
+            "uploads_playlist_id": (
+                foreign["youtube_uploads_playlist_id"]
+            ),
+        }
+        foreign["youtube_channel_lineage_sha256"] = hashlib.sha256(
+            json.dumps(
+                channel_payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        foreign["youtube_uploads_manifest_sha256"] = "f" * 64
+        uploads_payload = {
+            "channel_lineage_sha256": (
+                foreign["youtube_channel_lineage_sha256"]
+            ),
+            "session_binding_sha256": (
+                foreign["youtube_session_binding_sha256"]
+            ),
+            "uploads_manifest_sha256": (
+                foreign["youtube_uploads_manifest_sha256"]
+            ),
+            "video_ids": foreign["youtube_video_ids"],
+        }
+        foreign["youtube_uploads_lineage_sha256"] = hashlib.sha256(
+            json.dumps(
+                uploads_payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        foreign = rehash_inventory_authority(foreign)
+        asset_value["inventory_record_sha256"] = foreign[
+            "inventory_record_sha256"
+        ]
+        governance = complete_governance_registry(
+            source_governance(
+                str(asset_value["source_id"]),
+                asset_id=str(asset_value["asset_id"]),
+            )
+        )
+        decision_values = decisions(asset_value)
+        candidate = self.qualify(
+            asset_value,
+            decision_values,
+            governance,
+            foreign,
+        )
+        authority = SyntheticQualificationAuthority(
+            [
+                {
+                    "asset": asset_value,
+                    "inventory_record": foreign,
+                    "source_governance_registry": governance,
+                    "operation_decisions": decision_values,
+                }
+            ],
+            issued_inventory_records=[issued],
+        )
+        self.assertEqual(
+            [],
+            query_qualified_assets(
+                [candidate],
                 operation="download",
                 authority_resolver=authority,
                 now=NOW,

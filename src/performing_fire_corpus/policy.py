@@ -64,6 +64,37 @@ _CREDENTIAL_QUERY_WORDS = frozenset(
         "token",
     }
 )
+_CREDENTIAL_COMPOUND_WORDS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "credential",
+        "password",
+        "presignedurl",
+        "secret",
+        "signedurl",
+        "token",
+    }
+)
+_CREDENTIAL_COMPOUND_AFFIXES = frozenset(
+    {
+        "access",
+        "api",
+        "auth",
+        "bearer",
+        "client",
+        "hmac",
+        "id",
+        "private",
+        "refresh",
+        "request",
+        "security",
+        "session",
+        "signature",
+        "value",
+        "x",
+    }
+)
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _ENCODED_CONTROL = re.compile(
     r"%(?:0[0-9a-f]|1[0-9a-f]|25|2f|3b|5c|7f)",
@@ -102,8 +133,23 @@ def _credential_query_key(value: str) -> bool:
         if word
     }
     lowered_words = {word.lower() for word in words}
+    compound_credential = any(
+        normalized == marker
+        or (
+            normalized.startswith(marker)
+            and normalized.removeprefix(marker)
+            in _CREDENTIAL_COMPOUND_AFFIXES
+        )
+        or (
+            normalized.endswith(marker)
+            and normalized.removesuffix(marker)
+            in _CREDENTIAL_COMPOUND_AFFIXES
+        )
+        for marker in _CREDENTIAL_COMPOUND_WORDS
+    )
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
+        or compound_credential
         or "apikey" in normalized
         or "accesskey" in normalized
         or "accesstoken" in normalized
