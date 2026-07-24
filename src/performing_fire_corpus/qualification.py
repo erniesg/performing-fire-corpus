@@ -27,6 +27,10 @@ from performing_fire_corpus.policy import (
     validate_public_url,
 )
 from performing_fire_corpus.redaction import sanitize
+from performing_fire_corpus.youtube_metadata_adapter import (
+    ChannelResolution,
+    UploadsInventory,
+)
 
 
 UTC = timezone.utc
@@ -191,6 +195,14 @@ _INVENTORY_RECORD_KEYS = frozenset(
         "endpoint_id",
         "source_item_id",
         "source_scope_id",
+        "youtube_channel_id",
+        "youtube_channel_lineage_sha256",
+        "youtube_handle",
+        "youtube_session_binding_sha256",
+        "youtube_uploads_lineage_sha256",
+        "youtube_uploads_manifest_sha256",
+        "youtube_uploads_playlist_id",
+        "youtube_video_ids",
     }
 )
 _SOURCE_SCOPE_ID = re.compile(r"^source_scope_[a-z0-9_]{3,127}$")
@@ -330,6 +342,98 @@ def _validate_inventory_record(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise QualificationError(
             "YouTube inventory authority is outside the official channel scope"
+        )
+    youtube_fields = (
+        "youtube_channel_id",
+        "youtube_channel_lineage_sha256",
+        "youtube_handle",
+        "youtube_session_binding_sha256",
+        "youtube_uploads_lineage_sha256",
+        "youtube_uploads_manifest_sha256",
+        "youtube_uploads_playlist_id",
+    )
+    if source_id == "njp-youtube-official":
+        if (
+            any(
+                not isinstance(record[field], str)
+                for field in youtube_fields
+            )
+            or not isinstance(record["youtube_video_ids"], list)
+            or any(
+                not isinstance(item, str)
+                for item in record["youtube_video_ids"]
+            )
+        ):
+            raise QualificationError(
+                "YouTube inventory lineage is incomplete"
+            )
+        resolution = object.__new__(ChannelResolution)
+        for field, value in (
+            ("handle", record["youtube_handle"]),
+            ("channel_id", record["youtube_channel_id"]),
+            (
+                "uploads_playlist_id",
+                record["youtube_uploads_playlist_id"],
+            ),
+            (
+                "session_binding_sha256",
+                record["youtube_session_binding_sha256"],
+            ),
+            (
+                "lineage_sha256",
+                record["youtube_channel_lineage_sha256"],
+            ),
+        ):
+            object.__setattr__(resolution, field, value)
+        uploads = object.__new__(UploadsInventory)
+        for field, value in (
+            (
+                "channel_lineage_sha256",
+                record["youtube_channel_lineage_sha256"],
+            ),
+            (
+                "session_binding_sha256",
+                record["youtube_session_binding_sha256"],
+            ),
+            ("video_ids", tuple(record["youtube_video_ids"])),
+            (
+                "uploads_manifest_sha256",
+                record["youtube_uploads_manifest_sha256"],
+            ),
+            (
+                "lineage_sha256",
+                record["youtube_uploads_lineage_sha256"],
+            ),
+        ):
+            object.__setattr__(uploads, field, value)
+        try:
+            resolution.validate(
+                expected_session_binding_sha256=record[
+                    "youtube_session_binding_sha256"
+                ]
+            )
+            uploads.validate(
+                expected_session_binding_sha256=record[
+                    "youtube_session_binding_sha256"
+                ]
+            )
+        except ValueError as error:
+            raise QualificationError(
+                "YouTube issued inventory lineage is invalid"
+            ) from error
+        if (
+            uploads.channel_lineage_sha256 != resolution.lineage_sha256
+            or record["source_item_id"] not in uploads.video_ids
+        ):
+            raise QualificationError(
+                "YouTube item is absent from the issued uploads inventory"
+            )
+    elif (
+        any(record[field] is not None for field in youtube_fields)
+        or record["youtube_video_ids"] != []
+    ):
+        raise QualificationError(
+            "non-YouTube inventory cannot claim YouTube lineage"
         )
     payload = {
         key: child

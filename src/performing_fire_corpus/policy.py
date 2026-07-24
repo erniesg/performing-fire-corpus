@@ -66,7 +66,7 @@ _CREDENTIAL_QUERY_WORDS = frozenset(
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _ENCODED_CONTROL = re.compile(
-    r"%(?:0[0-9a-f]|1[0-9a-f]|2f|3b|5c|7f)",
+    r"%(?:0[0-9a-f]|1[0-9a-f]|25|2f|3b|5c|7f)",
     re.IGNORECASE,
 )
 
@@ -105,11 +105,23 @@ def _credential_query_key(value: str) -> bool:
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
         or "apikey" in normalized
+        or "accesskey" in normalized
         or "accesstoken" in normalized
+        or "privatekey" in normalized
+        or "secretkey" in normalized
         or "sessionid" in normalized
         or (
-            "signature" in normalized
-            and normalized != "signaturestyle"
+            any(
+                marker in normalized
+                for marker in (
+                    "hmacsignature",
+                    "requestsignature",
+                    "signaturetoken",
+                    "signaturevalue",
+                    "signedurlsignature",
+                    "urlsignature",
+                )
+            )
         )
         or bool(lowered_words & _CREDENTIAL_QUERY_WORDS)
         or {"api", "key"}.issubset(lowered_words)

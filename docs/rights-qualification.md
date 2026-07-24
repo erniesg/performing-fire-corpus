@@ -37,8 +37,9 @@ merely to a global public-host list. The shared URL policy rejects user
 information, non-default ports, fragments, ambiguous controls, and
 credential-like query aliases including authorization, session, secret,
 signature, credential, and token forms. Qualification additionally applies an
-endpoint-specific query-key allowlist and rejects path parameters; a URL for
-one approved source cannot be qualified using another source's governance.
+endpoint-specific query-key allowlist and rejects path parameters, encoded
+delimiters, and nested percent encoding; a URL for one approved source cannot
+be qualified using another source's governance.
 
 ## Source boundary matrix
 
@@ -83,14 +84,18 @@ Derived qualification hashes are evidence bindings, not self-authorizing
 signatures. Before a query or downstream job becomes executable, the trusted
 authority resolver returns the current raw asset facts, complete governance
 registry, hash-verified durable inventory record, and operation decisions. The
-runtime verifies the inventory record's source, endpoint, item, and official
-YouTube channel scope; recompiles the qualification at the candidate's
-recorded evaluation time; validates expiry and revocation at the current
-wall-clock time; and requires exact canonical equality with the candidate.
-Clearing a blocker, inventing an unresolved inventory reference, or selecting
-only permissive governance layers and recomputing public hashes therefore
-cannot create executable work, while an unchanged current qualification
-remains usable until its authority actually expires.
+runtime verifies the inventory record's source, endpoint, and item. For
+YouTube it also reconstructs and validates the issued channel resolution
+(`@NamJunePaikArtCenter`, channel ID, uploads-playlist ID, session binding, and
+channel-lineage hash) plus the issued uploads inventory (manifest hash,
+channel lineage, sorted video-ID set, and inventory-lineage hash), then
+requires membership of the exact `v` item. It recompiles the qualification at
+the candidate's recorded evaluation time, validates expiry and revocation at
+the current wall-clock time, and requires exact canonical equality with the
+candidate. Clearing a blocker, inventing an unresolved inventory reference,
+or selecting only permissive governance layers and recomputing public hashes
+therefore cannot create executable work, while an unchanged current
+qualification remains usable until its authority actually expires.
 Object-backed downstream jobs carry only the qualification ID, source ID,
 asset ID, operation, and exact immutable R2 object key. They never carry source
 bytes, public or signed URLs, credentials, cookies, headers, response bodies,

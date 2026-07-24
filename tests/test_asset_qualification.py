@@ -173,6 +173,75 @@ def inventory_authority(
         if source_id == "njp-youtube-official"
         else f"source_scope_{source_id.replace('-', '_')}"
     )
+    youtube_fields: dict[str, object]
+    if source_id == "njp-youtube-official":
+        session_binding_sha256 = "c" * 64
+        youtube_handle = "@NamJunePaikArtCenter"
+        youtube_channel_id = "UCsyntheticChannel001"
+        youtube_uploads_playlist_id = "UUsyntheticUploads001"
+        channel_payload = {
+            "channel_id": youtube_channel_id,
+            "handle": youtube_handle,
+            "session_binding_sha256": session_binding_sha256,
+            "uploads_playlist_id": youtube_uploads_playlist_id,
+        }
+        youtube_channel_lineage_sha256 = hashlib.sha256(
+            json.dumps(
+                channel_payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        youtube_uploads_manifest_sha256 = "d" * 64
+        youtube_video_ids = [str(asset_value["source_item_id"])]
+        uploads_payload = {
+            "channel_lineage_sha256": (
+                youtube_channel_lineage_sha256
+            ),
+            "session_binding_sha256": session_binding_sha256,
+            "uploads_manifest_sha256": (
+                youtube_uploads_manifest_sha256
+            ),
+            "video_ids": youtube_video_ids,
+        }
+        youtube_uploads_lineage_sha256 = hashlib.sha256(
+            json.dumps(
+                uploads_payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        youtube_fields = {
+            "youtube_channel_id": youtube_channel_id,
+            "youtube_channel_lineage_sha256": (
+                youtube_channel_lineage_sha256
+            ),
+            "youtube_handle": youtube_handle,
+            "youtube_session_binding_sha256": (
+                session_binding_sha256
+            ),
+            "youtube_uploads_lineage_sha256": (
+                youtube_uploads_lineage_sha256
+            ),
+            "youtube_uploads_manifest_sha256": (
+                youtube_uploads_manifest_sha256
+            ),
+            "youtube_uploads_playlist_id": (
+                youtube_uploads_playlist_id
+            ),
+            "youtube_video_ids": youtube_video_ids,
+        }
+    else:
+        youtube_fields = {
+            "youtube_channel_id": None,
+            "youtube_channel_lineage_sha256": None,
+            "youtube_handle": None,
+            "youtube_session_binding_sha256": None,
+            "youtube_uploads_lineage_sha256": None,
+            "youtube_uploads_manifest_sha256": None,
+            "youtube_uploads_playlist_id": None,
+            "youtube_video_ids": [],
+        }
     payload = {
         "schema_version": 1,
         "record_type": "inventory_authority",
@@ -181,6 +250,7 @@ def inventory_authority(
         "endpoint_id": asset_value["endpoint_id"],
         "source_item_id": asset_value["source_item_id"],
         "source_scope_id": source_scope_id,
+        **youtube_fields,
     }
     encoded = (
         json.dumps(
