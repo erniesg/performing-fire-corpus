@@ -51,8 +51,7 @@ _CREDENTIAL_QUERY_NAMES = frozenset(
         "session",
     )
 )
-_CREDENTIAL_QUERY_AFFIXES = (
-    "auth",
+_CREDENTIAL_QUERY_PREFIXES = (
     "authorization",
     "cookie",
     "credential",
@@ -61,6 +60,10 @@ _CREDENTIAL_QUERY_AFFIXES = (
     "session",
     "signature",
     "token",
+)
+_CREDENTIAL_QUERY_SUFFIXES = (
+    "auth",
+    *_CREDENTIAL_QUERY_PREFIXES,
 )
 _ENCODED_CONTROL = re.compile(r"%(?:0[0-9a-f]|1[0-9a-f]|7f)", re.IGNORECASE)
 
@@ -89,10 +92,8 @@ def _credential_query_key(value: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]", "", value.lower())
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
-        or any(
-            normalized.startswith(marker) or normalized.endswith(marker)
-            for marker in _CREDENTIAL_QUERY_AFFIXES
-        )
+        or any(normalized.startswith(marker) for marker in _CREDENTIAL_QUERY_PREFIXES)
+        or any(normalized.endswith(marker) for marker in _CREDENTIAL_QUERY_SUFFIXES)
     )
 
 

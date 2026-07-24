@@ -30,6 +30,15 @@ class AcquisitionPolicyTests(unittest.TestCase):
                 self.assertEqual(expected_host, validated.hostname)
                 self.assertEqual(443, validated.port)
 
+    def test_ordinary_metadata_query_keys_remain_allowed(self) -> None:
+        for url in (
+            "https://antiegg.kr/wp-json/wp/v2/posts?author=1",
+            "https://antiegg.kr/wp-json/wp/v2/posts?page=1&per_page=10",
+            "https://njpvideo.ggcf.kr/item?id=synthetic",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(url, validate_public_url(url).url)
+
     def test_url_confusion_and_credentials_fail_closed(self) -> None:
         userinfo_url = "https://" + "user:pass@" + "njp.ggcf.kr/"
         signed_query_url = "https://njp.ggcf.kr/?" + "signature=synthetic-secret"
