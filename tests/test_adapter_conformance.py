@@ -332,6 +332,63 @@ class AdapterDeclarationTests(unittest.TestCase):
             harness.next_request().url,
         )
 
+    def test_cursor_output_must_match_its_declared_family_and_shape(
+        self,
+    ) -> None:
+        class OrdinalOpaqueCursorAdapter(SyntheticMetadataAdapter):
+            allowed_query_parameters = ("pageToken",)
+            query_parameter_contracts = {
+                "pageToken": {
+                    "checkpoint_ordinal": True,
+                    "cursor_prefix": "opaque-",
+                    "value_type": "cursor_opaque",
+                }
+            }
+
+            def build_request(self, cursor: str | None) -> MetadataRequest:
+                url = "https://antiegg.kr/wp-json/wp/v2/posts"
+                if cursor is not None:
+                    url = f"{url}?pageToken={cursor.split('~', 1)[-1]}"
+                return MetadataRequest(
+                    endpoint_id=self.endpoint_id,
+                    method="GET",
+                    url=url,
+                )
+
+        cases = (
+            (
+                SyntheticMetadataAdapter(),
+                "opaque-InventedPage_002",
+            ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "page-1",
+            ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "opaque-InventedPage_002",
+            ),
+        )
+        for adapter, next_cursor in cases:
+            with self.subTest(next_cursor=next_cursor):
+                harness = OfflineConformanceHarness(adapter, REGISTRY)
+                request = harness.next_request()
+                result = harness.ingest(
+                    response(
+                        synthetic_page(
+                            [],
+                            next_cursor=next_cursor,
+                            next_ordinal=1,
+                            terminal=False,
+                        ),
+                        final_url=request.url,
+                    )
+                )
+                self.assertEqual(
+                    ("changed", "pagination_loop"),
+                    (result["state"], result["stop_reason"]),
+                )
+
 
 class OfflineConformanceTests(unittest.TestCase):
     def test_zero_budget_and_robots_denial_refuse_before_request(self) -> None:

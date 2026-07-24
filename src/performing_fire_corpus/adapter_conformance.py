@@ -29,6 +29,7 @@ _CURSOR = re.compile(
     r"^(?:(?:page|offset)-[0-9]{1,18}"
     r"|opaque-(?:[0-9]{1,18}~)?[A-Za-z0-9._~-]{6,128})$"
 )
+_OPAQUE_CURSOR_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{6,128}$")
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
@@ -639,18 +640,48 @@ def _uses_shape_only_opaque_cursor(
     )
 
 
+def _declared_cursor_contract(
+    declaration: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    return next(
+        (
+            contract
+            for contract in declaration[
+                "query_parameter_contracts"
+            ].values()
+            if contract.get("value_type")
+            in {"cursor_integer", "cursor_opaque"}
+        ),
+        None,
+    )
+
+
 def _cursor_is_valid(
     declaration: Mapping[str, Any],
     cursor: Any,
 ) -> bool:
-    return (
-        isinstance(cursor, str)
-        and _CURSOR.fullmatch(cursor) is not None
-        and (
-            _uses_shape_only_opaque_cursor(declaration)
-            or sanitize(cursor, environ={}) == cursor
+    if not isinstance(cursor, str) or _CURSOR.fullmatch(cursor) is None:
+        return False
+    contract = _declared_cursor_contract(declaration)
+    if contract is None:
+        return False
+    prefix = contract["cursor_prefix"]
+    if not cursor.startswith(prefix):
+        return False
+    suffix = cursor.removeprefix(prefix)
+    if contract["value_type"] == "cursor_integer":
+        return (
+            re.fullmatch(r"[0-9]{1,18}", suffix) is not None
+            and sanitize(cursor, environ={}) == cursor
         )
-    )
+    if contract.get("checkpoint_ordinal") is True:
+        ordinal, separator, token = suffix.partition("~")
+        return (
+            separator == "~"
+            and re.fullmatch(r"[0-9]{1,18}", ordinal) is not None
+            and _OPAQUE_CURSOR_TOKEN.fullmatch(token) is not None
+        )
+    return _OPAQUE_CURSOR_TOKEN.fullmatch(suffix) is not None
 
 
 def _checkpoint_state_is_sanitized(
