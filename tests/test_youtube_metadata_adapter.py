@@ -104,38 +104,41 @@ def channel_resolution(
     )
 
 
-def uploads_manifest(
-    adapter: YouTubeUploadsAdapter,
+def completed_uploads_harness(
+    coordinator: YouTubeMetadataCoordinator,
+    resolution: ChannelResolution,
     video_ids: tuple[str, ...],
-) -> dict[str, object]:
-    records = [
-        {
-            "record_id": f"youtube-video-{video_id}",
-            "source_identity_sha256": "0" * 64,
-            "metadata": {"resource_type": "resource_type_video"},
-        }
-        for video_id in video_ids
-    ]
-    return {
-        "schema_version": 1,
-        "manifest_type": "offline_adapter_conformance",
-        "adapter_id": "youtube-uploads-playlist",
-        "adapter_version": "1.0.0",
-        "adapter_lineage_sha256": adapter.adapter_lineage_sha256(),
-        "source_id": "njp-youtube-official",
-        "endpoint_id": "njp-youtube-playlist-items-api",
-        "state": "complete_for_observed_endpoint",
-        "stop_reason": "terminal_page",
-        "requests_attempted": 1,
-        "pages_committed": 1,
-        "duplicate_records": 0,
-        "rejected_records": 0,
-        "observed_unique_records": len(records),
-        "expected_total": len(records),
-        "unvisited_remainder": 0,
-        "next_cursor_sha256": None,
-        "records": records,
-    }
+    *,
+    published_at: str = "2026-01-02T03:04:05Z",
+) -> OfflineConformanceHarness:
+    harness = OfflineConformanceHarness(
+        coordinator.uploads_adapter(resolution),
+        REGISTRY,
+    )
+    request = harness.next_request()
+    if request is None:
+        raise AssertionError("invented uploads request was unexpectedly blocked")
+    result = harness.ingest(
+        MetadataResponse(
+            status=200,
+            mime_type="application/json",
+            body=upload_page(
+                [
+                    upload_item(
+                        f"item{index:03d}",
+                        video_id=video_id,
+                        published_at=published_at,
+                    )
+                    for index, video_id in enumerate(video_ids, start=1)
+                ],
+                expected_total=len(video_ids),
+            ),
+            final_url=request.url,
+        )
+    )
+    if result["state"] != "complete_for_observed_endpoint":
+        raise AssertionError("invented uploads harness did not complete")
+    return harness
 
 
 def uploads_inventory(
@@ -143,10 +146,14 @@ def uploads_inventory(
     video_ids: tuple[str, ...],
 ) -> UploadsInventory:
     resolution = channel_resolution(coordinator)
-    adapter = coordinator.uploads_adapter(resolution)
+    harness = completed_uploads_harness(
+        coordinator,
+        resolution,
+        video_ids,
+    )
     return coordinator.finalize_uploads(
         resolution,
-        uploads_manifest(adapter, video_ids),
+        harness,
     )
 
 
@@ -473,6 +480,17 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
                 "consumed_units"
             ],
         )
+        coordinator.channel_adapter().build_request(None)
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                coordinator.uploads_adapter(resolution),
+                REGISTRY,
+                checkpoint,
+                expected_bounds=harness.bounds,
+                expected_checkpoint_sha256=checkpoint[
+                    "checkpoint_sha256"
+                ],
+            )
 
         resumed_coordinator = youtube_coordinator(max_quota_units=3)
         resumed = OfflineConformanceHarness.resume(
@@ -484,13 +502,17 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             expected_bounds=harness.bounds,
             expected_checkpoint_sha256=checkpoint["checkpoint_sha256"],
         )
-        resumed.next_request()
+        self.assertIsNotNone(resumed.next_request())
         self.assertEqual(3, resumed_coordinator.quota.consumed_units)
-        with self.assertRaises(ValueError):
-            resumed_coordinator.videos_adapter(
-                uploads_inventory(resumed_coordinator, ("video001",)),
-                ("video001",),
-            ).build_request(None)
+        resumed.record_retry("temporary_unavailable")
+        self.assertIsNone(resumed.next_request())
+        self.assertEqual(
+            ("blocked", "quota_exhausted"),
+            (
+                resumed.manifest()["state"],
+                resumed.manifest()["stop_reason"],
+            ),
+        )
 
     def test_quota_error_is_a_durable_body_free_blocker(self) -> None:
         harness = OfflineConformanceHarness(uploads_adapter(), REGISTRY)
@@ -509,6 +531,55 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         )
         self.assertEqual("quota_exhausted", result["stop_reason"])
         self.assertNotIn("invented", json.dumps(result))
+
+    def test_stage_checkpoint_cannot_resume_under_other_inventory_lineage(
+        self,
+    ) -> None:
+        first = youtube_coordinator(max_quota_units=10)
+        first_resolution = channel_resolution(first)
+        first_uploads = completed_uploads_harness(
+            first,
+            first_resolution,
+            ("video001",),
+            published_at="2026-01-02T03:04:05Z",
+        )
+        first_inventory = first.finalize_uploads(
+            first_resolution,
+            first_uploads,
+        )
+        first_videos = OfflineConformanceHarness(
+            first.videos_adapter(first_inventory, ("video001",)),
+            REGISTRY,
+        )
+        first_videos.next_request()
+        first_videos.record_retry("temporary_unavailable")
+        checkpoint = first_videos.checkpoint()
+
+        second = youtube_coordinator(max_quota_units=10)
+        second_resolution = channel_resolution(second)
+        second_uploads = completed_uploads_harness(
+            second,
+            second_resolution,
+            ("video001",),
+            published_at="2026-02-03T04:05:06Z",
+        )
+        second_inventory = second.finalize_uploads(
+            second_resolution,
+            second_uploads,
+        )
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                second.videos_adapter(
+                    second_inventory,
+                    ("video001",),
+                ),
+                REGISTRY,
+                checkpoint,
+                expected_bounds=first_videos.bounds,
+                expected_checkpoint_sha256=checkpoint[
+                    "checkpoint_sha256"
+                ],
+            )
 
     def test_video_statuses_are_sanitized_and_missing_ids_are_unavailable(self) -> None:
         coordinator = youtube_coordinator()
@@ -562,13 +633,17 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
     ) -> None:
         coordinator = youtube_coordinator()
         resolution = channel_resolution(coordinator)
-        uploads = coordinator.uploads_adapter(resolution)
-        manifest = uploads_manifest(uploads, ("live001",))
-        tampered = dict(manifest)
-        tampered["adapter_lineage_sha256"] = "0" * 64
+        harness = completed_uploads_harness(
+            coordinator,
+            resolution,
+            ("live001",),
+        )
         with self.assertRaises(ValueError):
-            coordinator.finalize_uploads(resolution, tampered)
-        inventory = coordinator.finalize_uploads(resolution, manifest)
+            coordinator.finalize_uploads(
+                resolution,
+                {"records": [{"record_id": "youtube-video-foreign001"}]},
+            )
+        inventory = coordinator.finalize_uploads(resolution, harness)
         with self.assertRaises(ValueError):
             coordinator.videos_adapter(inventory, ("foreign001",))
         adapter = coordinator.videos_adapter(inventory, ("live001",))

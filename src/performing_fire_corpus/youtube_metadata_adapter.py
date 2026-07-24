@@ -9,7 +9,11 @@ from datetime import datetime
 from typing import Any, Mapping
 from urllib.parse import urlencode
 
-from .adapter_conformance import MetadataRequest
+from .adapter_conformance import (
+    AdapterRequestBlocked,
+    MetadataRequest,
+    OfflineConformanceHarness,
+)
 
 
 _PUBLIC_ID = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
@@ -59,32 +63,6 @@ class ChannelResolution:
     session_binding_sha256: str
     lineage_sha256: str
 
-    @classmethod
-    def _create(
-        cls,
-        *,
-        handle: str,
-        channel_id: str,
-        uploads_playlist_id: str,
-        session_binding_sha256: str,
-    ) -> ChannelResolution:
-        payload = {
-            "channel_id": channel_id,
-            "handle": handle,
-            "session_binding_sha256": session_binding_sha256,
-            "uploads_playlist_id": uploads_playlist_id,
-        }
-        instance = object.__new__(cls)
-        for field, value in (
-            ("handle", handle),
-            ("channel_id", channel_id),
-            ("uploads_playlist_id", uploads_playlist_id),
-            ("session_binding_sha256", session_binding_sha256),
-            ("lineage_sha256", _digest(payload)),
-        ):
-            object.__setattr__(instance, field, value)
-        return instance
-
     def validate(self, *, expected_session_binding_sha256: str) -> None:
         payload = {
             "channel_id": self.channel_id,
@@ -110,37 +88,6 @@ class UploadsInventory:
     video_ids: tuple[str, ...]
     uploads_manifest_sha256: str
     lineage_sha256: str
-
-    @classmethod
-    def _create(
-        cls,
-        *,
-        resolution: ChannelResolution,
-        manifest: Mapping[str, Any],
-    ) -> UploadsInventory:
-        video_ids = tuple(
-            sorted(
-                record["record_id"].removeprefix("youtube-video-")
-                for record in manifest["records"]
-            )
-        )
-        manifest_sha256 = _digest(manifest)
-        payload = {
-            "channel_lineage_sha256": resolution.lineage_sha256,
-            "session_binding_sha256": resolution.session_binding_sha256,
-            "uploads_manifest_sha256": manifest_sha256,
-            "video_ids": video_ids,
-        }
-        instance = object.__new__(cls)
-        for field, value in (
-            ("channel_lineage_sha256", resolution.lineage_sha256),
-            ("session_binding_sha256", resolution.session_binding_sha256),
-            ("video_ids", video_ids),
-            ("uploads_manifest_sha256", manifest_sha256),
-            ("lineage_sha256", _digest(payload)),
-        ):
-            object.__setattr__(instance, field, value)
-        return instance
 
     def validate(self, *, expected_session_binding_sha256: str) -> None:
         payload = {
@@ -168,6 +115,10 @@ class YouTubeAssetCandidate:
     acquisition_eligible: bool = False
 
 
+class YouTubeQuotaExhausted(ValueError):
+    """The local run-wide quota bound is exhausted."""
+
+
 class YouTubeQuotaLedger:
     def __init__(self, *, max_units: int, run_id: str) -> None:
         if not isinstance(max_units, int) or isinstance(max_units, bool) or max_units < 1:
@@ -181,8 +132,10 @@ class YouTubeQuotaLedger:
 
     def reserve(self, method: str) -> None:
         cost = _METHOD_COSTS.get(method)
-        if cost is None or self.consumed_units + cost > self.max_units:
-            raise ValueError("YouTube quota budget exhausted or method unreviewed")
+        if cost is None:
+            raise ValueError("YouTube quota method is unreviewed")
+        if self.consumed_units + cost > self.max_units:
+            raise YouTubeQuotaExhausted("YouTube quota budget exhausted")
         self.consumed_units += cost
         self.method_counts[method] += 1
 
@@ -294,7 +247,10 @@ class _QuotaBoundAdapter:
         self._session = session
 
     def _reserve_quota(self) -> None:
-        self._session.ledger.reserve(self.quota_method)
+        try:
+            self._session.ledger.reserve(self.quota_method)
+        except YouTubeQuotaExhausted as error:
+            raise AdapterRequestBlocked("quota_exhausted") from error
 
     def runtime_checkpoint(self) -> dict[str, Any]:
         return {
@@ -319,6 +275,16 @@ class _QuotaBoundAdapter:
             expected_run_id=self._session.run_id,
             expected_sha256=quota.get("checkpoint_sha256"),
         )
+        current = self._session.ledger
+        if (
+            current.consumed_units > restored.consumed_units
+            or any(
+                current.method_counts[method]
+                > restored.method_counts[method]
+                for method in current.method_counts
+            )
+        ):
+            raise ValueError("YouTube runtime checkpoint is stale")
         self._session.ledger.consumed_units = restored.consumed_units
         self._session.ledger.method_counts = restored.method_counts
 
@@ -400,12 +366,22 @@ class YouTubeChannelResolverAdapter(_QuotaBoundAdapter):
             or not _PUBLIC_ID.fullmatch(uploads_id)
         ):
             raise ValueError("YouTube channel identifiers are invalid")
-        return ChannelResolution._create(
-            handle=self.handle,
-            channel_id=channel_id,
-            uploads_playlist_id=uploads_id,
-            session_binding_sha256=self._session.binding_sha256,
-        )
+        payload = {
+            "channel_id": channel_id,
+            "handle": self.handle,
+            "session_binding_sha256": self._session.binding_sha256,
+            "uploads_playlist_id": uploads_id,
+        }
+        resolution = object.__new__(ChannelResolution)
+        for field, field_value in (
+            ("handle", self.handle),
+            ("channel_id", channel_id),
+            ("uploads_playlist_id", uploads_id),
+            ("session_binding_sha256", self._session.binding_sha256),
+            ("lineage_sha256", _digest(payload)),
+        ):
+            object.__setattr__(resolution, field, field_value)
+        return resolution
 
     def stable_record_id(self, item: Mapping[str, Any]) -> str:
         channel_id = item.get("id")
@@ -840,14 +816,23 @@ class YouTubeMetadataCoordinator:
     def finalize_uploads(
         self,
         resolution: ChannelResolution,
-        manifest: Mapping[str, Any],
+        harness: OfflineConformanceHarness,
     ) -> UploadsInventory:
         resolution.validate(
             expected_session_binding_sha256=self._session.binding_sha256
         )
-        expected_adapter_lineage = self.uploads_adapter(
-            resolution
-        ).adapter_lineage_sha256()
+        if (
+            not isinstance(harness, OfflineConformanceHarness)
+            or type(harness.adapter) is not YouTubeUploadsAdapter
+            or harness.adapter._session is not self._session
+            or harness.adapter.resolution.lineage_sha256
+            != resolution.lineage_sha256
+        ):
+            raise ValueError("uploads harness is not owned by this run")
+        manifest = harness.manifest()
+        expected_adapter_lineage = (
+            harness.adapter.adapter_lineage_sha256()
+        )
         if (
             not isinstance(manifest, Mapping)
             or manifest.get("schema_version") != 1
@@ -904,15 +889,36 @@ class YouTubeMetadataCoordinator:
                         "uploads manifest publish time is invalid"
                     ) from error
             video_id = record["record_id"].removeprefix("youtube-video-")
-            if not _PUBLIC_ID.fullmatch(video_id):
+            if (
+                not _PUBLIC_ID.fullmatch(video_id)
+                or record["source_identity_sha256"]
+                != hashlib.sha256(video_id.encode()).hexdigest()
+            ):
                 raise ValueError("uploads manifest video identifier is invalid")
             video_ids.append(video_id)
         if not video_ids or len(set(video_ids)) != len(video_ids):
             raise ValueError("uploads manifest video set is invalid")
-        return UploadsInventory._create(
-            resolution=resolution,
-            manifest=manifest,
-        )
+        bound_video_ids = tuple(sorted(video_ids))
+        manifest_sha256 = _digest(manifest)
+        payload = {
+            "channel_lineage_sha256": resolution.lineage_sha256,
+            "session_binding_sha256": resolution.session_binding_sha256,
+            "uploads_manifest_sha256": manifest_sha256,
+            "video_ids": bound_video_ids,
+        }
+        inventory = object.__new__(UploadsInventory)
+        for field, value in (
+            ("channel_lineage_sha256", resolution.lineage_sha256),
+            (
+                "session_binding_sha256",
+                resolution.session_binding_sha256,
+            ),
+            ("video_ids", bound_video_ids),
+            ("uploads_manifest_sha256", manifest_sha256),
+            ("lineage_sha256", _digest(payload)),
+        ):
+            object.__setattr__(inventory, field, value)
+        return inventory
 
     def videos_adapter(
         self,

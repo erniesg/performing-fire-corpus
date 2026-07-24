@@ -471,6 +471,7 @@ class OfflineConformanceTests(unittest.TestCase):
         unsigned = {
             key: checkpoint[key]
             for key in (
+                "adapter_lineage_sha256",
                 "adapter_runtime_checkpoint",
                 "bounds",
                 "declaration_sha256",

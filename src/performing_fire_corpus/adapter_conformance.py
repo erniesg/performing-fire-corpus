@@ -129,6 +129,16 @@ class AdapterConformanceError(ValueError):
     """Raised when an adapter bypasses a portable conformance boundary."""
 
 
+class AdapterRequestBlocked(RuntimeError):
+    """A content-free adapter blocker detected before request emission."""
+
+    def __init__(self, reason: str) -> None:
+        if not isinstance(reason, str) or not _IDENTIFIER.fullmatch(reason):
+            raise AdapterConformanceError("adapter blocker reason is invalid")
+        self.reason = reason
+        super().__init__(reason)
+
+
 @dataclass(frozen=True)
 class MetadataRequest:
     """A content-free metadata request with no credential or body surface."""
@@ -838,6 +848,7 @@ class OfflineConformanceHarness:
 
     def _restore(self, checkpoint: Mapping[str, Any]) -> None:
         expected_keys = {
+            "adapter_lineage_sha256",
             "adapter_runtime_checkpoint",
             "bounds",
             "checkpoint_sha256",
@@ -849,6 +860,7 @@ class OfflineConformanceHarness:
         unsigned = {
             key: copy.deepcopy(checkpoint[key])
             for key in (
+                "adapter_lineage_sha256",
                 "adapter_runtime_checkpoint",
                 "bounds",
                 "declaration_sha256",
@@ -864,6 +876,25 @@ class OfflineConformanceHarness:
         ).hexdigest()
         if checkpoint["declaration_sha256"] != fingerprint:
             raise AdapterConformanceError("checkpoint adapter declaration changed")
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        current_lineage = (
+            None if lineage_builder is None else lineage_builder()
+        )
+        if (
+            current_lineage != checkpoint["adapter_lineage_sha256"]
+            or (
+                current_lineage is not None
+                and (
+                    not isinstance(current_lineage, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", current_lineage)
+                )
+            )
+        ):
+            raise AdapterConformanceError("checkpoint adapter lineage changed")
         runtime_checkpoint = checkpoint["adapter_runtime_checkpoint"]
         restore_runtime = getattr(
             self.adapter,
@@ -1016,11 +1047,17 @@ class OfflineConformanceHarness:
         with deny_live_network(
             additional_entry_points=self._network_entry_points
         ):
-            request = _validate_request(
-                self.declaration,
-                self.adapter.build_request(self._state["next_cursor"]),
-                self._state["next_cursor"],
-            )
+            try:
+                request = _validate_request(
+                    self.declaration,
+                    self.adapter.build_request(self._state["next_cursor"]),
+                    self._state["next_cursor"],
+                )
+            except AdapterRequestBlocked as error:
+                if error.reason not in self.declaration["blocker_states"]:
+                    return self._stop("changed", "shape_drift")
+                self._stop("blocked", error.reason)
+                return None
         self._state["requests_attempted"] += 1
         self._state["stop_reason"] = None
         self._active_request = request
@@ -1195,7 +1232,29 @@ class OfflineConformanceHarness:
                 raise AdapterConformanceError(
                     "adapter runtime checkpoint is invalid"
                 )
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        adapter_lineage_sha256 = (
+            None if lineage_builder is None else lineage_builder()
+        )
+        if (
+            adapter_lineage_sha256 is not None
+            and (
+                not isinstance(adapter_lineage_sha256, str)
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    adapter_lineage_sha256,
+                )
+            )
+        ):
+            raise AdapterConformanceError(
+                "adapter lineage digest is invalid"
+            )
         unsigned = {
+            "adapter_lineage_sha256": adapter_lineage_sha256,
             "adapter_runtime_checkpoint": copy.deepcopy(runtime_checkpoint),
             "bounds": copy.deepcopy(self.bounds),
             "declaration_sha256": hashlib.sha256(

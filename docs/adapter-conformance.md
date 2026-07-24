@@ -107,7 +107,9 @@ Adapters with run-time safety state, such as a quota ledger, must expose it to
 the harness. The outer checkpoint binds that state and restores it before the
 next request. A content-free adapter-lineage digest may also be included in a
 manifest to bind dependent stages without exposing identifiers or raw
-responses.
+responses. The same lineage digest is part of the outer checkpoint and must
+match exactly on resume. A typed pre-request blocker stops the harness without
+returning a request or incrementing request-attempt counters.
 
 ## Evidence required before a live proof
 

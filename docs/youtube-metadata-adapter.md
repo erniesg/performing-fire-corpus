@@ -43,16 +43,23 @@ normal constructor for all three stages. Every request builder reserves its
 reviewed method cost before returning a request; a request cannot be built
 without the ledger. The common checkpoint stores the run ID, maximum,
 consumed units, and per-method counters inside its outer integrity binding,
-and restores them before a retry. Provider quota reasons are reduced at the
-transport boundary to the body-free `quota_exhausted` blocker.
+and restores them before a retry. A restore may only advance those counters;
+an older stage checkpoint cannot rewind a shared run ledger. Local exhaustion
+stops the harness as `quota_exhausted` before a request is returned. Provider
+quota reasons are reduced at the transport boundary to the same body-free
+blocker.
 `quotaExceeded` and `dailyLimitExceeded` never signal permission to switch
 accounts, projects, credentials, or endpoints.
 
 Channel resolution produces a non-publicly-constructible, integrity-bound
-artifact. The uploads manifest carries an adapter-lineage digest bound to that
-resolution. Only a complete terminal manifest with no rejected records can
-produce an uploads inventory. `videos.list` accepts only a sorted subset of
-that inventory, so arbitrary public-looking video IDs cannot enter enrichment.
+artifact. The coordinator owns the uploads harness and will not finalize a
+caller-supplied manifest. Only its exact adapter/session/resolution and a
+complete terminal result with no rejected records can issue an uploads
+inventory; every record identity digest is rechecked against its video ID.
+`videos.list` accepts only a sorted subset of that inventory, so arbitrary
+public-looking video IDs cannot enter enrichment. Every harness checkpoint
+also binds the adapter-lineage digest, preventing resume under another channel
+or uploads inventory.
 
 ## Completeness and asset boundary
 
