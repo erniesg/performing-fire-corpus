@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/asset-qualification.json",
+  "title": "Operation-specific asset qualification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "qualification_id",
+    "qualification_sha256",
+    "source_id",
+    "endpoint_id",
+    "asset_id",
+    "asset_kind",
+    "public_url",
+    "expected_host",
+    "media_type",
+    "max_bytes",
+    "access_state",
+    "retention_class",
+    "deletion_policy",
+    "derivative_policy",
+    "retrieval_policy",
+    "planned_object_key",
+    "asset_facts_sha256",
+    "source_governance_snapshot_sha256",
+    "source_governance_expires_at",
+    "evaluated_at",
+    "operation_decisions"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "asset_qualification"},
+    "qualification_id": {
+      "type": "string",
+      "pattern": "^qualification_[a-z0-9]{24}$"
+    },
+    "qualification_sha256": {"$ref": "#/$defs/hash"},
+    "source_id": {"$ref": "#/$defs/sourceId"},
+    "endpoint_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_kind": {
+      "enum": ["attachment", "caption", "document", "image", "media", "prose"]
+    },
+    "public_url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048,
+      "pattern": "^https://[^\\s#]+$"
+    },
+    "expected_host": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$"
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+    },
+    "max_bytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+    "access_state": {
+      "enum": [
+        "available",
+        "expired_url",
+        "http_401",
+        "http_403",
+        "login_required",
+        "signed_url",
+        "subscription_required",
+        "unknown"
+      ]
+    },
+    "retention_class": {
+      "enum": [
+        "inventory_metadata",
+        "project_native_expiring",
+        "selected_derived",
+        "selected_raw"
+      ]
+    },
+    "deletion_policy": {
+      "enum": [
+        "delete_on_revocation",
+        "metadata_only",
+        "review_on_revocation",
+        "same_proof_cleanup"
+      ]
+    },
+    "derivative_policy": {
+      "enum": ["none", "operation_specific"]
+    },
+    "retrieval_policy": {
+      "enum": ["none", "public", "restricted"]
+    },
+    "planned_object_key": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/objectKey"}
+      ]
+    },
+    "asset_facts_sha256": {"$ref": "#/$defs/hash"},
+    "source_governance_snapshot_sha256": {"$ref": "#/$defs/hash"},
+    "source_governance_expires_at": {"$ref": "#/$defs/time"},
+    "evaluated_at": {"$ref": "#/$defs/time"},
+    "operation_decisions": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "prefixItems": [
+        {"$ref": "#/$defs/metadataRetentionDecision"},
+        {"$ref": "#/$defs/downloadDecision"},
+        {"$ref": "#/$defs/rawStorageDecision"},
+        {"$ref": "#/$defs/ocrDecision"},
+        {"$ref": "#/$defs/transcriptionDecision"},
+        {"$ref": "#/$defs/videoUnderstandingDecision"},
+        {"$ref": "#/$defs/indexingDecision"},
+        {"$ref": "#/$defs/scoreGenerationDecision"},
+        {"$ref": "#/$defs/publicRetrievalDecision"}
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sourceId": {
+      "enum": [
+        "antiegg-fluxus",
+        "njp-center-main",
+        "njp-center-video-archive",
+        "njp-video-library",
+        "njp-youtube-official"
+      ]
+    },
+    "objectKey": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]*$"
+    },
+    "label": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^evidence_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    },
+    "nullableLabel": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/label"}]
+    },
+    "nullableEvidence": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/evidenceRef"}]
+    },
+    "nullableTime": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/time"}]
+    },
+    "nullableText": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/safeText"}]
+    },
+    "nullableHash": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]
+    },
+    "nullableRetention": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "enum": [
+            "inventory_metadata",
+            "project_native_expiring",
+            "selected_derived",
+            "selected_raw"
+          ]
+        }
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "state",
+        "eligible",
+        "decision_scope",
+        "basis_code",
+        "authority_class",
+        "evidence_ref",
+        "decided_at",
+        "expires_at",
+        "review_trigger",
+        "asset_facts_sha256",
+        "retention_class",
+        "reasons"
+      ],
+      "properties": {
+        "operation": {
+          "enum": [
+            "metadata_retention",
+            "download",
+            "raw_storage",
+            "ocr",
+            "transcription",
+            "video_understanding",
+            "indexing",
+            "score_generation",
+            "public_retrieval"
+          ]
+        },
+        "state": {"enum": ["approved", "blocked", "pending", "revoked"]},
+        "eligible": {"type": "boolean"},
+        "decision_scope": {
+          "anyOf": [
+            {"type": "null"},
+            {"enum": ["asset_specific", "source_policy"]}
+          ]
+        },
+        "basis_code": {"$ref": "#/$defs/nullableLabel"},
+        "authority_class": {"$ref": "#/$defs/nullableLabel"},
+        "evidence_ref": {"$ref": "#/$defs/nullableEvidence"},
+        "decided_at": {"$ref": "#/$defs/nullableTime"},
+        "expires_at": {"$ref": "#/$defs/nullableTime"},
+        "review_trigger": {"$ref": "#/$defs/nullableText"},
+        "asset_facts_sha256": {"$ref": "#/$defs/nullableHash"},
+        "retention_class": {"$ref": "#/$defs/nullableRetention"},
+        "reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,159}$"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "approved"}},
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "decision_scope": {"enum": ["asset_specific", "source_policy"]},
+              "basis_code": {"$ref": "#/$defs/label"},
+              "authority_class": {"$ref": "#/$defs/label"},
+              "evidence_ref": {"$ref": "#/$defs/evidenceRef"},
+              "decided_at": {"$ref": "#/$defs/time"},
+              "expires_at": {"$ref": "#/$defs/time"},
+              "review_trigger": {"$ref": "#/$defs/safeText"},
+              "asset_facts_sha256": {"$ref": "#/$defs/hash"},
+              "retention_class": {
+                "enum": [
+                  "inventory_metadata",
+                  "project_native_expiring",
+                  "selected_derived",
+                  "selected_raw"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"eligible": {"const": true}},
+            "required": ["eligible"]
+          },
+          "then": {
+            "properties": {
+              "state": {"const": "approved"},
+              "reasons": {"maxItems": 0}
+            }
+          }
+        }
+      ]
+    },
+    "metadataRetentionDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "metadata_retention"}}
+    },
+    "downloadDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "download"}}
+    },
+    "rawStorageDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "raw_storage"}}
+    },
+    "ocrDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "ocr"}}
+    },
+    "transcriptionDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "transcription"}}
+    },
+    "videoUnderstandingDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "video_understanding"}}
+    },
+    "indexingDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "indexing"}}
+    },
+    "scoreGenerationDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "score_generation"}}
+    },
+    "publicRetrievalDecision": {
+      "$ref": "#/$defs/decision",
+      "properties": {"operation": {"const": "public_retrieval"}}
+    }
+  }
+}
