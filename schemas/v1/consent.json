@@ -1,0 +1,183 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/consent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "auditEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "consent_id": {
+          "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "event_type": {
+          "enum": [
+            "consent_expired",
+            "consent_revoked"
+          ]
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "source_id": {
+          "pattern": "^project-native-[a-z]+(?:-[a-z]+)*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "consent_id",
+        "event_type",
+        "occurred_at",
+        "schema_version",
+        "source_id"
+      ],
+      "type": "object"
+    },
+    "operation": {
+      "enum": [
+        "caption_retention",
+        "derived_processing",
+        "indexing",
+        "media_acquisition",
+        "metadata_inventory",
+        "prose_retention",
+        "public_retrieval",
+        "retention",
+        "search_visibility"
+      ]
+    },
+    "safeText": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_uses": {
+      "items": {
+        "$ref": "#/$defs/operation"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "allowed_viewer_roles": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "audit_events": {
+      "items": {
+        "$ref": "#/$defs/auditEvent"
+      },
+      "type": "array"
+    },
+    "authority_class": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "confidentiality_class": {
+      "enum": [
+        "public",
+        "restricted",
+        "sensitive"
+      ]
+    },
+    "consent_id": {
+      "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "decided_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "deletion_owner_role": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "export_policy": {
+      "enum": [
+        "none",
+        "subject_copy"
+      ]
+    },
+    "next_safe_action": {
+      "$ref": "#/$defs/safeText"
+    },
+    "notice_version": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "purpose_code": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "consent"
+    },
+    "redaction_required": {
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^project-native-[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "active",
+        "expired",
+        "pending",
+        "revoked"
+      ]
+    },
+    "subject_ref": {
+      "pattern": "^subject_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "withdrawal_supported": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "allowed_uses",
+    "allowed_viewer_roles",
+    "audit_events",
+    "authority_class",
+    "confidentiality_class",
+    "consent_id",
+    "decided_at",
+    "deletion_owner_role",
+    "expires_at",
+    "export_policy",
+    "next_safe_action",
+    "notice_version",
+    "purpose_code",
+    "record_type",
+    "redaction_required",
+    "schema_version",
+    "source_id",
+    "state",
+    "subject_ref",
+    "withdrawal_supported"
+  ],
+  "title": "Project-native consent record v1",
+  "type": "object"
+}
