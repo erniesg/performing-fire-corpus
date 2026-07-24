@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -20,12 +21,13 @@ from performing_fire_corpus.redaction import sanitize
 UTC = timezone.utc
 _SAFE_VALUE = re.compile(
     r"[A-Za-z0-9 .,!?;'\"()[\]{}_+\-"
-    r"\u00B7\u00C0-\u024F"
-    r"\u1100-\u11FF\u3040-\u30FF\u3130-\u318F"
+    r"\u00B7\u00C0-\u024F\u1E00-\u1EFF"
+    r"\u3001\u3002\u300C\u300D"
+    r"\u3040-\u3098\u309B-\u30FF"
     r"\u3400-\u4DBF\u4E00-\u9FFF"
-    r"\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF"
-    r"\uF900-\uFAFF"
-    r"\u2013\u2014\u2018-\u201D\u2026]+"
+    r"\uAC00-\uD7A3"
+    r"\u2013\u2014\u2018-\u201D\u2026"
+    r"\uFF08\uFF09]+"
 )
 _UNSAFE_VALUE = re.compile(
     r"(?:x-amz-|signature|credential|full source prose)",
@@ -156,6 +158,7 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
         text = str(item["value"])
         if (
             _SAFE_VALUE.fullmatch(text) is None
+            or unicodedata.normalize("NFC", text) != text
             or _UNSAFE_VALUE.search(text)
             or _ABSOLUTE_OR_TRAVERSAL.search(text)
         ):

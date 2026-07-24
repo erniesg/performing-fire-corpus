@@ -215,6 +215,7 @@ def cluster() -> dict[str, object]:
 
 class SearchIndexContractTests(unittest.TestCase):
     def test_published_schemas_are_valid_and_strict(self) -> None:
+        safe_text_patterns = set()
         for name in (
             "index-document",
             "provenance-edge",
@@ -229,6 +230,14 @@ class SearchIndexContractTests(unittest.TestCase):
                 )
             )
             Draft202012Validator.check_schema(schema)
+            if name in {
+                "index-document",
+                "duplicate-cluster",
+                "visibility-policy",
+                "index-snapshot",
+            }:
+                safe_text_patterns.add(schema["$defs"]["safeText"]["pattern"])
+        self.assertEqual(1, len(safe_text_patterns))
         snapshot_schema = json.loads(
             (ROOT / "schemas" / "v1" / "index-snapshot.json").read_text(
                 encoding="utf-8"
@@ -1029,6 +1038,10 @@ class SearchIndexContractTests(unittest.TestCase):
             "Title: Synthetic catalogue entry",
             "~/private/catalogue.json",
             "../private/catalogue.json",
+            "Synthetic title\n",
+            "Cafe\u0301",
+            "가",
+            "か\u3099",
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
@@ -1048,6 +1061,10 @@ class SearchIndexContractTests(unittest.TestCase):
             "Nam June Paik — 1980s",
             "ビデオ アーカイブ",
             "录像档案",
+            "Tiếng Việt",
+            "映像・アーカイブ「展示」",
+            "映像、記録。",
+            "录像档案（展览）",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value
@@ -1058,10 +1075,18 @@ class SearchIndexContractTests(unittest.TestCase):
         unsafe_policy["review_trigger"] = "https://example.invalid/review"
         with self.assertRaises(SearchIndexError):
             validate_visibility_policy(unsafe_policy)
+        newline_policy = policy()
+        newline_policy["review_trigger"] = "Synthetic review trigger\n"
+        with self.assertRaises(SearchIndexError):
+            validate_visibility_policy(newline_policy)
         unsafe_cluster = cluster()
         unsafe_cluster["evidence_summary"] = "https://example.invalid/evidence"
         with self.assertRaises(SearchIndexError):
             validate_duplicate_cluster(unsafe_cluster)
+        newline_cluster = cluster()
+        newline_cluster["evidence_summary"] = "Synthetic evidence\n"
+        with self.assertRaises(SearchIndexError):
+            validate_duplicate_cluster(newline_cluster)
 
 
 if __name__ == "__main__":
