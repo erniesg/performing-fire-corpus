@@ -234,6 +234,138 @@
     {
       "blockers": [],
       "decisions": [],
+      "endpoint_id": "njp-youtube-channels-api",
+      "evaluated_at": null,
+      "fact_states": {
+        "access_control": "unknown",
+        "api_availability": "unknown",
+        "authentication": "unknown",
+        "copyright_lawful_basis": "unknown",
+        "platform_terms": "unknown",
+        "robots": "unknown"
+      },
+      "observations": [],
+      "operation_states": {
+        "acquisition_eligibility": "pending",
+        "caption_retention": "pending",
+        "deletion": "pending",
+        "derivative_eligibility": "pending",
+        "derived_processing": "pending",
+        "indexing": "pending",
+        "media_acquisition": "pending",
+        "metadata_inventory": "pending",
+        "prose_retention": "pending",
+        "public_retrieval": "pending",
+        "retention": "pending",
+        "search_visibility": "pending"
+      },
+      "record_type": "source_governance",
+      "schema_version": 1,
+      "source_governance_id": "source_governance_njp_youtube_official_channels_api",
+      "source_id": "njp-youtube-official"
+    },
+    {
+      "blockers": [],
+      "decisions": [],
+      "endpoint_id": "njp-youtube-handle",
+      "evaluated_at": null,
+      "fact_states": {
+        "access_control": "unknown",
+        "api_availability": "unknown",
+        "authentication": "unknown",
+        "copyright_lawful_basis": "unknown",
+        "platform_terms": "unknown",
+        "robots": "unknown"
+      },
+      "observations": [],
+      "operation_states": {
+        "acquisition_eligibility": "pending",
+        "caption_retention": "pending",
+        "deletion": "pending",
+        "derivative_eligibility": "pending",
+        "derived_processing": "pending",
+        "indexing": "pending",
+        "media_acquisition": "pending",
+        "metadata_inventory": "pending",
+        "prose_retention": "pending",
+        "public_retrieval": "pending",
+        "retention": "pending",
+        "search_visibility": "pending"
+      },
+      "record_type": "source_governance",
+      "schema_version": 1,
+      "source_governance_id": "source_governance_njp_youtube_official_handle",
+      "source_id": "njp-youtube-official"
+    },
+    {
+      "blockers": [],
+      "decisions": [],
+      "endpoint_id": "njp-youtube-playlist-items-api",
+      "evaluated_at": null,
+      "fact_states": {
+        "access_control": "unknown",
+        "api_availability": "unknown",
+        "authentication": "unknown",
+        "copyright_lawful_basis": "unknown",
+        "platform_terms": "unknown",
+        "robots": "unknown"
+      },
+      "observations": [],
+      "operation_states": {
+        "acquisition_eligibility": "pending",
+        "caption_retention": "pending",
+        "deletion": "pending",
+        "derivative_eligibility": "pending",
+        "derived_processing": "pending",
+        "indexing": "pending",
+        "media_acquisition": "pending",
+        "metadata_inventory": "pending",
+        "prose_retention": "pending",
+        "public_retrieval": "pending",
+        "retention": "pending",
+        "search_visibility": "pending"
+      },
+      "record_type": "source_governance",
+      "schema_version": 1,
+      "source_governance_id": "source_governance_njp_youtube_official_playlist_items_api",
+      "source_id": "njp-youtube-official"
+    },
+    {
+      "blockers": [],
+      "decisions": [],
+      "endpoint_id": "njp-youtube-videos-api",
+      "evaluated_at": null,
+      "fact_states": {
+        "access_control": "unknown",
+        "api_availability": "unknown",
+        "authentication": "unknown",
+        "copyright_lawful_basis": "unknown",
+        "platform_terms": "unknown",
+        "robots": "unknown"
+      },
+      "observations": [],
+      "operation_states": {
+        "acquisition_eligibility": "pending",
+        "caption_retention": "pending",
+        "deletion": "pending",
+        "derivative_eligibility": "pending",
+        "derived_processing": "pending",
+        "indexing": "pending",
+        "media_acquisition": "pending",
+        "metadata_inventory": "pending",
+        "prose_retention": "pending",
+        "public_retrieval": "pending",
+        "retention": "pending",
+        "search_visibility": "pending"
+      },
+      "record_type": "source_governance",
+      "schema_version": 1,
+      "source_governance_id": "source_governance_njp_youtube_official_videos_api",
+      "source_id": "njp-youtube-official"
+    },
+    {
+      "blockers": [],
+      "decisions": [],
       "endpoint_id": null,
       "evaluated_at": null,
       "fact_states": {

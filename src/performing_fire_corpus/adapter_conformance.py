@@ -13,6 +13,7 @@ import webbrowser
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from unittest.mock import patch
 from urllib.parse import parse_qsl, urlsplit
@@ -26,12 +27,26 @@ _QUERY_PARAMETER = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
 _CURSOR = re.compile(
     r"^(?:(?:page|offset)-[0-9]{1,18}"
-    r"|opaque-[A-Za-z0-9._~-]{8,128})$"
+    r"|opaque-(?:[0-9]{1,18}~)?[A-Za-z0-9._~-]{6,128})$"
 )
+_OPAQUE_CURSOR_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{6,128}$")
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
 _YEAR = re.compile(r"^[0-9]{4}$")
+_TIMESTAMP = re.compile(
+    r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(?:\.[0-9]{1,9})?Z$"
+)
+_DURATION = re.compile(
+    r"^P(?=.+)(?:[0-9]+D)?(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?$"
+)
+_SAFE_QUERY_LITERAL = re.compile(r"^[A-Za-z0-9@._~,-]{1,256}$")
+_OPAQUE_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
+_OFFICIAL_METADATA_PARTS = frozenset(
+    {"contentDetails", "id", "liveStreamingDetails", "status"}
+)
 _SAFE_ENUM_LITERAL = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
 _FORBIDDEN_FIELD_PARTS = frozenset(
     {
@@ -117,6 +132,16 @@ class AdapterConformanceError(ValueError):
     """Raised when an adapter bypasses a portable conformance boundary."""
 
 
+class AdapterRequestBlocked(RuntimeError):
+    """A content-free adapter blocker detected before request emission."""
+
+    def __init__(self, reason: str) -> None:
+        if not isinstance(reason, str) or not _IDENTIFIER.fullmatch(reason):
+            raise AdapterConformanceError("adapter blocker reason is invalid")
+        self.reason = reason
+        super().__init__(reason)
+
+
 @dataclass(frozen=True)
 class MetadataRequest:
     """A content-free metadata request with no credential or body surface."""
@@ -134,6 +159,7 @@ class MetadataResponse:
     mime_type: str
     body: bytes
     final_url: str
+    error_reason: str | None = None
 
 
 class ConformantMetadataAdapter(Protocol):
@@ -264,9 +290,21 @@ def validate_adapter_declaration(
             continue
         if (
             contract.get("value_type") == "cursor_opaque"
-            and set(contract) == {"cursor_prefix", "value_type"}
+            and set(contract)
+            in (
+                {"cursor_prefix", "value_type"},
+                {
+                    "checkpoint_ordinal",
+                    "cursor_prefix",
+                    "value_type",
+                },
+            )
             and contract["cursor_prefix"] == "opaque-"
             and parameter == "pageToken"
+            and (
+                "checkpoint_ordinal" not in contract
+                or contract["checkpoint_ordinal"] is True
+            )
         ):
             cursor_contracts += 1
             continue
@@ -286,6 +324,60 @@ def validate_adapter_declaration(
                 )
                 for item in contract["allowed_values"]
             )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "literal"
+            and set(contract) == {"exact_value", "value_type"}
+            and isinstance(contract["exact_value"], str)
+            and _SAFE_QUERY_LITERAL.fullmatch(contract["exact_value"])
+            and sanitize(contract["exact_value"], environ={})
+            == contract["exact_value"]
+            and not any(
+                part in contract["exact_value"].lower()
+                for part in _ACQUISITION_QUERY_VALUES
+            )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "opaque_identifier"
+            and set(contract) == {"exact_value", "value_type"}
+            and parameter == "playlistId"
+            and isinstance(contract["exact_value"], str)
+            and _OPAQUE_PUBLIC_IDENTIFIER.fullmatch(
+                contract["exact_value"]
+            )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "opaque_identifier_list"
+            and set(contract)
+            == {"exact_value", "max_items", "value_type"}
+            and parameter == "id"
+            and contract["max_items"] == 50
+            and isinstance(contract["exact_value"], str)
+        ):
+            identifiers = contract["exact_value"].split(",")
+            if (
+                identifiers
+                and len(identifiers) <= contract["max_items"]
+                and identifiers == sorted(set(identifiers))
+                and all(
+                    _OPAQUE_PUBLIC_IDENTIFIER.fullmatch(identifier)
+                    for identifier in identifiers
+                )
+            ):
+                continue
+        if (
+            contract.get("value_type") == "metadata_parts"
+            and set(contract) == {"allowed_values", "value_type"}
+            and isinstance(contract["allowed_values"], list)
+            and contract["allowed_values"]
+            == sorted(set(contract["allowed_values"]))
+            and set(contract["allowed_values"]).issubset(
+                _OFFICIAL_METADATA_PARTS
+            )
+            and parameter == "part"
         ):
             continue
         raise AdapterConformanceError(
@@ -351,7 +443,11 @@ def validate_adapter_declaration(
     for field, contract in contracts.items():
         if not isinstance(contract, Mapping):
             raise AdapterConformanceError(f"{field} has an invalid metadata contract")
-        if contract.get("value_type") == "year" and set(contract) == {"value_type"}:
+        if (
+            contract.get("value_type")
+            in {"duration_iso8601", "timestamp", "year"}
+            and set(contract) == {"value_type"}
+        ):
             continue
         if (
             contract.get("value_type") == "enum"
@@ -443,7 +539,16 @@ def _validate_request(
     if (
         len(keys) != len(set(keys))
         or not set(keys).issubset(declaration["allowed_query_parameters"])
-        or any(sanitize(value, environ={}) != value for _, value in query)
+        or any(
+            declaration["query_parameter_contracts"][key]["value_type"]
+            not in {
+                "cursor_opaque",
+                "opaque_identifier",
+                "opaque_identifier_list",
+            }
+            and sanitize(value, environ={}) != value
+            for key, value in query
+        )
     ):
         raise AdapterConformanceError("request query is outside the approved projection")
     query_values = dict(query)
@@ -467,11 +572,32 @@ def _validate_request(
             expected_value = (
                 str(int(suffix))
                 if value_type == "cursor_integer"
-                else suffix
+                else (
+                    suffix.split("~", 1)[1]
+                    if contract.get("checkpoint_ordinal") is True
+                    and "~" in suffix
+                    else suffix
+                )
             )
             if query_values.get(parameter) != expected_value:
                 raise AdapterConformanceError(
                     "request query is not bound to the checkpoint cursor"
+                )
+        elif value_type in {
+            "literal",
+            "opaque_identifier",
+            "opaque_identifier_list",
+        }:
+            if query_values.get(parameter) != contract["exact_value"]:
+                raise AdapterConformanceError(
+                    "request query value is outside its reviewed contract"
+                )
+        elif value_type == "metadata_parts":
+            if query_values.get(parameter) != ",".join(
+                contract["allowed_values"]
+            ):
+                raise AdapterConformanceError(
+                    "request metadata parts exceed the reviewed projection"
                 )
         elif (
             parameter in query_values
@@ -487,6 +613,105 @@ def _validate_request(
     return request
 
 
+def _cursor_identity(
+    declaration: Mapping[str, Any],
+    cursor: str,
+) -> str:
+    for contract in declaration["query_parameter_contracts"].values():
+        if (
+            contract.get("value_type") == "cursor_opaque"
+            and contract.get("checkpoint_ordinal") is True
+        ):
+            prefix = contract["cursor_prefix"]
+            suffix = cursor.removeprefix(prefix)
+            if "~" not in suffix:
+                raise AdapterConformanceError("opaque cursor lacks checkpoint ordinal")
+            _, token = suffix.split("~", 1)
+            return f"{prefix}{token}"
+    return cursor
+
+
+def _uses_shape_only_opaque_cursor(
+    declaration: Mapping[str, Any],
+) -> bool:
+    return any(
+        contract.get("value_type") == "cursor_opaque"
+        for contract in declaration["query_parameter_contracts"].values()
+    )
+
+
+def _declared_cursor_contract(
+    declaration: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    return next(
+        (
+            contract
+            for contract in declaration[
+                "query_parameter_contracts"
+            ].values()
+            if contract.get("value_type")
+            in {"cursor_integer", "cursor_opaque"}
+        ),
+        None,
+    )
+
+
+def _cursor_is_valid(
+    declaration: Mapping[str, Any],
+    cursor: Any,
+) -> bool:
+    if not isinstance(cursor, str) or _CURSOR.fullmatch(cursor) is None:
+        return False
+    contract = _declared_cursor_contract(declaration)
+    if contract is None:
+        return False
+    prefix = contract["cursor_prefix"]
+    if not cursor.startswith(prefix):
+        return False
+    suffix = cursor.removeprefix(prefix)
+    if contract["value_type"] == "cursor_integer":
+        return (
+            re.fullmatch(r"[0-9]{1,18}", suffix) is not None
+            and sanitize(cursor, environ={}) == cursor
+        )
+    if contract.get("checkpoint_ordinal") is True:
+        ordinal, separator, token = suffix.partition("~")
+        return (
+            separator == "~"
+            and re.fullmatch(r"[0-9]{1,18}", ordinal) is not None
+            and _OPAQUE_CURSOR_TOKEN.fullmatch(token) is not None
+        )
+    return _OPAQUE_CURSOR_TOKEN.fullmatch(suffix) is not None
+
+
+def _cursor_ordinal_matches(
+    declaration: Mapping[str, Any],
+    cursor: str,
+    next_ordinal: int,
+) -> bool:
+    contract = _declared_cursor_contract(declaration)
+    if (
+        contract is None
+        or contract["value_type"] != "cursor_opaque"
+        or contract.get("checkpoint_ordinal") is not True
+    ):
+        return True
+    suffix = cursor.removeprefix(contract["cursor_prefix"])
+    ordinal, separator, _ = suffix.partition("~")
+    return separator == "~" and ordinal == str(next_ordinal)
+
+
+def _checkpoint_state_is_sanitized(
+    declaration: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> bool:
+    candidate = copy.deepcopy(dict(state))
+    if _uses_shape_only_opaque_cursor(declaration):
+        candidate["next_cursor"] = None
+        candidate["seen_cursors"] = []
+    return sanitize(candidate, environ={}) == candidate
+
+
 def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if not isinstance(value, str):
         return False
@@ -498,7 +723,21 @@ def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
         return False
     if contract["value_type"] == "year":
         return _YEAR.fullmatch(value) is not None
+    if contract["value_type"] == "timestamp":
+        return is_valid_utc_timestamp(value)
+    if contract["value_type"] == "duration_iso8601":
+        return _DURATION.fullmatch(value) is not None
     return value in contract["allowed_values"]
+
+
+def is_valid_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or _TIMESTAMP.fullmatch(value) is None:
+        return False
+    try:
+        datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError:
+        return False
+    return True
 
 
 def _validate_normalized_record(
@@ -738,17 +977,42 @@ class OfflineConformanceHarness:
         )
 
     def _restore(self, checkpoint: Mapping[str, Any]) -> None:
-        expected_keys = {
+        current_keys = {
+            "adapter_lineage_sha256",
+            "adapter_runtime_checkpoint",
             "bounds",
             "checkpoint_sha256",
             "declaration_sha256",
             "state",
         }
-        if set(checkpoint) != expected_keys:
+        legacy_keys = {
+            "bounds",
+            "checkpoint_sha256",
+            "declaration_sha256",
+            "state",
+        }
+        checkpoint_keys = set(checkpoint)
+        if checkpoint_keys == current_keys:
+            unsigned_keys = (
+                "adapter_lineage_sha256",
+                "adapter_runtime_checkpoint",
+                "bounds",
+                "declaration_sha256",
+                "state",
+            )
+            checkpoint_lineage = checkpoint["adapter_lineage_sha256"]
+            runtime_checkpoint = checkpoint["adapter_runtime_checkpoint"]
+            legacy_checkpoint = False
+        elif checkpoint_keys == legacy_keys:
+            unsigned_keys = ("bounds", "declaration_sha256", "state")
+            checkpoint_lineage = None
+            runtime_checkpoint = None
+            legacy_checkpoint = True
+        else:
             raise AdapterConformanceError("checkpoint is invalid")
         unsigned = {
             key: copy.deepcopy(checkpoint[key])
-            for key in ("bounds", "declaration_sha256", "state")
+            for key in unsigned_keys
         }
         if checkpoint["checkpoint_sha256"] != hashlib.sha256(
             _canonical(unsigned).encode("utf-8")
@@ -759,6 +1023,68 @@ class OfflineConformanceHarness:
         ).hexdigest()
         if checkpoint["declaration_sha256"] != fingerprint:
             raise AdapterConformanceError("checkpoint adapter declaration changed")
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        runtime_checkpoint_builder = getattr(
+            self.adapter,
+            "runtime_checkpoint",
+            None,
+        )
+        restore_runtime = getattr(
+            self.adapter,
+            "restore_runtime_checkpoint",
+            None,
+        )
+        if legacy_checkpoint and any(
+            hook is not None
+            for hook in (
+                lineage_builder,
+                runtime_checkpoint_builder,
+                restore_runtime,
+            )
+        ):
+            raise AdapterConformanceError(
+                "legacy checkpoint omits adapter runtime binding"
+            )
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            current_lineage = (
+                None if lineage_builder is None else lineage_builder()
+            )
+        if (
+            current_lineage != checkpoint_lineage
+            or (
+                current_lineage is not None
+                and (
+                    not isinstance(current_lineage, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", current_lineage)
+                )
+            )
+        ):
+            raise AdapterConformanceError("checkpoint adapter lineage changed")
+        if restore_runtime is None:
+            if runtime_checkpoint is not None:
+                raise AdapterConformanceError(
+                    "checkpoint has unsupported adapter runtime state"
+                )
+        else:
+            if not isinstance(runtime_checkpoint, Mapping):
+                raise AdapterConformanceError(
+                    "checkpoint omits adapter runtime state"
+                )
+            try:
+                with deny_live_network(
+                    additional_entry_points=self._network_entry_points
+                ):
+                    restore_runtime(copy.deepcopy(runtime_checkpoint))
+            except Exception as error:
+                raise AdapterConformanceError(
+                    "adapter runtime checkpoint is invalid"
+                ) from error
         state = checkpoint["state"]
         if not isinstance(state, Mapping) or set(state) != set(self._new_state()):
             raise AdapterConformanceError("checkpoint state is invalid")
@@ -767,7 +1093,10 @@ class OfflineConformanceHarness:
             restored["state"] != "ready"
             or restored["stop_reason"] not in {None, "retry_pending"}
             or not isinstance(restored["records"], dict)
-            or sanitize(restored, environ={}) != restored
+            or not _checkpoint_state_is_sanitized(
+                self.declaration,
+                restored,
+            )
         ):
             raise AdapterConformanceError("checkpoint is not resumable")
         integer_fields = (
@@ -790,18 +1119,28 @@ class OfflineConformanceHarness:
         if (
             not isinstance(seen, list)
             or any(
-                not isinstance(item, str)
-                or not _CURSOR.fullmatch(item)
-                or sanitize(item, environ={}) != item
+                not _cursor_is_valid(self.declaration, item)
                 for item in seen
             )
-            or len(set(seen)) != len(seen)
+            or any(
+                not _cursor_ordinal_matches(
+                    self.declaration,
+                    item,
+                    ordinal,
+                )
+                for ordinal, item in enumerate(seen, start=1)
+            )
+            or len(
+                {
+                    _cursor_identity(self.declaration, item)
+                    for item in seen
+                }
+            )
+            != len(seen)
             or (
                 cursor is not None
                 and (
-                    not isinstance(cursor, str)
-                    or not _CURSOR.fullmatch(cursor)
-                    or sanitize(cursor, environ={}) != cursor
+                    not _cursor_is_valid(self.declaration, cursor)
                     or cursor not in seen
                     or restored["next_ordinal"] < 1
                 )
@@ -883,11 +1222,17 @@ class OfflineConformanceHarness:
         with deny_live_network(
             additional_entry_points=self._network_entry_points
         ):
-            request = _validate_request(
-                self.declaration,
-                self.adapter.build_request(self._state["next_cursor"]),
-                self._state["next_cursor"],
-            )
+            try:
+                request = _validate_request(
+                    self.declaration,
+                    self.adapter.build_request(self._state["next_cursor"]),
+                    self._state["next_cursor"],
+                )
+            except AdapterRequestBlocked as error:
+                if error.reason not in self.declaration["blocker_states"]:
+                    return self._stop("changed", "shape_drift")
+                self._stop("blocked", error.reason)
+                return None
         self._state["requests_attempted"] += 1
         self._state["stop_reason"] = None
         self._active_request = request
@@ -919,15 +1264,32 @@ class OfflineConformanceHarness:
             or not _MIME_TYPE.fullmatch(response.mime_type)
             or not isinstance(response.body, bytes)
             or not isinstance(response.final_url, str)
+            or (
+                response.error_reason is not None
+                and (
+                    not isinstance(response.error_reason, str)
+                    or not _IDENTIFIER.fullmatch(response.error_reason)
+                )
+            )
         ):
             return self._stop("changed", "invalid_response")
         if response.final_url != request.url:
             return self._stop("changed", "redirect_mismatch")
-        status_reason = {
-            401: "login_required",
-            403: "access_forbidden",
-            429: "rate_limited",
-        }.get(response.status)
+        status_reason = None
+        if response.status == 403:
+            if (
+                response.error_reason
+                in {"quota_exhausted", "rate_limited"}
+                and response.error_reason
+                in self.declaration["blocker_states"]
+            ):
+                status_reason = response.error_reason
+            else:
+                status_reason = "access_forbidden"
+        elif response.status == 401:
+            status_reason = "login_required"
+        elif response.status == 429:
+            status_reason = "rate_limited"
         if status_reason is not None:
             return self._stop("blocked", status_reason)
         if response.status != 200:
@@ -965,13 +1327,20 @@ class OfflineConformanceHarness:
                 return self._stop("changed", "shape_drift")
         else:
             if (
-                not isinstance(next_cursor, str)
-                or not _CURSOR.fullmatch(next_cursor)
-                or sanitize(next_cursor, environ={}) != next_cursor
+                not _cursor_is_valid(self.declaration, next_cursor)
                 or not isinstance(next_ordinal, int)
                 or isinstance(next_ordinal, bool)
                 or next_ordinal != self._state["next_ordinal"] + 1
-                or next_cursor in self._state["seen_cursors"]
+                or not _cursor_ordinal_matches(
+                    self.declaration,
+                    next_cursor,
+                    next_ordinal,
+                )
+                or _cursor_identity(self.declaration, next_cursor)
+                in {
+                    _cursor_identity(self.declaration, item)
+                    for item in self._state["seen_cursors"]
+                }
             ):
                 return self._stop("changed", "pagination_loop")
 
@@ -1029,7 +1398,52 @@ class OfflineConformanceHarness:
     def checkpoint(self) -> dict[str, Any]:
         if self._active_request is not None:
             raise AdapterConformanceError("active synthetic request cannot be checkpointed")
+        runtime_checkpoint = None
+        runtime_checkpoint_builder = getattr(
+            self.adapter,
+            "runtime_checkpoint",
+            None,
+        )
+        if runtime_checkpoint_builder is not None:
+            with deny_live_network(
+                additional_entry_points=self._network_entry_points
+            ):
+                runtime_checkpoint = runtime_checkpoint_builder()
+            if (
+                not isinstance(runtime_checkpoint, Mapping)
+                or sanitize(runtime_checkpoint, environ={})
+                != runtime_checkpoint
+            ):
+                raise AdapterConformanceError(
+                    "adapter runtime checkpoint is invalid"
+                )
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        with deny_live_network(
+            additional_entry_points=self._network_entry_points
+        ):
+            adapter_lineage_sha256 = (
+                None if lineage_builder is None else lineage_builder()
+            )
+        if (
+            adapter_lineage_sha256 is not None
+            and (
+                not isinstance(adapter_lineage_sha256, str)
+                or not re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    adapter_lineage_sha256,
+                )
+            )
+        ):
+            raise AdapterConformanceError(
+                "adapter lineage digest is invalid"
+            )
         unsigned = {
+            "adapter_lineage_sha256": adapter_lineage_sha256,
+            "adapter_runtime_checkpoint": copy.deepcopy(runtime_checkpoint),
             "bounds": copy.deepcopy(self.bounds),
             "declaration_sha256": hashlib.sha256(
                 _canonical(self.declaration).encode("utf-8")
@@ -1056,7 +1470,7 @@ class OfflineConformanceHarness:
         ]
         observed_unique_records = len(records)
         expected_total = self._state["expected_total"]
-        return {
+        manifest = {
             "schema_version": 1,
             "manifest_type": "offline_adapter_conformance",
             "adapter_id": self.declaration["adapter_id"],
@@ -1085,6 +1499,25 @@ class OfflineConformanceHarness:
             ),
             "records": records,
         }
+        lineage_builder = getattr(
+            self.adapter,
+            "adapter_lineage_sha256",
+            None,
+        )
+        if lineage_builder is not None:
+            with deny_live_network(
+                additional_entry_points=self._network_entry_points
+            ):
+                lineage_sha256 = lineage_builder()
+            if (
+                not isinstance(lineage_sha256, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", lineage_sha256)
+            ):
+                raise AdapterConformanceError(
+                    "adapter lineage digest is invalid"
+                )
+            manifest["adapter_lineage_sha256"] = lineage_sha256
+        return manifest
 
 
 def _deny_network(*_: Any, **__: Any) -> Any:

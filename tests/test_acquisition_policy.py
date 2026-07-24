@@ -47,6 +47,7 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://[::1]/",
             "https://njp.ggcf.kr\\@evil.invalid/",
             "https://njp.ggcf.kr/%0aheader",
+            "https://www.googleapis.com/drive/v3/files/arbitrary",
             signed_query_url,
             credential_query_url,
         )

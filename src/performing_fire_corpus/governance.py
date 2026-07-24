@@ -74,7 +74,14 @@ CANONICAL_ENDPOINT_IDS = {
     "njp-center-main": frozenset({"njp-center-main-home"}),
     "njp-center-video-archive": frozenset({"njp-center-video-archive-page"}),
     "njp-video-library": frozenset({"njp-video-library-home"}),
-    "njp-youtube-official": frozenset({"njp-youtube-handle"}),
+    "njp-youtube-official": frozenset(
+        {
+            "njp-youtube-channels-api",
+            "njp-youtube-handle",
+            "njp-youtube-playlist-items-api",
+            "njp-youtube-videos-api",
+        }
+    ),
     **{source_id: frozenset() for source_id in PROJECT_NATIVE_SOURCE_IDS},
 }
 

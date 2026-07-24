@@ -216,6 +216,78 @@ class AdapterDeclarationTests(unittest.TestCase):
         with self.assertRaises(AdapterConformanceError):
             OfflineConformanceHarness(adapter, REGISTRY).next_request()
 
+    def test_checkpoint_lineage_and_restore_hooks_are_network_denied(
+        self,
+    ) -> None:
+        class InventedHookClient:
+            @staticmethod
+            def call() -> None:
+                return None
+
+        class HookAdapter(SyntheticMetadataAdapter):
+            network_checkpoint = False
+            network_lineage = False
+            network_restore = False
+
+            def runtime_checkpoint(self) -> dict[str, object]:
+                if self.network_checkpoint:
+                    InventedHookClient.call()
+                return {"runtime_type": "invented"}
+
+            def adapter_lineage_sha256(self) -> str:
+                if self.network_lineage:
+                    InventedHookClient.call()
+                return hashlib.sha256(b"invented-lineage").hexdigest()
+
+            def restore_runtime_checkpoint(
+                self,
+                value: dict[str, object],
+            ) -> None:
+                self.assert_runtime_checkpoint(value)
+                if self.network_restore:
+                    InventedHookClient.call()
+
+            @staticmethod
+            def assert_runtime_checkpoint(value: dict[str, object]) -> None:
+                if value != {"runtime_type": "invented"}:
+                    raise ValueError("invented runtime checkpoint changed")
+
+        entry_points = ((InventedHookClient, "call"),)
+
+        checkpoint_adapter = HookAdapter()
+        checkpoint_adapter.network_checkpoint = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness(
+                checkpoint_adapter,
+                REGISTRY,
+                additional_network_entry_points=entry_points,
+            ).checkpoint()
+
+        lineage_adapter = HookAdapter()
+        lineage_adapter.network_lineage = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness(
+                lineage_adapter,
+                REGISTRY,
+                additional_network_entry_points=entry_points,
+            ).manifest()
+
+        source = OfflineConformanceHarness(HookAdapter(), REGISTRY)
+        checkpoint = source.checkpoint()
+        restore_adapter = HookAdapter()
+        restore_adapter.network_restore = True
+        with self.assertRaises(AdapterConformanceError):
+            OfflineConformanceHarness.resume(
+                restore_adapter,
+                REGISTRY,
+                checkpoint,
+                expected_bounds=source.bounds,
+                expected_checkpoint_sha256=checkpoint[
+                    "checkpoint_sha256"
+                ],
+                additional_network_entry_points=entry_points,
+            )
+
     def test_opaque_case_sensitive_pagination_is_bound_but_not_reported(
         self,
     ) -> None:
@@ -259,6 +331,67 @@ class AdapterDeclarationTests(unittest.TestCase):
             "pageToken=InventedPage_002",
             harness.next_request().url,
         )
+
+    def test_cursor_output_must_match_its_declared_family_and_shape(
+        self,
+    ) -> None:
+        class OrdinalOpaqueCursorAdapter(SyntheticMetadataAdapter):
+            allowed_query_parameters = ("pageToken",)
+            query_parameter_contracts = {
+                "pageToken": {
+                    "checkpoint_ordinal": True,
+                    "cursor_prefix": "opaque-",
+                    "value_type": "cursor_opaque",
+                }
+            }
+
+            def build_request(self, cursor: str | None) -> MetadataRequest:
+                url = "https://antiegg.kr/wp-json/wp/v2/posts"
+                if cursor is not None:
+                    url = f"{url}?pageToken={cursor.split('~', 1)[-1]}"
+                return MetadataRequest(
+                    endpoint_id=self.endpoint_id,
+                    method="GET",
+                    url=url,
+                )
+
+        cases = (
+            (
+                SyntheticMetadataAdapter(),
+                "opaque-InventedPage_002",
+            ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "page-1",
+            ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "opaque-InventedPage_002",
+            ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "opaque-999~InventedPage_002",
+            ),
+        )
+        for adapter, next_cursor in cases:
+            with self.subTest(next_cursor=next_cursor):
+                harness = OfflineConformanceHarness(adapter, REGISTRY)
+                request = harness.next_request()
+                result = harness.ingest(
+                    response(
+                        synthetic_page(
+                            [],
+                            next_cursor=next_cursor,
+                            next_ordinal=1,
+                            terminal=False,
+                        ),
+                        final_url=request.url,
+                    )
+                )
+                self.assertEqual(
+                    ("changed", "pagination_loop"),
+                    (result["state"], result["stop_reason"]),
+                )
 
 
 class OfflineConformanceTests(unittest.TestCase):
@@ -417,6 +550,37 @@ class OfflineConformanceTests(unittest.TestCase):
         )
         self.assertEqual(completed, resumed.manifest())
 
+    def test_pre_runtime_hook_checkpoint_remains_resumable(self) -> None:
+        harness = OfflineConformanceHarness(
+            SyntheticMetadataAdapter(),
+            REGISTRY,
+            max_retries=2,
+        )
+        expected_request = harness.next_request()
+        harness.record_retry("temporary_unavailable")
+        current = harness.checkpoint()
+        legacy = {
+            key: copy.deepcopy(current[key])
+            for key in ("bounds", "declaration_sha256", "state")
+        }
+        legacy["checkpoint_sha256"] = hashlib.sha256(
+            json.dumps(
+                legacy,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        resumed = OfflineConformanceHarness.resume(
+            SyntheticMetadataAdapter(),
+            REGISTRY,
+            legacy,
+            expected_bounds=legacy["bounds"],
+            expected_checkpoint_sha256=legacy["checkpoint_sha256"],
+        )
+        self.assertEqual(expected_request, resumed.next_request())
+
     def test_tampered_resume_checkpoint_fails_closed(self) -> None:
         harness = OfflineConformanceHarness(
             SyntheticMetadataAdapter(), REGISTRY
@@ -470,7 +634,13 @@ class OfflineConformanceTests(unittest.TestCase):
         checkpoint["state"]["current_retries"] = 0
         unsigned = {
             key: checkpoint[key]
-            for key in ("bounds", "declaration_sha256", "state")
+            for key in (
+                "adapter_lineage_sha256",
+                "adapter_runtime_checkpoint",
+                "bounds",
+                "declaration_sha256",
+                "state",
+            )
         }
         checkpoint["checkpoint_sha256"] = hashlib.sha256(
             json.dumps(

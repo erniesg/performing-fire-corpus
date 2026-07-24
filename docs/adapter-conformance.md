@@ -29,7 +29,12 @@ detect a declared login or subscription blocker, derive a stable record ID,
 and parse one bounded page. `MetadataRequest` intentionally has no headers,
 cookies, request body, credentials, or browser-state surface. A pagination
 value must be derived exactly from the current content-free checkpoint cursor.
-Optional constant query values must be identifier-like reviewed enum literals;
+Optional constant query values may be exact reviewed literals or a sorted,
+explicit metadata-part projection. Opaque platform identifiers use separate
+shape-only contracts: one reviewed playlist identifier or a sorted unique
+batch of at most 50 identifiers. Their random Base64url-compatible contents
+are never interpreted as semantic query instructions or account-like text;
+the exact declared value and identifier shape remain mandatory;
 credential, signed, content, media, transcript, caption, prose, raw, or
 download-expanding names and values fail closed. Query-key matching is
 case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
@@ -37,13 +42,18 @@ case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
 separate contracts. Credential roles such as `accessToken`, `refreshToken`,
 and `idToken` cannot use the pagination exception. An opaque cursor is kept
 only in the local checkpoint; public manifests expose its SHA-256 digest.
+Platforms that do not provide a numeric page ordinal bind a locally derived
+ordinal to the opaque token. Loop detection compares the underlying token,
+while resume validates both the token and monotonic ordinal.
 
 The approved metadata projection uses exact value contracts. The current
-shared types are field-prefixed, identifier-like bounded enums and four-digit
-years. An enum
+shared types are field-prefixed, identifier-like bounded enums, four-digit
+years, UTC timestamps, and ISO 8601 durations. An enum
 cannot bless a sentence, person name with spaces, URL, signed value, or local
 path. Adding a new value type is a reviewed common-harness change, not a
 source-adapter escape hatch.
+UTC timestamps must also parse as real calendar instants; range-shaped but
+impossible dates fail closed.
 
 ## Synthetic fixture rule
 
@@ -69,10 +79,12 @@ provides only its adapter factory plus invented item, page, and identity-variant
 builders. The inherited matrix instantiates `OfflineConformanceHarness` and
 exercises the same cases:
 
-- zero request budget and robots denial before request construction;
+- zero request budget and, when applicable, robots denial before request
+  construction;
 - `401`, `403`, `429`, login-required, and subscription-required blockers;
 - redirect target, MIME, response-size, and parser-shape mismatch;
-- pagination loops, non-monotonic page ordinals, and changed expected totals;
+- pagination loops, non-monotonic page ordinals, and changed expected totals
+  for paginated sources;
 - retry checkpoint/resume at the same cursor;
 - duplicate records, stable-ID collisions, and expected-total changes;
 - deterministic final manifests under reordered source results;
@@ -80,11 +92,12 @@ exercises the same cases:
   values, personal data, and machine-local paths.
 
 Network denial is automatic around every adapter request builder, blocker
-detector, parser, identity check, and the complete inherited matrix. It rejects
-DNS lookups, raw socket connect/send entry points, standard-library HTTP
+detector, parser, identity check, runtime-checkpoint builder/restorer,
+adapter-lineage builder, and the complete inherited matrix. It rejects DNS
+lookups, raw socket connect/send entry points, standard-library HTTP
 open/request methods, URL retrieval, and browser open methods. Pass every
 source-specific SDK request method through `additional_network_entry_points`;
-an adapter is non-conformant if its parser or tests require a live SDK,
+an adapter is non-conformant if any callback or test requires a live SDK,
 browser, credential, cache, or remote fixture.
 
 The offline checkpoint is integrity checked and declaration bound. Resume also
@@ -95,6 +108,13 @@ seen-page relationships must remain monotonic. Only a non-terminal `ready` or
 `retry_pending` checkpoint can resume. A page is committed only after
 pagination, metadata, source-identity collision, and completeness checks all
 pass.
+Adapters with run-time safety state, such as a quota ledger, must expose it to
+the harness. The outer checkpoint binds that state and restores it before the
+next request. A content-free adapter-lineage digest may also be included in a
+manifest to bind dependent stages without exposing identifiers or raw
+responses. The same lineage digest is part of the outer checkpoint and must
+match exactly on resume. A typed pre-request blocker stops the harness without
+returning a request or incrementing request-attempt counters.
 
 ## Evidence required before a live proof
 
