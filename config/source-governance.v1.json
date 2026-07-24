@@ -201,6 +201,39 @@
     {
       "blockers": [],
       "decisions": [],
+      "endpoint_id": "njp-video-library-home",
+      "evaluated_at": null,
+      "fact_states": {
+        "access_control": "unknown",
+        "api_availability": "unknown",
+        "authentication": "unknown",
+        "copyright_lawful_basis": "unknown",
+        "platform_terms": "unknown",
+        "robots": "unknown"
+      },
+      "observations": [],
+      "operation_states": {
+        "acquisition_eligibility": "pending",
+        "caption_retention": "pending",
+        "deletion": "pending",
+        "derivative_eligibility": "pending",
+        "derived_processing": "pending",
+        "indexing": "pending",
+        "media_acquisition": "pending",
+        "metadata_inventory": "pending",
+        "prose_retention": "pending",
+        "public_retrieval": "pending",
+        "retention": "pending",
+        "search_visibility": "pending"
+      },
+      "record_type": "source_governance",
+      "schema_version": 1,
+      "source_governance_id": "source_governance_njp_video_library_home",
+      "source_id": "njp-video-library"
+    },
+    {
+      "blockers": [],
+      "decisions": [],
       "endpoint_id": null,
       "evaluated_at": null,
       "fact_states": {
