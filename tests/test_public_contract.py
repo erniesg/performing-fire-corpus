@@ -162,6 +162,35 @@ class PublicRepositoryContractTests(unittest.TestCase):
             self.assertNotIn(unsupported_path, decision)
             self.assertNotIn(unsupported_path, run)
 
+    def test_full_corpus_object_contract_is_explicit_and_fake_only(self) -> None:
+        contract = (
+            ROOT / "docs" / "full-corpus-object-storage.md"
+        ).read_text(encoding="utf-8")
+        for value in (
+            "Full-corpus object-storage contract",
+            "v1/raw/",
+            "v1/derived/",
+            "v1/manifests/",
+            "v1/tombstones/",
+            "exact-key `HEAD`",
+            "most restrictive",
+            "write_ledger_from_receipt",
+            "write_receipt_from_ledger",
+            "binds every immutable receipt fact",
+            "`reused_after_ambiguous_create`",
+            "`object_receipt` records",
+            "complete derivation-lineage snapshot",
+            "current retention/legal-hold authority",
+            "revalidated immediately before deletion",
+            "same_proof_disposable",
+            "never authorizes deletion of a reused or pre-existing object",
+            "No production operation is authorized",
+            "fake storage",
+            "must not list",
+            "must not delete a bucket or prefix",
+        ):
+            self.assertIn(value, contract)
+
 
 if __name__ == "__main__":
     unittest.main()

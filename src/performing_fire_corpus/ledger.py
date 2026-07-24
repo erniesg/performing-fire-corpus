@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import sqlite3
 import threading
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -20,8 +22,30 @@ from performing_fire_corpus.redaction import sanitize
 
 
 UTC = timezone.utc
-RECORD_TYPES = ("source", "asset", "rights", "job", "lease", "object", "evidence")
-ID_FIELDS = {record_type: f"{record_type}_id" for record_type in RECORD_TYPES}
+RECORD_TYPES = (
+    "source",
+    "asset",
+    "rights",
+    "job",
+    "lease",
+    "object",
+    "object_receipt",
+    "derivation_manifest",
+    "object_tombstone",
+    "evidence",
+)
+ID_FIELDS = {
+    "source": "source_id",
+    "asset": "asset_id",
+    "rights": "rights_id",
+    "job": "job_id",
+    "lease": "lease_id",
+    "object": "object_id",
+    "object_receipt": "receipt_id",
+    "derivation_manifest": "manifest_id",
+    "object_tombstone": "tombstone_id",
+    "evidence": "evidence_id",
+}
 ASSET_STATES = (
     "discovered",
     "metadata_verified",
@@ -58,6 +82,61 @@ class CapabilityError(LedgerError):
     """Raised when a worker cannot satisfy a job's bounded capabilities."""
 
 
+class _LedgerCleanupGuard:
+    """One transaction-bound exact-cleanup commit channel."""
+
+    __slots__ = ("_ledger", "_nonce")
+
+    def __init__(self, ledger: "Ledger", nonce: str) -> None:
+        self._ledger = ledger
+        self._nonce = nonce
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_corpus_receipt_by_key(object_key)
+
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_corpus_receipt(receipt_id)
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        return self._ledger.list_corpus_receipts(source_id, asset_id)
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        return self._ledger.list_derivation_manifests(source_id, asset_id)
+
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        return self._ledger.get_cleanup_tombstone_by_key(object_key)
+
+    def commit_confirmed_cleanup(
+        self,
+        tombstones: Iterable[Mapping[str, object]],
+        *,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: Any,
+        current_time: str,
+    ) -> None:
+        self._ledger._commit_confirmed_cleanup(
+            self._nonce,
+            tombstones,
+            work=work,
+            current_retention_authority=current_retention_authority,
+            current_lineage_snapshot=current_lineage_snapshot,
+            storage=storage,
+            current_time=current_time,
+        )
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -83,13 +162,23 @@ def _canonical(value: Any) -> str:
 
 
 def _schema_resource(record_type: str) -> Any:
+    schema_name = {
+        "object_receipt": "object-receipt",
+        "derivation_manifest": "derivation-manifest",
+        "object_tombstone": "object-tombstone",
+    }.get(record_type, record_type)
     packaged = files("performing_fire_corpus").joinpath(
-        "schemas", "v1", f"{record_type}.json"
+        "schemas", "v1", f"{schema_name}.json"
     )
     if packaged.is_file():
         return packaged
     # Source checkouts retain the public contracts at repository root.
-    return Path(__file__).resolve().parents[2] / "schemas" / "v1" / f"{record_type}.json"
+    return (
+        Path(__file__).resolve().parents[2]
+        / "schemas"
+        / "v1"
+        / f"{schema_name}.json"
+    )
 
 
 def validate_record(record: Mapping[str, Any]) -> None:
@@ -101,6 +190,42 @@ def validate_record(record: Mapping[str, Any]) -> None:
         raise LedgerError(f"schema is unavailable for {record_type}")
     schema = json.loads(schema_resource.read_text(encoding="utf-8"))
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(dict(record))
+    if record_type == "object_receipt":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_object_receipt,
+        )
+
+        try:
+            validate_object_receipt(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "object receipt failed its content-bound runtime contract"
+            ) from error
+    if record_type == "derivation_manifest":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_derivation_manifest,
+        )
+
+        try:
+            validate_derivation_manifest(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "derivation manifest failed its content-bound runtime contract"
+            ) from error
+    if record_type == "object_tombstone":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_object_tombstone,
+        )
+
+        try:
+            validate_object_tombstone(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "object tombstone failed its content-bound runtime contract"
+            ) from error
 
 
 def _assert_sanitized(value: Any, *, field: str = "payload") -> None:
@@ -141,6 +266,9 @@ class Ledger:
         )
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._cleanup_guard_active = False
+        self._cleanup_guard_nonce: str | None = None
+        self._cleanup_guard_consumed = False
         self._connection.execute("PRAGMA foreign_keys = ON")
         if self.database != ":memory:":
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -257,6 +385,10 @@ class Ledger:
         value = dict(record)
         _assert_sanitized(value)
         record_type = str(value["record_type"])
+        if record_type == "object_tombstone":
+            raise LedgerError(
+                "object tombstones require the exact cleanup guard"
+            )
         record_id = str(value[ID_FIELDS[record_type]])
         operation_subject = f"{record_type}:{record_id}"
         now = utc_text()
@@ -272,18 +404,34 @@ class Ledger:
                 existing = self.get_record(record_type, record_id)
                 if existing is not None and existing != value:
                     raise LedgerError(f"conflicting upsert for stable identifier {record_id}")
-                if record_type == "object":
+                if record_type in {"object", "object_receipt"}:
                     self._require_approved_rights(str(value["asset_id"]))
+                    if record_type == "object_receipt":
+                        asset = self.get_record("asset", str(value["asset_id"]))
+                        if (
+                            asset is None
+                            or asset.get("source_id") != value.get("source_id")
+                        ):
+                            raise LedgerError(
+                                "object receipt source must match its "
+                                "authoritative asset"
+                            )
                     for row in self._connection.execute(
-                        "SELECT record_id, body FROM records WHERE record_type='object'"
+                        """SELECT record_type, record_id, body
+                           FROM records
+                           WHERE record_type IN ('object', 'object_receipt')"""
                     ):
                         other = json.loads(row["body"])
                         if (
                             other["object_key"] == value["object_key"]
-                            and row["record_id"] != record_id
+                            and (
+                                row["record_type"] != record_type
+                                or row["record_id"] != record_id
+                            )
                         ):
                             raise LedgerError(
-                                f"object key already has receipt {row['record_id']}"
+                                "object key already has durable receipt "
+                                f"{row['record_id']}"
                             )
                 self._connection.execute(
                     """INSERT INTO records(record_type, record_id, body, updated_at)
@@ -325,6 +473,236 @@ class Ledger:
             if record.get("object_key") == object_key:
                 return record
         return None
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        """Return the unique full-corpus receipt for one immutable key."""
+
+        for row in self._connection.execute(
+            "SELECT body FROM records WHERE record_type='object_receipt'"
+        ):
+            record = json.loads(row["body"])
+            if record.get("object_key") == object_key:
+                return record
+        return None
+
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> dict[str, Any] | None:
+        """Return one authoritative full-corpus receipt by stable ID."""
+
+        return self.get_record("object_receipt", receipt_id)
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        """Return all authoritative receipts for one source asset."""
+
+        records = [
+            json.loads(row["body"])
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='object_receipt'"
+            )
+        ]
+        return sorted(
+            [
+                record
+                for record in records
+                if record.get("source_id") == source_id
+                and record.get("asset_id") == asset_id
+            ],
+            key=lambda record: str(record["receipt_id"]),
+        )
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        """Return all authoritative manifests for one source asset."""
+
+        records = [
+            json.loads(row["body"])
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='derivation_manifest'"
+            )
+        ]
+        return sorted(
+            [
+                record
+                for record in records
+                if record.get("source_id") == source_id
+                and record.get("asset_id") == asset_id
+            ],
+            key=lambda record: str(record["manifest_id"]),
+        )
+
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        """Return the sole authoritative tombstone for one exact object key."""
+
+        matches: list[dict[str, Any]] = []
+        for row in self._connection.execute(
+            "SELECT body FROM records WHERE record_type='object_tombstone'"
+        ):
+            value = json.loads(row["body"])
+            if value.get("deleted_object_key") == object_key:
+                matches.append(value)
+        if len(matches) > 1:
+            raise LedgerError(
+                "multiple tombstones claim the same exact object key"
+            )
+        return None if not matches else matches[0]
+
+    @contextmanager
+    def exact_cleanup_guard(self) -> Iterable[_LedgerCleanupGuard]:
+        """Freeze authoritative receipt/manifest writes during exact cleanup."""
+
+        with self._lock:
+            if self._cleanup_guard_active:
+                raise LedgerError("exact cleanup guards may not be nested")
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._cleanup_guard_active = True
+            nonce = secrets.token_hex(32)
+            self._cleanup_guard_nonce = nonce
+            self._cleanup_guard_consumed = False
+            try:
+                yield _LedgerCleanupGuard(self, nonce)
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
+            finally:
+                self._cleanup_guard_active = False
+                self._cleanup_guard_nonce = None
+                self._cleanup_guard_consumed = False
+
+    def _commit_confirmed_cleanup(
+        self,
+        nonce: str,
+        tombstones: Iterable[Mapping[str, object]],
+        *,
+        work: Mapping[str, object],
+        current_retention_authority: Mapping[str, object],
+        current_lineage_snapshot: Mapping[str, object],
+        storage: Any,
+        current_time: str,
+    ) -> None:
+        """Atomically revalidate, confirm absence, and persist tombstones."""
+
+        if (
+            not self._cleanup_guard_active
+            or not self._connection.in_transaction
+            or nonce != self._cleanup_guard_nonce
+            or self._cleanup_guard_consumed
+        ):
+            raise LedgerError(
+                "cleanup commit requires one live transaction-bound guard"
+            )
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_cleanup_commit_context,
+        )
+
+        values = [dict(value) for value in tombstones]
+        try:
+            values = validate_cleanup_commit_context(
+                values,
+                work=work,
+                object_authority=self,
+                current_retention_authority=current_retention_authority,
+                current_lineage_snapshot=current_lineage_snapshot,
+                current_time=current_time,
+            )
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "cleanup commit failed current authority validation"
+            ) from error
+        for value in values:
+            try:
+                existing_object = storage.head_object(
+                    str(value["deleted_object_key"])
+                )
+            except Exception:
+                raise LedgerError(
+                    "cleanup commit exact absence check failed"
+                ) from None
+            if existing_object is not None:
+                raise LedgerError(
+                    "cleanup commit requires every exact key to be absent"
+                )
+        self._cleanup_guard_consumed = True
+        now = utc_text()
+        affected_assets: set[str] = set()
+        for tombstone in values:
+            validate_record(tombstone)
+            value = dict(tombstone)
+            _assert_sanitized(value)
+            tombstone_id = str(value["tombstone_id"])
+            receipt = self.get_corpus_receipt(str(value["receipt_id"]))
+            if receipt is None or any(
+                receipt.get(receipt_field) != value.get(tombstone_field)
+                for receipt_field, tombstone_field in (
+                    ("receipt_id", "receipt_id"),
+                    ("source_id", "source_id"),
+                    ("asset_id", "asset_id"),
+                    ("object_key", "deleted_object_key"),
+                    ("sha256", "deleted_object_sha256"),
+                )
+            ):
+                raise LedgerError(
+                    "tombstone must match its authoritative object receipt"
+                )
+            existing_for_key = self.get_cleanup_tombstone_by_key(
+                str(value["deleted_object_key"])
+            )
+            if existing_for_key is not None and existing_for_key != value:
+                raise LedgerError(
+                    "conflicting tombstone for exact object key"
+                )
+            existing = self.get_record("object_tombstone", tombstone_id)
+            if existing is not None and existing != value:
+                raise LedgerError(
+                    f"conflicting tombstone for stable identifier {tombstone_id}"
+                )
+            self._connection.execute(
+                """INSERT INTO records(record_type, record_id, body, updated_at)
+                   VALUES('object_tombstone', ?, ?, ?)
+                   ON CONFLICT(record_type, record_id)
+                   DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at""",
+                (tombstone_id, _canonical(value), now),
+            )
+            affected_assets.add(str(value["asset_id"]))
+        for asset_id in affected_assets:
+            row = self._connection.execute(
+                "SELECT state, resume_state FROM asset_states WHERE asset_id=?",
+                (asset_id,),
+            ).fetchone()
+            state = None if row is None else str(row["state"])
+            resume_state = (
+                None
+                if row is None or row["resume_state"] is None
+                else str(row["resume_state"])
+            )
+            presence_state = (
+                state in ASSET_STATES
+                and ASSET_STATES.index(str(state))
+                >= ASSET_STATES.index("raw_in_object_store")
+            )
+            presence_resume = (
+                state == "failed_retryable"
+                and resume_state in ASSET_STATES
+                and ASSET_STATES.index(str(resume_state))
+                >= ASSET_STATES.index("raw_in_object_store")
+            )
+            if presence_state or presence_resume:
+                self._connection.execute(
+                    """UPDATE asset_states
+                       SET state='blocked', resume_state=NULL,
+                           blocker='object_tombstoned', updated_at=?
+                       WHERE asset_id=?""",
+                    (now, asset_id),
+                )
 
     def _require_approved_rights(self, asset_id: str) -> None:
         rows = self._connection.execute(
@@ -420,11 +798,28 @@ class Ledger:
 
     def _require_object(self, asset_id: str, *, prefix: str) -> None:
         rows = self._connection.execute(
-            "SELECT body FROM records WHERE record_type='object'"
+            """SELECT record_type, body FROM records
+               WHERE record_type IN ('object', 'object_receipt')"""
         ).fetchall()
+        tombstoned_keys = {
+            json.loads(row["body"])["deleted_object_key"]
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='object_tombstone'"
+            )
+        }
         if not any(
             (record := json.loads(row["body"])).get("asset_id") == asset_id
-            and str(record.get("object_key", "")).startswith(prefix)
+            and record.get("object_key") not in tombstoned_keys
+            and (
+                (
+                    row["record_type"] == "object"
+                    and str(record.get("object_key", "")).startswith(prefix)
+                )
+                or (
+                    row["record_type"] == "object_receipt"
+                    and record.get("object_kind") == prefix.rstrip("/")
+                )
+            )
             for row in rows
         ):
             raise InvalidTransition(f"{asset_id} has no verified {prefix} object receipt")

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/retention-work.json",
+  "title": "Exact-key retention work v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "retention_work_id",
+    "source_id",
+    "asset_id",
+    "root_receipt_id",
+    "retention_class",
+    "expires_at",
+    "evaluated_at",
+    "legal_hold_state",
+    "retention_authority_sha256",
+    "lineage_snapshot_sha256",
+    "cleanup_authority",
+    "cleanup_run_id",
+    "reason_code",
+    "state",
+    "exact_object_keys",
+    "targets",
+    "evidence_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "retention_work"},
+    "retention_work_id": {
+      "type": "string",
+      "pattern": "^retention_work_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "root_receipt_id": {
+      "type": "string",
+      "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "retention_class": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "expires_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "legal_hold_state": {"enum": ["none", "active"]},
+    "retention_authority_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "lineage_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "cleanup_authority": {
+      "enum": ["held_for_review", "same_proof_disposable"]
+    },
+    "cleanup_run_id": {
+      "type": "string",
+      "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "reason_code": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "state": {
+      "enum": [
+        "not_due",
+        "awaiting_review",
+        "legal_hold_conflict",
+        "ready_exact_cleanup"
+      ]
+    },
+    "exact_object_keys": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "maxLength": 512,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+      }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "record_type",
+          "receipt_id",
+          "object_kind",
+          "source_id",
+          "asset_id",
+          "object_key",
+          "byte_size",
+          "media_type",
+          "sha256",
+          "rights_snapshot_sha256",
+          "retention_class",
+          "creation_run_id",
+          "retrieval_decision",
+          "evidence_ref",
+          "verification_state",
+          "create_disposition"
+        ],
+        "properties": {
+          "schema_version": {"const": 1},
+          "record_type": {"const": "object_receipt"},
+          "receipt_id": {
+            "type": "string",
+            "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "object_kind": {
+            "enum": ["raw", "derived", "manifest"]
+          },
+          "source_id": {
+            "type": "string",
+            "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
+          },
+          "asset_id": {
+            "type": "string",
+            "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "transformation_id": {
+            "type": "string",
+            "pattern": "^transform_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "object_key": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "byte_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "media_type": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+          },
+          "rights_snapshot_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "retention_class": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+          },
+          "creation_run_id": {
+            "type": "string",
+            "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+          },
+          "retrieval_decision": {
+            "enum": ["approved", "metadata_only", "blocked"]
+          },
+          "evidence_ref": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+          },
+          "verification_state": {"const": "verified"},
+          "create_disposition": {
+            "enum": ["created", "reused", "reused_after_ambiguous_create"]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {"object_kind": {"const": "derived"}},
+              "required": ["object_kind"]
+            },
+            "then": {"required": ["transformation_id"]},
+            "else": {"not": {"required": ["transformation_id"]}}
+          }
+        ]
+      }
+    },
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    }
+  }
+}

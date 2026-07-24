@@ -1,0 +1,16 @@
+{
+  "asset_id": "asset_synthetic_001",
+  "deleted_at": "2026-07-26T00:00:00Z",
+  "deleted_object_key": "performing-fire/v1/derived/source_synthetic_001/asset_synthetic_001/transform_transcript_v1/3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591",
+  "deleted_object_sha256": "3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591",
+  "deletion_state": "absent_exact_key",
+  "evidence_ref": "evidence:issue-37",
+  "reason_code": "proof_teardown",
+  "receipt_id": "receipt_06d7cc71d5f8bdf72616170afd35ebcff6d1d1e842227b078784d91764cb5fef",
+  "record_type": "object_tombstone",
+  "retention_work_id": "retention_work_synthetic_001",
+  "schema_version": 1,
+  "source_id": "source_synthetic_001",
+  "tombstone_id": "tombstone_38a945e71b60e8d97e8a6ef8736bd3eb9498c35c62876af1ff67a3faa8f61115",
+  "tombstone_object_key": "performing-fire/v1/tombstones/source_synthetic_001/asset_synthetic_001/tombstone_38a945e71b60e8d97e8a6ef8736bd3eb9498c35c62876af1ff67a3faa8f61115/3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591"
+}
