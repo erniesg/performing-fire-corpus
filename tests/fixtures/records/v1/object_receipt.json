@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "record_type": "object_receipt",
+  "receipt_id": "receipt_a17e9cb87708b8363872122da37119b0a56c56ef8796f1f788d3384cd0f2dd00",
+  "object_kind": "raw",
+  "source_id": "source_njp_synthetic",
+  "asset_id": "asset_synthetic_video_001",
+  "object_key": "performing-fire/v1/raw/source_njp_synthetic/asset_synthetic_video_001/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "byte_size": 1024,
+  "media_type": "video/mp4",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "rights_snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "retention_class": "reviewed-retain-30d",
+  "creation_run_id": "run_synthetic_fixture_001",
+  "retrieval_decision": "approved",
+  "evidence_ref": "evidence:fixture",
+  "verification_state": "verified",
+  "create_disposition": "created"
+}

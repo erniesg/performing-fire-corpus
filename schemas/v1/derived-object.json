@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/derived-object.json",
+  "title": "Derived corpus object v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "source_id",
+    "asset_id",
+    "transformation_id",
+    "input_receipt_ids",
+    "object_key",
+    "sha256",
+    "byte_size",
+    "media_type",
+    "rights_snapshot_sha256",
+    "retention_class",
+    "retrieval_decision",
+    "redaction_state"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "derived_object"},
+    "source_id": {
+      "type": "string",
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "transformation_id": {
+      "type": "string",
+      "pattern": "^transform_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "input_receipt_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+      }
+    },
+    "object_key": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}/v1/derived/(?:source_[a-z0-9._-]+|[a-z]+(?:-[a-z]+)*)/asset_[a-z0-9._-]+/transform_[a-z0-9._-]+/[0-9a-f]{64}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "byte_size": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+    },
+    "rights_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "retention_class": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "retrieval_decision": {
+      "enum": ["approved", "metadata_only", "blocked"]
+    },
+    "redaction_state": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    }
+  }
+}
