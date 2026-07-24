@@ -182,6 +182,13 @@ satisfy object-present asset-state gates. A newly active hold, expired
 authority, changed retention decision, or changed lineage stops cleanup and
 requires rebuilt work.
 
+The immediate write guard is a transaction lock, never deletion authority.
+Only the exact cleanup executor can seal a commit capability after validating
+the current retention and lineage hashes and confirming each named key absent.
+The capability binds the complete work receipt, exact absent-key sequence, and
+content-bound tombstone set. Opening the ledger guard directly cannot persist
+a tombstone or change an asset state.
+
 ## Production boundary
 
 The implementation in `performing_fire_corpus.corpus_objects` is a portable

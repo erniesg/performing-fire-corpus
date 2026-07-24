@@ -515,7 +515,10 @@ class Ledger:
                 self._cleanup_guard_active = False
 
     def record_cleanup_tombstones(
-        self, tombstones: Iterable[Mapping[str, object]]
+        self,
+        tombstones: Iterable[Mapping[str, object]],
+        *,
+        capability: object | None = None,
     ) -> None:
         """Persist exact-key absence under the active cleanup transaction."""
 
@@ -523,9 +526,21 @@ class Ledger:
             raise LedgerError(
                 "object tombstones require the active exact cleanup guard"
             )
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_cleanup_commit_capability,
+        )
+
+        values = [dict(value) for value in tombstones]
+        try:
+            validate_cleanup_commit_capability(capability, values)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "object tombstones require sealed exact-cleanup authority"
+            ) from error
         now = utc_text()
         affected_assets: set[str] = set()
-        for tombstone in tombstones:
+        for tombstone in values:
             validate_record(tombstone)
             value = dict(tombstone)
             _assert_sanitized(value)

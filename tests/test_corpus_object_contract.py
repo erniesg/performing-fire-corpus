@@ -32,6 +32,7 @@ from performing_fire_corpus.corpus_objects import (
     raw_object_key,
     reconcile_receipt_commit,
     tombstone_object_key,
+    validate_cleanup_commit_capability,
 )
 from performing_fire_corpus.ledger import InvalidTransition, Ledger, LedgerError
 
@@ -154,8 +155,12 @@ class FakeCorpusAuthority:
         return nullcontext(self)
 
     def record_cleanup_tombstones(
-        self, tombstones: list[Mapping[str, object]]
+        self,
+        tombstones: list[Mapping[str, object]],
+        *,
+        capability: object | None = None,
     ) -> None:
+        validate_cleanup_commit_capability(capability, tombstones)
         for value in tombstones:
             existing = [
                 item
@@ -1496,6 +1501,33 @@ class RetentionTests(unittest.TestCase):
                     "asset_synthetic_001",
                     "failed_retryable",
                     operation_id="cleanup_guard_retryable",
+                )
+                forged_authority = FakeCorpusAuthority(
+                    [self.raw_receipt, self.derived_receipt],
+                    [self.manifest],
+                )
+                forged_storage = FakeStorage()
+                for item in (self.raw_receipt, self.derived_receipt):
+                    forged_storage.objects[str(item["object_key"])] = {
+                        "byte_size": item["byte_size"],
+                        "media_type": item["media_type"],
+                        "sha256": item["sha256"],
+                    }
+                forged_result = execute_exact_cleanup(
+                    forged_storage,
+                    work,
+                    object_authority=forged_authority,
+                    current_retention_authority=self.authority,
+                    current_lineage_snapshot=lineage,
+                    current_time="2026-07-26T00:00:00Z",
+                )
+                with ledger.exact_cleanup_guard():
+                    with self.assertRaises(LedgerError):
+                        ledger.record_cleanup_tombstones(
+                            forged_result["tombstones"]
+                        )
+                self.assertIsNone(
+                    ledger.get_cleanup_tombstone_by_key(self.raw_key)
                 )
                 storage = FakeStorage()
                 for item in (self.raw_receipt, self.derived_receipt):

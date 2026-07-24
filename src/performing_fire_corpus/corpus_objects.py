@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -112,6 +113,25 @@ class CorpusObjectError(RuntimeError):
         super().__init__(f"{code}: {next_action}")
 
 
+_CLEANUP_COMMIT_SEAL = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _CleanupCommitCapability:
+    """Opaque proof that the guarded executor confirmed exact-key absence."""
+
+    _seal: object
+    confirmed_absent_keys: tuple[str, ...]
+    lineage_snapshot_sha256: str
+    retention_authority_sha256: str
+    retention_work_sha256: str
+    tombstones_sha256: str
+
+    def __post_init__(self) -> None:
+        if self._seal is not _CLEANUP_COMMIT_SEAL:
+            raise TypeError("cleanup capabilities are executor-owned")
+
+
 class ExactObjectStorage(Protocol):
     """The only storage operations allowed by this contract."""
 
@@ -156,7 +176,10 @@ class CorpusAuthority(Protocol):
     def exact_cleanup_guard(self) -> Any: ...
 
     def record_cleanup_tombstones(
-        self, tombstones: Iterable[Mapping[str, object]]
+        self,
+        tombstones: Iterable[Mapping[str, object]],
+        *,
+        capability: object,
     ) -> None: ...
 
 
@@ -1993,6 +2016,49 @@ def validate_object_tombstone(
     return dict(value)
 
 
+def _cleanup_commit_capability(
+    work: Mapping[str, object],
+    tombstones: list[Mapping[str, object]],
+) -> _CleanupCommitCapability:
+    """Seal the already validated work and confirmed-absent tombstone set."""
+
+    confirmed_absent_keys = tuple(
+        str(value["deleted_object_key"]) for value in tombstones
+    )
+    return _CleanupCommitCapability(
+        _seal=_CLEANUP_COMMIT_SEAL,
+        confirmed_absent_keys=confirmed_absent_keys,
+        lineage_snapshot_sha256=str(work["lineage_snapshot_sha256"]),
+        retention_authority_sha256=str(work["retention_authority_sha256"]),
+        retention_work_sha256=hashlib.sha256(_canonical(work)).hexdigest(),
+        tombstones_sha256=hashlib.sha256(_canonical(tombstones)).hexdigest(),
+    )
+
+
+def validate_cleanup_commit_capability(
+    capability: object,
+    tombstones: Iterable[Mapping[str, object]],
+) -> None:
+    """Reject tombstone writes not sealed by the exact cleanup executor."""
+
+    values = [validate_object_tombstone(value) for value in tombstones]
+    if (
+        not isinstance(capability, _CleanupCommitCapability)
+        or capability._seal is not _CLEANUP_COMMIT_SEAL
+        or capability.confirmed_absent_keys
+        != tuple(str(value["deleted_object_key"]) for value in values)
+        or capability.tombstones_sha256
+        != hashlib.sha256(_canonical(values)).hexdigest()
+        or not _SHA256.fullmatch(capability.retention_work_sha256)
+        or not _SHA256.fullmatch(capability.retention_authority_sha256)
+        or not _SHA256.fullmatch(capability.lineage_snapshot_sha256)
+    ):
+        _fail(
+            "cleanup_commit_unauthorized",
+            "Persist tombstones only from the validated exact cleanup executor.",
+        )
+
+
 def _planned_tombstone(
     work: Mapping[str, object],
     target: Mapping[str, object],
@@ -2316,13 +2382,18 @@ def _execute_exact_cleanup_guarded(
             tombstones.append(planned_tombstone)
         else:
             failed.append(key)
-    try:
-        object_authority.record_cleanup_tombstones(tombstones)
-    except Exception:
-        _fail(
-            "tombstone_commit_failed",
-            "Retry the same exact cleanup to reconcile durable absence.",
-        )
+    if tombstones:
+        capability = _cleanup_commit_capability(work, tombstones)
+        try:
+            object_authority.record_cleanup_tombstones(
+                tombstones,
+                capability=capability,
+            )
+        except Exception:
+            _fail(
+                "tombstone_commit_failed",
+                "Retry the same exact cleanup to reconcile durable absence.",
+            )
     return {
         "schema_version": 1,
         "record_type": "cleanup_result",
