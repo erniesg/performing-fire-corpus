@@ -1061,7 +1061,7 @@ class SearchIndexContractTests(unittest.TestCase):
                 "eyJhbGciOiJIUzI1NiJ9."
                 "eyJzdWIiOiIxMjM0NTY3ODkwIn0.synthetic"
             ),
-            "AWS Access Key ID AKIAIOSFODNN7EXAMPLE",
+            "AWS Access Key ID " + "AKIA" + "IOSFODNN7EXAMPLE",
             "GitHub token " + "gh" + "p_" + ("synthetic" * 4),
             "Credential abcdefghijklmnopqrstuvwxyz",
             "Token " + ("synthetic" * 4),
@@ -1088,6 +1088,11 @@ class SearchIndexContractTests(unittest.TestCase):
             "Token Abcdefghijklmnopqrstuvwxyza",
             "Basic QWxhZGRpbjpvcGVu+HNlc2FtZQ",
             "eyJhbGciOiJIUzI1NiJ9.e30.syntheticxx",
+            "ey" + "AiYWxnIjoiSFMyNTYifQ.e30.syntheticxx",
+            "sk" + "-proj-" + ("synthetic" * 4),
+            "xox" + "b-" + ("synthetic" * 4),
+            "sk" + "_live_" + ("synthetic" * 4),
+            "gl" + "pat-" + ("synthetic" * 4),
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value

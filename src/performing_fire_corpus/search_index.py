@@ -59,7 +59,11 @@ _CREDENTIAL_VALUE = re.compile(
     r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|"
     r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|"
     r"\bgithub_pat_[A-Za-z0-9_]{20,}\b|"
-    r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{2,}\."
+    r"\bsk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,}\b|"
+    r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b|"
+    r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b|"
+    r"\bglpat-[A-Za-z0-9_-]{20,}\b|"
+    r"\bey[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{2,}\."
     r"[A-Za-z0-9_-]{8,}\b"
     r")"
 )
