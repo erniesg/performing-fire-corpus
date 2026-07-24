@@ -32,9 +32,11 @@ value must be derived exactly from the current content-free checkpoint cursor.
 Optional constant query values must be identifier-like reviewed enum literals;
 credential, signed, content, media, transcript, caption, prose, raw, or
 download-expanding names and values fail closed. Query-key matching is
-case-sensitive. Numeric `page-`/`offset-` cursors and sanitized `opaque-`
-platform pagination cursors have separate exact contracts. An opaque cursor is
-kept only in the local checkpoint; public manifests expose its SHA-256 digest.
+case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
+`pageToken` query role for sanitized `opaque-` platform pagination cursors have
+separate contracts. Credential roles such as `accessToken`, `refreshToken`,
+and `idToken` cannot use the pagination exception. An opaque cursor is kept
+only in the local checkpoint; public manifests expose its SHA-256 digest.
 
 The approved metadata projection uses exact value contracts. The current
 shared types are field-prefixed, identifier-like bounded enums and four-digit

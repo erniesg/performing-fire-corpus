@@ -71,8 +71,10 @@ _SENSITIVE_QUERY_PARTS = frozenset(
         "cookie",
         "credential",
         "jwt",
+        "id_token",
         "key",
         "password",
+        "refresh_token",
         "secret",
         "session",
         "signature",
@@ -264,6 +266,7 @@ def validate_adapter_declaration(
             contract.get("value_type") == "cursor_opaque"
             and set(contract) == {"cursor_prefix", "value_type"}
             and contract["cursor_prefix"] == "opaque-"
+            and parameter == "pageToken"
         ):
             cursor_contracts += 1
             continue
@@ -297,13 +300,15 @@ def validate_adapter_declaration(
             raise AdapterConformanceError(
                 "content or acquisition query parameters are forbidden"
             )
+        compact_parameter = re.sub(r"[^a-z0-9]", "", normalized_parameter)
         sensitive_parts = {
-            part
+            re.sub(r"[^a-z0-9]", "", part)
             for part in _SENSITIVE_QUERY_PARTS
-            if part in normalized_parameter
+            if re.sub(r"[^a-z0-9]", "", part) in compact_parameter
         }
         if sensitive_parts and not (
-            sensitive_parts == {"token"}
+            parameter == "pageToken"
+            and sensitive_parts == {"token"}
             and contract["value_type"] == "cursor_opaque"
         ):
             raise AdapterConformanceError(

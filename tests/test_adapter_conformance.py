@@ -126,6 +126,24 @@ class AdapterDeclarationTests(unittest.TestCase):
             ), self.assertRaises(AdapterConformanceError):
                 validate_adapter_declaration(adapter, REGISTRY)
 
+        for credential_parameter in (
+            "accessToken",
+            "refreshToken",
+            "idToken",
+        ):
+            adapter = SyntheticMetadataAdapter()
+            adapter.allowed_query_parameters = (credential_parameter,)
+            adapter.query_parameter_contracts = {
+                credential_parameter: {
+                    "cursor_prefix": "opaque-",
+                    "value_type": "cursor_opaque",
+                }
+            }
+            with self.subTest(
+                credential_parameter=credential_parameter,
+            ), self.assertRaises(AdapterConformanceError):
+                validate_adapter_declaration(adapter, REGISTRY)
+
         unsafe_contract = SyntheticMetadataAdapter()
         unsafe_contract.metadata_field_contracts = copy.deepcopy(
             unsafe_contract.metadata_field_contracts
