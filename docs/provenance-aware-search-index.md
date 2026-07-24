@@ -63,7 +63,10 @@ When events exist, the snapshot also binds the complete pre-event provenance
 lineage so a later validator can reproduce the exact affected frontier and
 verify that the final edge set matches every recorded action. Unaffected
 pre-event edges must be byte-for-byte equal in the final set; replacements
-must differ and removals must be absent.
+must differ and removals must be absent. Every event carries the canonical hash
+of that complete lineage as its authority snapshot. The lineage evidence must
+already exist—and remain unexpired—at every event time, so neither a
+contradictory graph nor post-event evidence can be substituted later.
 
 An exact-field removal deletes the matching field, provenance edge, and
 visibility policy while leaving unrelated fields intact. Affected duplicate

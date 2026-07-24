@@ -44,6 +44,17 @@ def record_hash(value: dict[str, object]) -> str:
     ).hexdigest()
 
 
+def lineage_hash(edges: list[dict[str, object]]) -> str:
+    return record_hash(
+        {
+            "event_lineage_edges": sorted(
+                copy.deepcopy(edges),
+                key=lambda item: str(item["provenance_edge_id"]),
+            )
+        }
+    )
+
+
 class SyntheticIndexAuthority:
     def __init__(
         self,
@@ -475,6 +486,19 @@ class SearchIndexContractTests(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             Draft202012Validator(standalone_schema).validate(approved_private)
+        non_project_private = document()
+        non_project_private["duplicate_cluster_id"] = None
+        non_project_private["fields"][0]["origin_class"] = "project_native"
+        non_project_private["fields"][0][
+            "visibility_class"
+        ] = "project_private"
+        non_project_private["fields"][0][
+            "consent_snapshot_sha256"
+        ] = "f" * 64
+        with self.assertRaises(ValidationError):
+            Draft202012Validator(standalone_schema).validate(
+                non_project_private
+            )
         nested_schema = json.loads(
             (ROOT / "schemas" / "v1" / "index-snapshot.json").read_text(
                 encoding="utf-8"
@@ -489,6 +513,22 @@ class SearchIndexContractTests(unittest.TestCase):
                     "snapshot_sha256": "0" * 64,
                     "built_at": NOW,
                     "documents": [approved_private],
+                    "provenance_edges": [],
+                    "visibility_policies": [],
+                    "duplicate_clusters": [],
+                    "deletion_events": [],
+                    "event_lineage_edges": [],
+                }
+            )
+        with self.assertRaises(ValidationError):
+            Draft202012Validator(nested_schema).validate(
+                {
+                    "schema_version": 1,
+                    "record_type": "index_snapshot",
+                    "index_snapshot_id": "index_snapshot_private_field_schema",
+                    "snapshot_sha256": "0" * 64,
+                    "built_at": NOW,
+                    "documents": [non_project_private],
                     "provenance_edges": [],
                     "visibility_policies": [],
                     "duplicate_clusters": [],
@@ -684,6 +724,9 @@ class SearchIndexContractTests(unittest.TestCase):
         ]
         final_edge = edge("field_period")
         final_policy = policy(field_id="field_period")
+        deletion["authority_snapshot_sha256"] = lineage_hash(
+            [edge(), final_edge]
+        )
         snapshot = build_index_snapshot(
             snapshot_id="index_snapshot_002",
             documents=[value],
@@ -764,6 +807,7 @@ class SearchIndexContractTests(unittest.TestCase):
         old_root_edge["origin_record_sha256"] = "d" * 64
         old_derived_edge = copy.deepcopy(derived_edge)
         old_derived_edge["origin_record_sha256"] = "e" * 64
+        historical_lineage = [old_root_edge, old_derived_edge]
         policies = [policy(field_id="field_period"), policy()]
         root_replacement = {
             "schema_version": 1,
@@ -772,7 +816,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "index_document_id": "index_document_asset_001",
             "field_id": "field_title",
             "reason_code": "source_corrected",
-            "authority_snapshot_sha256": "c" * 64,
+            "authority_snapshot_sha256": lineage_hash(historical_lineage),
             "occurred_at": "2026-07-25T00:00:00Z",
             "reindex_action": "replace_exact_field",
             "replacement_document_sha256": record_hash(value),
@@ -785,6 +829,9 @@ class SearchIndexContractTests(unittest.TestCase):
         )
         derived_replacement["field_id"] = "field_period"
         derived_replacement["reason_code"] = "transformation_replaced"
+        derived_replacement["authority_snapshot_sha256"] = lineage_hash(
+            historical_lineage
+        )
         derived_replacement["replacement_provenance_edge_sha256"] = (
             record_hash(derived_edge)
         )
@@ -803,7 +850,7 @@ class SearchIndexContractTests(unittest.TestCase):
             build_index_snapshot(
                 **base_arguments,
                 deletion_events=[root_replacement],
-                event_lineage_edges=[old_root_edge, old_derived_edge],
+                event_lineage_edges=historical_lineage,
                 authority_resolver=SyntheticIndexAuthority(
                     policies,
                     [root_replacement],
@@ -814,7 +861,7 @@ class SearchIndexContractTests(unittest.TestCase):
         replaced = build_index_snapshot(
             **base_arguments,
             deletion_events=[root_replacement, derived_replacement],
-            event_lineage_edges=[old_root_edge, old_derived_edge],
+            event_lineage_edges=historical_lineage,
             authority_resolver=SyntheticIndexAuthority(
                 policies,
                 [root_replacement, derived_replacement],
@@ -840,6 +887,42 @@ class SearchIndexContractTests(unittest.TestCase):
                 authority_resolver=SyntheticIndexAuthority(
                     policies,
                     [root_replacement, derived_replacement],
+                    edges=[root_edge, derived_edge],
+                    documents=[value],
+                ),
+            )
+        contradictory_lineage = copy.deepcopy(historical_lineage)
+        contradictory_lineage[0]["origin_record_sha256"] = "f" * 64
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                **base_arguments,
+                deletion_events=[
+                    root_replacement,
+                    derived_replacement,
+                ],
+                event_lineage_edges=contradictory_lineage,
+                authority_resolver=SyntheticIndexAuthority(
+                    policies,
+                    [root_replacement, derived_replacement],
+                    edges=[root_edge, derived_edge],
+                    documents=[value],
+                ),
+            )
+        late_lineage = copy.deepcopy(historical_lineage)
+        late_lineage[0]["evidence_at"] = "2026-07-25T00:00:00.500000Z"
+        late_root_event = copy.deepcopy(root_replacement)
+        late_derived_event = copy.deepcopy(derived_replacement)
+        late_authority = lineage_hash(late_lineage)
+        late_root_event["authority_snapshot_sha256"] = late_authority
+        late_derived_event["authority_snapshot_sha256"] = late_authority
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                **base_arguments,
+                deletion_events=[late_root_event, late_derived_event],
+                event_lineage_edges=late_lineage,
+                authority_resolver=SyntheticIndexAuthority(
+                    policies,
+                    [late_root_event, late_derived_event],
                     edges=[root_edge, derived_edge],
                     documents=[value],
                 ),
@@ -885,6 +968,10 @@ class SearchIndexContractTests(unittest.TestCase):
             "\\\\server\\private\\catalogue.json",
             "Copied from \\\\server\\private\\catalogue.json",
             "s3://private-bucket/object",
+            "s3:private-bucket/object",
+            "data:text/plain,private",
+            "urn:performing-fire:private",
+            "javascript:alert(1)",
             "~/private/catalogue.json",
             "../private/catalogue.json",
         ):
@@ -899,6 +986,11 @@ class SearchIndexContractTests(unittest.TestCase):
             )
             with self.assertRaises(ValidationError):
                 Draft202012Validator(schema).validate(unsafe)
+
+        safe_label = document()
+        safe_label["fields"][0]["value"] = "Title: Synthetic catalogue entry"
+        self.assertEqual(safe_label, validate_index_document(safe_label))
+        Draft202012Validator(schema).validate(safe_label)
 
         unsafe_policy = policy()
         unsafe_policy["review_trigger"] = "https://example.invalid/review"

@@ -19,7 +19,7 @@ from performing_fire_corpus.redaction import sanitize
 
 UTC = timezone.utc
 _UNSAFE_VALUE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|"
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*:(?![ \t])|"
     r"x-amz-|signature=|credential=|full source prose)",
     re.IGNORECASE,
 )
@@ -283,6 +283,17 @@ def _record_hash(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _lineage_hash(edges: Sequence[Mapping[str, Any]]) -> str:
+    return _record_hash(
+        {
+            "event_lineage_edges": sorted(
+                (copy.deepcopy(dict(item)) for item in edges),
+                key=lambda item: str(item["provenance_edge_id"]),
+            )
+        }
+    )
+
+
 def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
     record = _validate("index-snapshot", value)
     if record["snapshot_sha256"] != _snapshot_hash(record):
@@ -518,6 +529,34 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
             "index events require their complete pre-event lineage"
         )
     if event_lineage_edges:
+        lineage_authority = _lineage_hash(event_lineage_edges)
+        if any(
+            event["authority_snapshot_sha256"] != lineage_authority
+            for event in events
+        ):
+            raise SearchIndexError(
+                "index event does not authenticate pre-event lineage"
+            )
+        earliest_event = min(
+            _parse_time(event["occurred_at"], "occurred_at")
+            for event in events
+        )
+        latest_event = max(
+            _parse_time(event["occurred_at"], "occurred_at")
+            for event in events
+        )
+        if any(
+            _parse_time(edge["evidence_at"], "evidence_at")
+            > earliest_event
+            or latest_event
+            >= _parse_time(
+                edge["evidence_expires_at"], "evidence_expires_at"
+            )
+            for edge in event_lineage_edges
+        ):
+            raise SearchIndexError(
+                "pre-event lineage was not current for every event"
+            )
         lineage_by_id = {
             item["provenance_edge_id"]: item
             for item in event_lineage_edges
@@ -666,6 +705,35 @@ def build_index_snapshot(
         raise SearchIndexError(
             "index events require explicit complete pre-event lineage"
         )
+    if checked_events:
+        lineage_authority = _lineage_hash(checked_lineage)
+        if any(
+            event["authority_snapshot_sha256"] != lineage_authority
+            for event in checked_events
+        ):
+            raise SearchIndexError(
+                "index event does not authenticate pre-event lineage"
+            )
+        earliest_event = min(
+            _parse_time(event["occurred_at"], "occurred_at")
+            for event in checked_events
+        )
+        latest_event = max(
+            _parse_time(event["occurred_at"], "occurred_at")
+            for event in checked_events
+        )
+        if any(
+            _parse_time(edge["evidence_at"], "evidence_at")
+            > earliest_event
+            or latest_event
+            >= _parse_time(
+                edge["evidence_expires_at"], "evidence_expires_at"
+            )
+            for edge in checked_lineage
+        ):
+            raise SearchIndexError(
+                "pre-event lineage was not current for every event"
+            )
     built_time = _parse_time(built_at, "built_at")
     for event in checked_events:
         try:
