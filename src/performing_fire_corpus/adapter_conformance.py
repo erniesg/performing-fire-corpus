@@ -35,7 +35,8 @@ _MIME_TYPE = re.compile(
 _YEAR = re.compile(r"^[0-9]{4}$")
 _TIMESTAMP = re.compile(
     r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
-    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(?:\.[0-9]{1,9})?Z$"
 )
 _DURATION = re.compile(
     r"^P(?=.+)(?:[0-9]+D)?(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?$"
@@ -641,16 +642,20 @@ def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if contract["value_type"] == "year":
         return _YEAR.fullmatch(value) is not None
     if contract["value_type"] == "timestamp":
-        if _TIMESTAMP.fullmatch(value) is None:
-            return False
-        try:
-            datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-        except ValueError:
-            return False
-        return True
+        return is_valid_utc_timestamp(value)
     if contract["value_type"] == "duration_iso8601":
         return _DURATION.fullmatch(value) is not None
     return value in contract["allowed_values"]
+
+
+def is_valid_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or _TIMESTAMP.fullmatch(value) is None:
+        return False
+    try:
+        datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError:
+        return False
+    return True
 
 
 def _validate_normalized_record(

@@ -68,6 +68,8 @@ request, fixture, issue, or log. Local exhaustion stops the harness as
 reduced at the transport boundary to the same body-free blocker.
 `quotaExceeded` and `dailyLimitExceeded` never signal permission to switch
 accounts, projects, credentials, or endpoints.
+Documented `rateLimitExceeded` and `userRateLimitExceeded` responses are
+separate transient `rate_limited` blockers, not access denials.
 
 Channel resolution produces a non-publicly-constructible, integrity-bound
 artifact. The coordinator owns the channel harness as well as the uploads
@@ -99,7 +101,9 @@ that a source record was deleted. Public, unlisted, private, region-restricted,
 and age-gated observations are reduced to bounded enums. Live items are
 separately classified as upcoming, live, or completed from the reviewed
 `liveStreamingDetails` part; absent details are `not_live`, and an unknown
-lifecycle shape fails closed. Region restrictions must use exactly one
+lifecycle shape fails closed. UTC source timestamps accept the documented
+RFC 3339 form with optional fractional seconds while rejecting impossible
+calendar values. Region restrictions must use exactly one
 documented country-code list, and non-object or unknown YouTube age-rating
 shapes also fail closed instead of defaulting public. Titles, descriptions,
 tags, thumbnails, URLs, prose, and source payloads are not retained.

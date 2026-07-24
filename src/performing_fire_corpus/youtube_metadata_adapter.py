@@ -7,7 +7,6 @@ import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Mapping
 from urllib.parse import urlencode
@@ -17,6 +16,7 @@ from .adapter_conformance import (
     MetadataRequest,
     MetadataResponse,
     OfflineConformanceHarness,
+    is_valid_utc_timestamp,
 )
 
 
@@ -1153,15 +1153,10 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
                     }
                     for timestamp in timestamps.values():
                         if timestamp is not None:
-                            try:
-                                datetime.strptime(
-                                    timestamp,
-                                    "%Y-%m-%dT%H:%M:%SZ",
-                                )
-                            except (TypeError, ValueError) as error:
+                            if not is_valid_utc_timestamp(timestamp):
                                 raise ValueError(
                                     "live metadata timestamp is invalid"
-                                ) from error
+                                )
                     if timestamps["actualEndTime"] is not None:
                         metadata["broadcast_state"] = (
                             "broadcast_state_completed"
@@ -1551,15 +1546,10 @@ class YouTubeMetadataCoordinator:
                 raise ValueError("uploads manifest record lineage is invalid")
             published_at = record["metadata"].get("published_at")
             if published_at is not None:
-                try:
-                    datetime.strptime(
-                        published_at,
-                        "%Y-%m-%dT%H:%M:%SZ",
-                    )
-                except (TypeError, ValueError) as error:
+                if not is_valid_utc_timestamp(published_at):
                     raise ValueError(
                         "uploads manifest publish time is invalid"
-                    ) from error
+                    )
             try:
                 video_id = _video_id_from_record_id(record["record_id"])
             except ValueError as error:
@@ -1725,6 +1715,11 @@ class YouTubeMetadataCoordinator:
             "quotaExceeded",
         }:
             return "quota_exhausted"
+        if status == 403 and reason in {
+            "rateLimitExceeded",
+            "userRateLimitExceeded",
+        }:
+            return "rate_limited"
         if status == 403:
             return "access_forbidden"
         if status == 401:

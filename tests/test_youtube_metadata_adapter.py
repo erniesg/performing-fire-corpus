@@ -622,6 +622,40 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         )
         self.assertEqual("shape_drift", result["stop_reason"])
 
+    def test_fractional_rfc3339_timestamps_are_preserved(self) -> None:
+        coordinator = youtube_coordinator()
+        inventory = complete_uploads(
+            coordinator,
+            channel_resolution(coordinator),
+            ("live001",),
+            published_at="2026-07-24T01:02:03.123456789Z",
+        )
+        adapter = coordinator.videos_adapter(
+            inventory,
+            ("live001",),
+        )
+        page = adapter.parse_page(
+            video_page(
+                [
+                    {
+                        "id": "live001",
+                        "contentDetails": {"duration": "PT1M"},
+                        "liveStreamingDetails": {
+                            "actualStartTime": (
+                                "2026-07-24T01:02:03.000Z"
+                            )
+                        },
+                        "status": {"privacyStatus": "public"},
+                    }
+                ]
+            ),
+            cursor=None,
+        )
+        self.assertEqual(
+            "broadcast_state_live",
+            page["records"][0]["metadata"]["broadcast_state"],
+        )
+
     def test_quota_ledger_is_bounded_resume_safe_and_one_unit_per_list(self) -> None:
         quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
         ledger = YouTubeQuotaLedger(
@@ -902,6 +936,28 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         )
         self.assertEqual("quota_exhausted", result["stop_reason"])
         self.assertNotIn("invented", json.dumps(result))
+
+    def test_documented_403_throttles_are_rate_limited(self) -> None:
+        coordinator = youtube_coordinator()
+        for reason in (
+            "rateLimitExceeded",
+            "userRateLimitExceeded",
+        ):
+            with self.subTest(reason=reason):
+                self.assertEqual(
+                    "rate_limited",
+                    coordinator.classify_error(
+                        status=403,
+                        reason=reason,
+                    ),
+                )
+        self.assertEqual(
+            "access_forbidden",
+            coordinator.classify_error(
+                status=403,
+                reason="forbidden",
+            ),
+        )
 
     def test_stage_checkpoint_cannot_resume_under_other_inventory_lineage(
         self,
