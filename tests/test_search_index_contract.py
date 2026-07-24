@@ -1056,6 +1056,12 @@ class SearchIndexContractTests(unittest.TestCase):
             "git" + "hub_pat_" + ("synthetic" * 4),
             "AWS Secret Access Key " + ("synthetic" * 4),
             "Credentials " + ("synthetic" * 4),
+            "Basic " + "QWxhZGRpbjpvcGVuIHNlc2FtZQ",
+            (
+                "eyJhbGciOiJIUzI1NiJ9."
+                "eyJzdWIiOiIxMjM0NTY3ODkwIn0.synthetic"
+            ),
+            "Client Secret " + ("synthetic" * 4),
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
@@ -1084,6 +1090,8 @@ class SearchIndexContractTests(unittest.TestCase):
             "Token performance",
             "Performance.sequence.collection",
             "12345678.12345678.12345678",
+            "Token internationalization",
+            "Bearer interdisciplinary",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value

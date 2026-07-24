@@ -33,19 +33,32 @@ _UNSAFE_VALUE = re.compile(
     r"(?:x-amz-|full source prose)",
     re.IGNORECASE,
 )
+_TOKENISH_VALUE = (
+    r"(?:"
+    r"[a-z]{24,}|"
+    r"(?=[A-Za-z0-9._-]{0,255}[0-9._-])[A-Za-z0-9._-]{16,}|"
+    r"(?=[A-Za-z0-9._-]{0,255}[A-Z][A-Za-z0-9._-]*[A-Z])"
+    r"[A-Za-z0-9._-]{20,}"
+    r")"
+)
 _CREDENTIAL_VALUE = re.compile(
     r"(?:"
     r"\b(?:"
-    r"authorization +(?:(?:basic|bearer) +)?|"
-    r"bearer +|credentials? +|password +|token +|"
-    r"api +key +|(?:aws +)?secret +access +key +|"
-    r"github +token +|jwt +"
-    r")[A-Za-z0-9._-]{16,}\b|"
-    r"\b(?:akia|asia)[A-Z0-9]{16}\b|"
+    r"[Aa]uthorization +(?:(?:[Bb]asic|[Bb]earer) +)?|"
+    r"[Bb]asic +|[Bb]earer +|[Cc]redential(?:[Ss])? +|"
+    r"[Pp]assword +|[Tt]oken +|[Aa][Pp][Ii] +[Kk]ey +|"
+    r"(?:[Aa][Ww][Ss] +)?[Ss]ecret +[Aa]ccess +[Kk]ey +|"
+    r"[Cc]lient +[Ss]ecret +|[Gg]it[Hh]ub +[Tt]oken +|"
+    r"[Jj][Ww][Tt] +"
+    r")"
+    + _TOKENISH_VALUE
+    + r"\b|"
+    r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|"
     r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|"
-    r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"
-    r")",
-    re.IGNORECASE,
+    r"\bgithub_pat_[A-Za-z0-9_]{20,}\b|"
+    r"\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\."
+    r"[A-Za-z0-9_-]{8,}\b"
+    r")"
 )
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
     r"(?:^|[^A-Za-z0-9])(?:/|\\\\|~[\\/]|[A-Za-z]:[\\/])"
