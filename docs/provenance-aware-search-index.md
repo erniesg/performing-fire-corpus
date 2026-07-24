@@ -27,10 +27,12 @@ The snapshot is immutable and content-bound, but an old snapshot is never
 current visibility authority. Every query resolves the current policy for each
 exact document field through a trusted authority boundary. It also resolves
 the current compiled document and exact provenance edge, whose authoritative
-digest binds the field name and value. Missing authority, resolver failure,
-source correction, pending or revoked rights, expired evidence, expired
-policy, withdrawn consent, deletion-due retention, an ungranted operation, or
-an ungranted audience excludes that field. Unknown never defaults visible.
+digest binds the field name and value. A retained replacement also requires
+the exact current deletion/reindex event. Missing authority, resolver failure,
+source correction, missing or changed event authority, pending or revoked
+rights, expired evidence, expired policy, withdrawn consent, deletion-due
+retention, an ungranted operation, or an ungranted audience excludes that
+field. Unknown never defaults visible.
 
 Queries can additionally constrain source, language, period, medium, selection
 state, and duplicate cluster. Results expose the exact visible field IDs,
@@ -49,20 +51,31 @@ consent withdrawal, source correction, retention expiry, or transformation
 replacement. Snapshot construction resolves the current event through the
 trusted authority boundary and requires the exact field to exist. An
 exact-field replacement retains only the current resolver-verified document,
-field, provenance edge, and policy. It cannot be inferred or broadened to a
-document, source, prefix, or object-store deletion.
+field, provenance edge, and policy. It must differ from the explicit
+pre-event provenance record, so a no-op cannot satisfy a replacement event.
+It cannot be inferred or broadened to a document, source, prefix, or
+object-store deletion.
 
 Provenance edges list their complete transformation inputs. Removing or
 replacing an input requires an exact current event for every transitive
 derived or generated dependent; otherwise snapshot construction stops.
 When events exist, the snapshot also binds the complete pre-event provenance
 lineage so a later validator can reproduce the exact affected frontier and
-verify that the final edge set matches every recorded action.
+verify that the final edge set matches every recorded action. Unaffected
+pre-event edges must be byte-for-byte equal in the final set; replacements
+must differ and removals must be absent.
 
 An exact-field removal deletes the matching field, provenance edge, and
 visibility policy while leaving unrelated fields intact. Affected duplicate
 evidence must be rebuilt rather than silently retaining a deleted provenance
-edge.
+edge. Snapshot construction resolves the emitted post-removal document and
+all retained edges and policies as the current authority, so the same
+authority boundary remains usable at query time.
+
+Project-native or private fields require approved consent, non-public
+audiences, and the `project_native_expiring` retention class. Standalone and
+nested schemas reject a generic inventory or selected-corpus retention class
+for those fields.
 
 ## Versioned contracts
 

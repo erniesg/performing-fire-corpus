@@ -18,11 +18,17 @@
     "mediums": {"$ref": "#/$defs/labels"},
     "fields": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/field"}}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"source_id": {"pattern": "^project-native-"}}},
+      "then": {"properties": {"fields": {"items": {"properties": {"retention_class": {"const": "project_native_expiring"}}}}}}
+    }
+  ],
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
     "labels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:https?://|file://|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"},
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*[A-Za-z][A-Za-z0-9+.-]*://)(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"},
     "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
     "field": {
       "type": "object",
@@ -39,7 +45,18 @@
         "retention_class": {"enum": ["inventory_metadata", "selected_raw", "selected_derived", "project_native_expiring"]},
         "visibility_class": {"enum": ["reviewed_metadata", "restricted_corpus", "project_private"]},
         "review_trigger": {"$ref": "#/$defs/safeText"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {"properties": {"origin_class": {"const": "project_native"}}},
+              {"properties": {"visibility_class": {"const": "project_private"}}}
+            ]
+          },
+          "then": {"properties": {"retention_class": {"const": "project_native_expiring"}}}
+        }
+      ]
     }
   }
 }

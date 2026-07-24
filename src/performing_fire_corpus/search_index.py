@@ -19,12 +19,13 @@ from performing_fire_corpus.redaction import sanitize
 
 UTC = timezone.utc
 _UNSAFE_VALUE = re.compile(
-    r"(?:https?://|file://|"
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|"
     r"x-amz-|signature=|credential=|full source prose)",
     re.IGNORECASE,
 )
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
-    r"^(?:/|\\\\|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)"
+    r"(?:^|[^A-Za-z0-9])(?:/|\\\\|~[\\/]|[A-Za-z]:[\\/])"
+    r"|(?:^|[\\/])\.\.(?:[\\/]|$)"
 )
 
 
@@ -147,6 +148,14 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
         text = str(item["value"])
         if _UNSAFE_VALUE.search(text) or _ABSOLUTE_OR_TRAVERSAL.search(text):
             raise SearchIndexError("raw content or locator is forbidden in the index")
+        if (
+            str(record["source_id"]).startswith("project-native-")
+            or item["origin_class"] == "project_native"
+            or item["visibility_class"] == "project_private"
+        ) and item["retention_class"] != "project_native_expiring":
+            raise SearchIndexError(
+                "project-native or private fields require expiring retention"
+            )
     for name in ("languages", "mediums"):
         if record[name] != sorted(set(record[name])):
             raise SearchIndexError(f"{name} must be unique and sorted")
@@ -307,6 +316,10 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
     event_lineage_ids = [
         item["provenance_edge_id"] for item in event_lineage_edges
     ]
+    event_lineage_keys = [
+        (item["index_document_id"], item["field_id"])
+        for item in event_lineage_edges
+    ]
     if (
         len(document_index) != len(documents)
         or len(source_assets) != len(set(source_assets))
@@ -316,6 +329,7 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
         or len(cluster_ids) != len(set(cluster_ids))
         or len(event_ids) != len(set(event_ids))
         or len(event_lineage_ids) != len(set(event_lineage_ids))
+        or len(event_lineage_keys) != len(set(event_lineage_keys))
     ):
         raise SearchIndexError("snapshot record identities must be unique")
     required_edge_ids: set[str] = set()
@@ -437,8 +451,24 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
 
     for edge_id in edge_index:
         visit(edge_id)
+    built_time = _parse_time(record["built_at"], "built_at")
+    if any(
+        _parse_time(edge["evidence_at"], "evidence_at") > built_time
+        for edge in edges
+    ):
+        raise SearchIndexError("snapshot cannot contain future provenance")
     for event in events:
         key = (event["index_document_id"], event["field_id"])
+        if _parse_time(event["occurred_at"], "occurred_at") > built_time:
+            raise SearchIndexError("index event is not yet effective")
+        if (
+            event["reindex_action"] == "replace_exact_field"
+            and event["reason_code"]
+            not in {"source_corrected", "transformation_replaced"}
+        ):
+            raise SearchIndexError(
+                "replacement requires correction or transformation authority"
+            )
         present = key in required_policy_keys or any(
             edge["index_document_id"] == key[0]
             and edge["field_id"] == key[1]
@@ -514,7 +544,27 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                 reverse[str(input_id)].add(
                     str(edge["provenance_edge_id"])
                 )
-        removed_ids: set[str] = set()
+        lineage_visiting: set[str] = set()
+        lineage_visited: set[str] = set()
+
+        def visit_lineage(edge_id: str) -> None:
+            if edge_id in lineage_visiting:
+                raise SearchIndexError(
+                    "event provenance lineage contains a cycle"
+                )
+            if edge_id in lineage_visited:
+                return
+            lineage_visiting.add(edge_id)
+            for input_id in lineage_by_id[edge_id][
+                "input_provenance_edge_ids"
+            ]:
+                visit_lineage(str(input_id))
+            lineage_visiting.remove(edge_id)
+            lineage_visited.add(edge_id)
+
+        for edge_id in lineage_by_id:
+            visit_lineage(edge_id)
+        removed_keys: set[tuple[str, str]] = set()
         for key, event in event_by_key.items():
             target = lineage_by_key.get(key)
             if target is None:
@@ -522,7 +572,7 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                     "index event target is absent from event lineage"
                 )
             if event["reindex_action"] == "remove_exact_field":
-                removed_ids.add(str(target["provenance_edge_id"]))
+                removed_keys.add(key)
             pending = list(reverse[str(target["provenance_edge_id"])])
             seen: set[str] = set()
             while pending:
@@ -540,10 +590,36 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                         "dependent event lineage is incomplete"
                     )
                 pending.extend(reverse[dependent_id])
-        expected_final_edge_ids = set(lineage_by_id) - removed_ids
-        if set(edge_index) != expected_final_edge_ids:
+        final_by_key = {
+            (item["index_document_id"], item["field_id"]): item
+            for item in edges
+        }
+        expected_final_keys = set(lineage_by_key) - removed_keys
+        if set(final_by_key) != expected_final_keys:
             raise SearchIndexError(
                 "final provenance does not match exact event outcomes"
+            )
+        for key, before in lineage_by_key.items():
+            event = event_by_key.get(key)
+            after = final_by_key.get(key)
+            if event is None and after != before:
+                raise SearchIndexError(
+                    "unaffected provenance changed without an exact event"
+                )
+            if (
+                event is not None
+                and event["reindex_action"] == "replace_exact_field"
+                and (after is None or after == before)
+            ):
+                raise SearchIndexError(
+                    "replacement must differ from pre-event provenance"
+                )
+        if any(
+            _parse_time(edge["evidence_at"], "evidence_at") > built_time
+            for edge in event_lineage_edges
+        ):
+            raise SearchIndexError(
+                "event lineage cannot contain future provenance"
             )
     canonical = {
         "documents": "index_document_id",
@@ -572,6 +648,7 @@ def build_index_snapshot(
     deletion_events: Sequence[Mapping[str, Any]],
     built_at: str,
     authority_resolver: IndexAuthorityResolver,
+    event_lineage_edges: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     checked_documents = [validate_index_document(item) for item in documents]
     checked_edges = [
@@ -581,55 +658,15 @@ def build_index_snapshot(
         validate_visibility_policy(item) for item in visibility_policies
     ]
     checked_events = [validate_deletion_event(item) for item in deletion_events]
-    for document in checked_documents:
-        try:
-            current = authority_resolver.resolve_index_document(
-                index_document_id=str(document["index_document_id"])
-            )
-            checked_current = (
-                None
-                if current is None
-                else validate_index_document(current)
-            )
-        except Exception:
-            checked_current = None
-        if checked_current != document:
-            raise SearchIndexError(
-                "index document is missing, stale, or corrected"
-            )
-    for edge in checked_edges:
-        try:
-            current = authority_resolver.resolve_provenance_edge(
-                provenance_edge_id=str(edge["provenance_edge_id"])
-            )
-            checked_current = (
-                None
-                if current is None
-                else validate_provenance_edge(current)
-            )
-        except Exception:
-            checked_current = None
-        if checked_current != edge:
-            raise SearchIndexError(
-                "provenance edge is missing, stale, or corrected"
-            )
-    for policy in checked_policies:
-        try:
-            current = authority_resolver.resolve_visibility_policy(
-                index_document_id=str(policy["index_document_id"]),
-                field_id=str(policy["field_id"]),
-            )
-            checked_current = (
-                None
-                if current is None
-                else validate_visibility_policy(current)
-            )
-        except Exception:
-            checked_current = None
-        if checked_current != policy:
-            raise SearchIndexError(
-                "visibility policy is missing, stale, or revoked"
-            )
+    checked_lineage = [
+        validate_provenance_edge(item)
+        for item in (event_lineage_edges or [])
+    ]
+    if bool(checked_events) != bool(checked_lineage):
+        raise SearchIndexError(
+            "index events require explicit complete pre-event lineage"
+        )
+    built_time = _parse_time(built_at, "built_at")
     for event in checked_events:
         try:
             current = authority_resolver.resolve_deletion_event(
@@ -646,12 +683,8 @@ def build_index_snapshot(
             raise SearchIndexError(
                 "deletion event is missing, stale, or revoked"
             )
-        if _parse_time(event["occurred_at"], "occurred_at") > _parse_time(
-            built_at, "built_at"
-        ):
-            raise SearchIndexError(
-                "index event is not yet effective"
-            )
+        if _parse_time(event["occurred_at"], "occurred_at") > built_time:
+            raise SearchIndexError("index event is not yet effective")
         if (
             event["reindex_action"] == "replace_exact_field"
             and event["reason_code"]
@@ -675,68 +708,6 @@ def build_index_snapshot(
         raise SearchIndexError(
             "index events must target unique present exact fields"
         )
-    edge_by_key = {
-        (item["index_document_id"], item["field_id"]): item
-        for item in checked_edges
-    }
-    document_by_id = {
-        item["index_document_id"]: item for item in checked_documents
-    }
-    policy_by_key = {
-        (item["index_document_id"], item["field_id"]): item
-        for item in checked_policies
-    }
-    for key, event in event_by_key.items():
-        if event["reindex_action"] == "replace_exact_field":
-            document = document_by_id.get(key[0])
-            edge = edge_by_key.get(key)
-            policy = policy_by_key.get(key)
-            if (
-                document is None
-                or edge is None
-                or policy is None
-                or event["replacement_document_sha256"]
-                != _record_hash(document)
-                or event["replacement_provenance_edge_sha256"]
-                != _record_hash(edge)
-                or event["replacement_visibility_policy_sha256"]
-                != _record_hash(policy)
-            ):
-                raise SearchIndexError(
-                    "replacement event does not bind current replacement records"
-                )
-    edge_key_by_id = {
-        item["provenance_edge_id"]: key for key, item in edge_by_key.items()
-    }
-    dependents: dict[str, set[str]] = {
-        edge_id: set() for edge_id in edge_key_by_id
-    }
-    for edge in checked_edges:
-        for input_id in edge["input_provenance_edge_ids"]:
-            if input_id not in dependents:
-                raise SearchIndexError(
-                    "snapshot build provenance lineage is incomplete"
-                )
-            dependents[str(input_id)].add(str(edge["provenance_edge_id"]))
-    for key in event_by_key:
-        seed = edge_by_key.get(key)
-        if seed is None:
-            raise SearchIndexError(
-                "index event target lacks exact provenance"
-            )
-        pending = list(dependents[str(seed["provenance_edge_id"])])
-        seen: set[str] = set()
-        while pending:
-            dependent_id = pending.pop()
-            if dependent_id in seen:
-                continue
-            seen.add(dependent_id)
-            dependent_key = edge_key_by_id[dependent_id]
-            if dependent_key not in event_by_key:
-                raise SearchIndexError(
-                    "dependent derived fields require exact reindex events"
-                )
-            pending.extend(dependents[dependent_id])
     deleted = {
         key
         for key, event in event_by_key.items()
@@ -751,17 +722,8 @@ def build_index_snapshot(
             if (kept["index_document_id"], item["field_id"]) not in deleted
         ]
         retained_documents.append(kept)
-    retained_edges = [
-        item
-        for item in checked_edges
-        if (item["index_document_id"], item["field_id"]) not in deleted
-    ]
-    retained_policies = [
-        item
-        for item in checked_policies
-        if (item["index_document_id"], item["field_id"]) not in deleted
-    ]
-    built_time = _parse_time(built_at, "built_at")
+    retained_edges = list(checked_edges)
+    retained_policies = list(checked_policies)
     retained_document_index = {
         item["index_document_id"]: item for item in retained_documents
     }
@@ -773,6 +735,156 @@ def build_index_snapshot(
         (item["index_document_id"], item["field_id"]): item
         for item in retained_policies
     }
+    final_field_keys = {
+        (item["index_document_id"], field["field_id"])
+        for item in retained_documents
+        for field in item["fields"]
+    }
+    if (
+        len(retained_edge_index) != len(retained_edges)
+        or len(retained_policy_index) != len(retained_policies)
+        or set(retained_edge_index) != final_field_keys
+        or set(retained_policy_index) != final_field_keys
+    ):
+        raise SearchIndexError(
+            "final fields require one exact provenance edge and policy"
+        )
+    lineage_by_id = {
+        item["provenance_edge_id"]: item for item in checked_lineage
+    }
+    lineage_by_key = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in checked_lineage
+    }
+    if checked_events and (
+        len(lineage_by_id) != len(checked_lineage)
+        or len(lineage_by_key) != len(checked_lineage)
+        or set(lineage_by_key) != original_fields
+    ):
+        raise SearchIndexError(
+            "pre-event provenance lineage must cover every input field"
+        )
+    dependents: dict[str, set[str]] = {
+        edge_id: set() for edge_id in lineage_by_id
+    }
+    for edge in checked_lineage:
+        if _parse_time(edge["evidence_at"], "evidence_at") > built_time:
+            raise SearchIndexError(
+                "pre-event lineage cannot contain future provenance"
+            )
+        for input_id in edge["input_provenance_edge_ids"]:
+            if input_id not in dependents:
+                raise SearchIndexError(
+                    "pre-event provenance lineage is incomplete"
+                )
+            dependents[str(input_id)].add(str(edge["provenance_edge_id"]))
+    for key, event in event_by_key.items():
+        before = lineage_by_key.get(key)
+        after = retained_edge_index.get(key)
+        if before is None:
+            raise SearchIndexError(
+                "index event target lacks pre-event provenance"
+            )
+        if event["reindex_action"] == "remove_exact_field":
+            if after is not None:
+                raise SearchIndexError(
+                    "exact removal retained its target provenance"
+                )
+        elif after is None or after == before:
+            raise SearchIndexError(
+                "replacement must differ from pre-event provenance"
+            )
+        pending = list(dependents[str(before["provenance_edge_id"])])
+        seen: set[str] = set()
+        while pending:
+            dependent_id = pending.pop()
+            if dependent_id in seen:
+                continue
+            seen.add(dependent_id)
+            dependent = lineage_by_id[dependent_id]
+            dependent_key = (
+                dependent["index_document_id"],
+                dependent["field_id"],
+            )
+            if dependent_key not in event_by_key:
+                raise SearchIndexError(
+                    "dependent derived fields require exact reindex events"
+                )
+            pending.extend(dependents[dependent_id])
+    for key, before in lineage_by_key.items():
+        if key not in event_by_key and retained_edge_index.get(key) != before:
+            raise SearchIndexError(
+                "unaffected provenance changed without an exact event"
+            )
+    for document in retained_documents:
+        try:
+            current = authority_resolver.resolve_index_document(
+                index_document_id=str(document["index_document_id"])
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_index_document(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != document:
+            raise SearchIndexError(
+                "final index document is missing, stale, or corrected"
+            )
+    for edge in retained_edges:
+        try:
+            current = authority_resolver.resolve_provenance_edge(
+                provenance_edge_id=str(edge["provenance_edge_id"])
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_provenance_edge(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != edge:
+            raise SearchIndexError(
+                "final provenance edge is missing, stale, or corrected"
+            )
+    for policy in retained_policies:
+        try:
+            current = authority_resolver.resolve_visibility_policy(
+                index_document_id=str(policy["index_document_id"]),
+                field_id=str(policy["field_id"]),
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_visibility_policy(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != policy:
+            raise SearchIndexError(
+                "final visibility policy is missing, stale, or revoked"
+            )
+    for key, event in event_by_key.items():
+        if event["reindex_action"] != "replace_exact_field":
+            continue
+        document = retained_document_index.get(key[0])
+        edge = retained_edge_index.get(key)
+        policy = retained_policy_index.get(key)
+        if (
+            document is None
+            or edge is None
+            or policy is None
+            or event["replacement_document_sha256"]
+            != _record_hash(document)
+            or event["replacement_provenance_edge_sha256"]
+            != _record_hash(edge)
+            or event["replacement_visibility_policy_sha256"]
+            != _record_hash(policy)
+        ):
+            raise SearchIndexError(
+                "replacement event does not bind current replacement records"
+            )
     for key, edge in retained_edge_index.items():
         document = retained_document_index.get(key[0])
         field = next(
@@ -824,7 +936,7 @@ def build_index_snapshot(
             checked_events, key=lambda item: item["deletion_event_id"]
         ),
         "event_lineage_edges": sorted(
-            checked_edges if checked_events else [],
+            checked_lineage,
             key=lambda item: item["provenance_edge_id"],
         ),
     }
@@ -857,6 +969,10 @@ def query_index(
     edges = {
         item["provenance_edge_id"]: item
         for item in record["provenance_edges"]
+    }
+    events = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in record["deletion_events"]
     }
     results = []
     for document in record["documents"]:
@@ -891,9 +1007,8 @@ def query_index(
             continue
         visible = []
         for item in document["fields"]:
-            embedded = policies[
-                (document["index_document_id"], item["field_id"])
-            ]
+            key = (document["index_document_id"], item["field_id"])
+            embedded = policies[key]
             try:
                 current_value = authority_resolver.resolve_visibility_policy(
                     index_document_id=str(document["index_document_id"]),
@@ -918,9 +1033,28 @@ def query_index(
                 )
             except Exception:
                 current_edge = None
+            embedded_event = events.get(key)
+            current_event = embedded_event
+            if embedded_event is not None:
+                try:
+                    current_event_value = (
+                        authority_resolver.resolve_deletion_event(
+                            deletion_event_id=str(
+                                embedded_event["deletion_event_id"]
+                            )
+                        )
+                    )
+                    current_event = (
+                        None
+                        if current_event_value is None
+                        else validate_deletion_event(current_event_value)
+                    )
+                except Exception:
+                    current_event = None
             if (
                 policy is not None
                 and current_edge == embedded_edge
+                and current_event == embedded_event
                 and _policy_authorizes_field(
                     document, item, policy, evaluated=evaluated
                 )

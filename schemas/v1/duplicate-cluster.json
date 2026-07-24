@@ -14,7 +14,7 @@
     "members": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/member"}}
   },
   "$defs": {
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:https?://|file://|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"},
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*[A-Za-z][A-Za-z0-9+.-]*://)(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"},
     "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
     "member": {
       "type": "object",
