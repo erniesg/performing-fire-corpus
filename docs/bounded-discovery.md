@@ -80,12 +80,16 @@ Before any network call, the engine durably reserves one request in the
 checkpoint with an opaque runner ID and bounded lease expiry. The corresponding
 body-free fact and page commit atomically resolve that reservation. A concurrent
 runner that encounters a live lease returns busy without mutating the run. Only
-after the lease is proven expired may resume record `request_interrupted` and
-block without reissuing the uncertain request. Retry attempts are likewise
-committed with the body-free request fact, so restarting cannot reset the
-current page's retry budget. A crash after a page commit resumes from the new
-checkpoint. Re-running a terminal run returns the same stored completeness
-report without another request.
+after the lease is proven expired may resume record `request_interrupted`.
+Stale-owner validation, interrupted-fact insertion, lease clearing, and the
+blocked report/status commit occur in one transaction, so no runner can reissue
+the uncertain request between those steps. Terminal reports use compare-and-set
+semantics and cannot overwrite an already terminalized run. Other terminal
+request facts and their reports are committed atomically for the same reason.
+Retry attempts are likewise committed with the body-free request fact, so
+restarting cannot reset the current page's retry budget. A crash after a page
+commit resumes from the new checkpoint. Re-running a terminal run returns the
+same stored completeness report without another request.
 
 The versioned migration creates separate run, request-fact, observation, and
 duplicate-event tables. Migration versions are applied once and packaged with

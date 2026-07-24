@@ -310,32 +310,154 @@ class _DiscoveryStore:
 
     def finish(self, report: Mapping[str, Any], now: str) -> dict[str, Any]:
         value = _validate("completeness-report", report)
-        self.connection.execute(
-            """
-            UPDATE discovery_runs
-            SET report_body = ?, status = ?, updated_at = ?
-            WHERE run_id = ?
-            """,
-            (_canonical(value), value["state"], now, value["run_id"]),
-        )
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                """
+                SELECT report_body FROM discovery_runs WHERE run_id = ?
+                """,
+                (value["run_id"],),
+            ).fetchone()
+            if row is None:
+                raise DiscoveryError("discovery run does not exist")
+            if row["report_body"] is not None:
+                existing = _validate(
+                    "completeness-report", json.loads(row["report_body"])
+                )
+                if existing != value:
+                    raise DiscoveryError("discovery run is already terminalized")
+                self.connection.commit()
+                return existing
+            cursor = self.connection.execute(
+                """
+                UPDATE discovery_runs
+                SET report_body = ?, status = ?, updated_at = ?
+                WHERE run_id = ? AND report_body IS NULL
+                """,
+                (
+                    _canonical(value),
+                    value["state"],
+                    now,
+                    value["run_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise DiscoveryError("discovery run changed before terminalization")
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
         return value
+
+    def commit_stale_interruption(
+        self,
+        fact: Mapping[str, Any],
+        checkpoint: Mapping[str, Any],
+        report: Mapping[str, Any],
+        now: str,
+        *,
+        stale_at: datetime,
+        commit_hook: Callable[[str, int], None] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        fact_value = _validate("request-fact", fact)
+        report_value = _validate("completeness-report", report)
+        owner_id = checkpoint.get("pending_request_runner_id")
+        if (
+            not isinstance(owner_id, str)
+            or checkpoint.get("pending_request_fact_id")
+            != fact_value["request_fact_id"]
+            or fact_value["outcome"] != "request_interrupted"
+            or report_value["state"] != "blocked"
+            or report_value["stop_reason"] != "request_interrupted"
+        ):
+            raise DiscoveryError("stale interruption payload is inconsistent")
+        checkpoint_value = dict(checkpoint)
+        checkpoint_value["pending_request_fact_id"] = None
+        checkpoint_value["pending_request_runner_id"] = None
+        checkpoint_value["pending_request_expires_at"] = None
+        checkpoint_value = _validate("page-checkpoint", checkpoint_value)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                """
+                SELECT checkpoint_body, report_body
+                FROM discovery_runs WHERE run_id = ?
+                """,
+                (fact_value["run_id"],),
+            ).fetchone()
+            if row is None:
+                raise DiscoveryError("discovery run does not exist")
+            if row["report_body"] is not None:
+                stored_checkpoint = _validate(
+                    "page-checkpoint", json.loads(row["checkpoint_body"])
+                )
+                stored_report = _validate(
+                    "completeness-report", json.loads(row["report_body"])
+                )
+                self.connection.commit()
+                return stored_checkpoint, stored_report
+            self._assert_stored_pending(
+                fact_value["run_id"],
+                fact_value["request_fact_id"],
+                owner_id,
+                require_expired_at=stale_at,
+            )
+            self.connection.execute(
+                """
+                INSERT INTO discovery_request_facts(
+                    request_fact_id, run_id, request_sequence, attempt,
+                    body, committed_at
+                ) VALUES(?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    fact_value["request_fact_id"],
+                    fact_value["run_id"],
+                    fact_value["request_sequence"],
+                    fact_value["attempt"],
+                    _canonical(fact_value),
+                    now,
+                ),
+            )
+            cursor = self.connection.execute(
+                """
+                UPDATE discovery_runs
+                SET checkpoint_body = ?, report_body = ?,
+                    status = 'blocked', updated_at = ?
+                WHERE run_id = ? AND report_body IS NULL
+                """,
+                (
+                    _canonical(checkpoint_value),
+                    _canonical(report_value),
+                    now,
+                    fact_value["run_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise DiscoveryError("discovery run changed during stale recovery")
+            if commit_hook is not None:
+                commit_hook(
+                    "before_stale_recovery_commit",
+                    int(checkpoint_value["page_sequence"]),
+                )
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+        if commit_hook is not None:
+            commit_hook(
+                "after_stale_recovery_commit",
+                int(checkpoint_value["page_sequence"]),
+            )
+        return checkpoint_value, report_value
 
     def commit_fact(
         self,
         fact: Mapping[str, Any],
         checkpoint: Mapping[str, Any],
         now: str,
-        *,
-        owner_id: str | None = None,
-        require_expired_at: datetime | None = None,
     ) -> dict[str, Any]:
         fact_value = _validate("request-fact", fact)
-        if owner_id is None:
-            owner_id = self.runner_id
-        elif owner_id != self.runner_id and require_expired_at is None:
-            raise DiscoveryError("another runner owns the request reservation")
-        if not isinstance(owner_id, str):
-            raise DiscoveryError("request reservation has no valid owner")
+        owner_id = self.runner_id
         if (
             checkpoint.get("pending_request_fact_id")
             != fact_value["request_fact_id"]
@@ -353,7 +475,6 @@ class _DiscoveryStore:
                 fact_value["run_id"],
                 fact_value["request_fact_id"],
                 owner_id,
-                require_expired_at=require_expired_at,
             )
             self.connection.execute(
                 """
@@ -384,6 +505,106 @@ class _DiscoveryStore:
             self.connection.rollback()
             raise
         return checkpoint_value
+
+    def commit_fact_and_finish(
+        self,
+        fact: Mapping[str, Any],
+        checkpoint: Mapping[str, Any],
+        report: Mapping[str, Any],
+        now: str,
+        *,
+        commit_hook: Callable[[str, int], None] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        fact_value = _validate("request-fact", fact)
+        report_value = _validate("completeness-report", report)
+        owner_id = self.runner_id
+        if (
+            checkpoint.get("pending_request_fact_id")
+            != fact_value["request_fact_id"]
+            or checkpoint.get("pending_request_runner_id") != owner_id
+            or report_value["run_id"] != fact_value["run_id"]
+            or report_value["requests_attempted"]
+            != checkpoint["requests_attempted"]
+        ):
+            raise DiscoveryError("terminal request payload is inconsistent")
+        checkpoint_value = dict(checkpoint)
+        checkpoint_value["pending_request_fact_id"] = None
+        checkpoint_value["pending_request_runner_id"] = None
+        checkpoint_value["pending_request_expires_at"] = None
+        checkpoint_value = _validate("page-checkpoint", checkpoint_value)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                """
+                SELECT checkpoint_body, report_body
+                FROM discovery_runs WHERE run_id = ?
+                """,
+                (fact_value["run_id"],),
+            ).fetchone()
+            if row is None:
+                raise DiscoveryError("discovery run does not exist")
+            if row["report_body"] is not None:
+                stored_checkpoint = _validate(
+                    "page-checkpoint", json.loads(row["checkpoint_body"])
+                )
+                stored_report = _validate(
+                    "completeness-report", json.loads(row["report_body"])
+                )
+                self.connection.commit()
+                return stored_checkpoint, stored_report
+            self._assert_stored_pending(
+                fact_value["run_id"],
+                fact_value["request_fact_id"],
+                owner_id,
+            )
+            self.connection.execute(
+                """
+                INSERT INTO discovery_request_facts(
+                    request_fact_id, run_id, request_sequence, attempt,
+                    body, committed_at
+                ) VALUES(?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    fact_value["request_fact_id"],
+                    fact_value["run_id"],
+                    fact_value["request_sequence"],
+                    fact_value["attempt"],
+                    _canonical(fact_value),
+                    now,
+                ),
+            )
+            cursor = self.connection.execute(
+                """
+                UPDATE discovery_runs
+                SET checkpoint_body = ?, report_body = ?,
+                    status = ?, updated_at = ?
+                WHERE run_id = ? AND report_body IS NULL
+                """,
+                (
+                    _canonical(checkpoint_value),
+                    _canonical(report_value),
+                    report_value["state"],
+                    now,
+                    fact_value["run_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise DiscoveryError("discovery run changed during terminalization")
+            if commit_hook is not None:
+                commit_hook(
+                    "before_fact_terminal_commit",
+                    int(checkpoint_value["page_sequence"]),
+                )
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+        if commit_hook is not None:
+            commit_hook(
+                "after_fact_terminal_commit",
+                int(checkpoint_value["page_sequence"]),
+            )
+        return checkpoint_value, report_value
 
     def reserve_request(
         self,
@@ -560,6 +781,24 @@ class _DiscoveryStore:
                 (run_id,),
             ).fetchone()[0]
         )
+
+    def projected_observation_count(
+        self,
+        run_id: str,
+        observations: list[Mapping[str, Any]],
+    ) -> int:
+        new_ids = {str(item["stable_record_id"]) for item in observations}
+        for stable_record_id in tuple(new_ids):
+            row = self.connection.execute(
+                """
+                SELECT 1 FROM discovery_observations
+                WHERE run_id = ? AND stable_record_id = ?
+                """,
+                (run_id, stable_record_id),
+            ).fetchone()
+            if row is not None:
+                new_ids.remove(stable_record_id)
+        return self.observation_count(run_id) + len(new_ids)
 
     def observation_conflict(
         self, observations: list[Mapping[str, Any]]
@@ -959,6 +1198,32 @@ def run_bounded_discovery(
             )
             return store.finish(report, _time_text(wall_clock()))
 
+        def finish_with_fact(
+            fact: Mapping[str, Any],
+            state: str,
+            reason: str,
+            *,
+            blocked_pages: int = 0,
+        ) -> dict[str, Any]:
+            nonlocal checkpoint
+            report = _report(
+                plan,
+                checkpoint,
+                state=state,
+                stop_reason=reason,
+                observed_unique_records=store.observation_count(plan["run_id"]),
+                generated_at=wall_clock(),
+                blocked_pages=blocked_pages,
+            )
+            checkpoint, report = store.commit_fact_and_finish(
+                fact,
+                checkpoint,
+                report,
+                _time_text(wall_clock()),
+                commit_hook=commit_hook,
+            )
+            return report
+
         if stored_fingerprint != plan_fingerprint:
             raise DiscoveryError("run id is already bound to a different plan")
         if existing_report is not None:
@@ -980,14 +1245,24 @@ def run_bounded_discovery(
                 failure_code="request_interrupted",
                 observed_at=wall_clock(),
             )
-            checkpoint = store.commit_fact(
+            interrupted_report = _report(
+                plan,
+                checkpoint,
+                state="blocked",
+                stop_reason="request_interrupted",
+                observed_unique_records=store.observation_count(plan["run_id"]),
+                generated_at=wall_clock(),
+                blocked_pages=1,
+            )
+            checkpoint, interrupted_report = store.commit_stale_interruption(
                 interrupted_fact,
                 checkpoint,
+                interrupted_report,
                 _time_text(wall_clock()),
-                owner_id=checkpoint["pending_request_runner_id"],
-                require_expired_at=stale_at,
+                stale_at=stale_at,
+                commit_hook=commit_hook,
             )
-            return finish("blocked", "request_interrupted", blocked_pages=1)
+            return interrupted_report
 
         now = _time(wall_clock())
         try:
@@ -1113,17 +1388,23 @@ def run_bounded_discovery(
                         ),
                         observed_at=wall_clock(),
                     )
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
-                    )
                     if retry_after_exceeded:
-                        return finish(
+                        return finish_with_fact(
+                            fact,
                             "blocked",
                             "retry_after_exceeds_limit",
                             blocked_pages=1,
                         )
                     if retry_limit_exhausted:
-                        return finish("blocked", "retry_exhausted", blocked_pages=1)
+                        return finish_with_fact(
+                            fact,
+                            "blocked",
+                            "retry_exhausted",
+                            blocked_pages=1,
+                        )
+                    checkpoint = store.commit_fact(
+                        fact, checkpoint, _time_text(wall_clock())
+                    )
                     requested_delay = (
                         float(plan["limits"]["per_host_interval_seconds"])
                         if error.retry_after_seconds is None
@@ -1141,10 +1422,12 @@ def run_bounded_discovery(
                         failure_code="transport_error",
                         observed_at=wall_clock(),
                     )
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "blocked",
+                        "transport_error",
+                        blocked_pages=1,
                     )
-                    return finish("blocked", "transport_error", blocked_pages=1)
 
             sync_elapsed()
             observed_at = _time(response.observed_at)
@@ -1158,10 +1441,8 @@ def run_bounded_discovery(
                     failure_code="elapsed_budget_exceeded",
                     observed_at=observed_at,
                 )
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
-                )
-                return finish(
+                return finish_with_fact(
+                    fact,
                     "bounded_partial",
                     "elapsed_budget_exhausted",
                     blocked_pages=1,
@@ -1179,10 +1460,8 @@ def run_bounded_discovery(
                         failure_code=failure_code,
                         observed_at=observed_at,
                     )
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
-                    )
-                    return finish(
+                    return finish_with_fact(
+                        fact,
                         "blocked",
                         failure_code,
                         blocked_pages=1,
@@ -1197,10 +1476,12 @@ def run_bounded_discovery(
                     failure_code="invalid_response_time",
                     observed_at=observed_at,
                 )
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "blocked",
+                    "invalid_response_time",
+                    blocked_pages=1,
                 )
-                return finish("blocked", "invalid_response_time", blocked_pages=1)
             response_bytes = len(response.body)
             if response_bytes > plan["limits"]["max_response_bytes"]:
                 fact = _request_fact(
@@ -1212,10 +1493,12 @@ def run_bounded_discovery(
                     failure_code="response_oversized",
                     observed_at=observed_at,
                 )
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "blocked",
+                    "response_oversized",
+                    blocked_pages=1,
                 )
-                return finish("blocked", "response_oversized", blocked_pages=1)
             if (
                 checkpoint["aggregate_bytes"] + response_bytes
                 > plan["limits"]["aggregate_bytes"]
@@ -1229,10 +1512,8 @@ def run_bounded_discovery(
                     failure_code="aggregate_budget_exceeded",
                     observed_at=observed_at,
                 )
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
-                )
-                return finish(
+                return finish_with_fact(
+                    fact,
                     "bounded_partial",
                     "aggregate_byte_budget_exhausted",
                     blocked_pages=1,
@@ -1247,10 +1528,12 @@ def run_bounded_discovery(
                     failure_code="http_error",
                     observed_at=observed_at,
                 )
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "blocked",
+                    "http_error",
+                    blocked_pages=1,
                 )
-                return finish("blocked", "http_error", blocked_pages=1)
 
             fact = _request_fact(
                 plan,
@@ -1271,16 +1554,20 @@ def run_bounded_discovery(
                     plan, page_sequence, parsed["records"]
                 )
             except Exception:
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "changed",
+                    "shape_drift",
+                    blocked_pages=1,
                 )
-                return finish("changed", "shape_drift", blocked_pages=1)
 
             if store.observation_conflict(observations):
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "changed",
+                    "record_changed",
+                    blocked_pages=1,
                 )
-                return finish("changed", "record_changed", blocked_pages=1)
 
             expected_total = parsed["expected_total"]
             if (
@@ -1288,55 +1575,79 @@ def run_bounded_discovery(
                 and checkpoint["expected_total"] is not None
                 and expected_total != checkpoint["expected_total"]
             ):
-                checkpoint = store.commit_fact(
-                    fact, checkpoint, _time_text(wall_clock())
+                return finish_with_fact(
+                    fact,
+                    "changed",
+                    "expected_total_changed",
+                    blocked_pages=1,
                 )
-                return finish("changed", "expected_total_changed", blocked_pages=1)
             if expected_total is not None:
                 checkpoint["expected_total"] = expected_total
+                if (
+                    store.projected_observation_count(
+                        plan["run_id"], observations
+                    )
+                    > expected_total
+                ):
+                    return finish_with_fact(
+                        fact,
+                        "changed",
+                        "expected_total_changed",
+                        blocked_pages=1,
+                    )
 
             if parsed["terminal"]:
                 if (
                     parsed["next_cursor"] is not None
                     or parsed["next_ordinal"] is not None
                 ):
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "changed",
+                        "shape_drift",
+                        blocked_pages=1,
                     )
-                    return finish("changed", "shape_drift", blocked_pages=1)
                 checkpoint["next_cursor"] = None
                 checkpoint["next_ordinal"] = None
                 checkpoint["terminal"] = True
                 checkpoint["terminal_pages"] += 1
             else:
                 if parsed["next_cursor"] is None:
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "changed",
+                        "ambiguous_terminal",
+                        blocked_pages=1,
                     )
-                    return finish("changed", "ambiguous_terminal", blocked_pages=1)
                 try:
                     next_cursor = _safe_cursor(parsed["next_cursor"])
                 except DiscoveryError:
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "blocked",
+                        "unsafe_cursor",
+                        blocked_pages=1,
                     )
-                    return finish("blocked", "unsafe_cursor", blocked_pages=1)
                 expected_ordinal = int(checkpoint["next_ordinal"]) + 1
                 if (
                     not isinstance(parsed["next_ordinal"], int)
                     or isinstance(parsed["next_ordinal"], bool)
                     or parsed["next_ordinal"] != expected_ordinal
                 ):
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "changed",
+                        "pagination_loop",
+                        blocked_pages=1,
                     )
-                    return finish("changed", "pagination_loop", blocked_pages=1)
                 next_hash = _cursor_hash(next_cursor)
                 if next_hash in checkpoint["seen_cursor_hashes"]:
-                    checkpoint = store.commit_fact(
-                        fact, checkpoint, _time_text(wall_clock())
+                    return finish_with_fact(
+                        fact,
+                        "changed",
+                        "pagination_loop",
+                        blocked_pages=1,
                     )
-                    return finish("changed", "pagination_loop", blocked_pages=1)
                 checkpoint["seen_cursor_hashes"].append(next_hash)
                 checkpoint["next_cursor"] = next_cursor
                 checkpoint["next_ordinal"] = parsed["next_ordinal"]
@@ -1352,9 +1663,3 @@ def run_bounded_discovery(
                 _time_text(wall_clock()),
                 commit_hook,
             )
-            if (
-                checkpoint["expected_total"] is not None
-                and store.observation_count(plan["run_id"])
-                > checkpoint["expected_total"]
-            ):
-                return finish("changed", "expected_total_changed", blocked_pages=1)

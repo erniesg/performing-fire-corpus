@@ -1197,6 +1197,135 @@ class BoundedDiscoveryTests(unittest.TestCase):
             self.assertIsNone(final_checkpoint["pending_request_runner_id"])
             self.assertIsNone(final_checkpoint["pending_request_expires_at"])
 
+    def test_stale_recovery_terminalizes_atomically_before_another_runner(
+        self,
+    ) -> None:
+        run_plan = plan(
+            run_id="discovery_run_synthetic_atomic_stale_recovery",
+            limits={"max_requests": 2},
+        )
+        clock = FakeClock()
+        recovery_paused = threading.Event()
+        release_recovery = threading.Event()
+        recovery_results: list[dict[str, Any]] = []
+        recovery_errors: list[BaseException] = []
+        third_results: list[dict[str, Any]] = []
+        third_errors: list[BaseException] = []
+        third_started = threading.Event()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "atomic-stale.sqlite3"
+            with self.assertRaises(KeyboardInterrupt):
+                run_bounded_discovery(
+                    run_plan,
+                    database,
+                    adapter=SyntheticAdapter(run_plan["limits"]),
+                    transport=FakeTransport([KeyboardInterrupt()]),
+                    wall_clock=clock.wall,
+                    monotonic=clock.monotonic,
+                    sleeper=clock.sleep,
+                )
+            clock.elapsed = 4.0
+
+            def pause_stale_recovery(event: str, _: int) -> None:
+                if event == "before_stale_recovery_commit":
+                    recovery_paused.set()
+                    if not release_recovery.wait(timeout=5):
+                        raise AssertionError("synthetic stale recovery timed out")
+
+            def recover() -> None:
+                try:
+                    recovery_results.append(
+                        run_bounded_discovery(
+                            run_plan,
+                            database,
+                            adapter=SyntheticAdapter(run_plan["limits"]),
+                            transport=FakeTransport([]),
+                            wall_clock=clock.wall,
+                            monotonic=clock.monotonic,
+                            sleeper=clock.sleep,
+                            commit_hook=pause_stale_recovery,
+                        )
+                    )
+                except BaseException as error:
+                    recovery_errors.append(error)
+
+            third_transport = FakeTransport([])
+
+            def run_third() -> None:
+                third_started.set()
+                try:
+                    third_results.append(
+                        run_bounded_discovery(
+                            run_plan,
+                            database,
+                            adapter=SyntheticAdapter(run_plan["limits"]),
+                            transport=third_transport,
+                            wall_clock=clock.wall,
+                            monotonic=clock.monotonic,
+                            sleeper=clock.sleep,
+                        )
+                    )
+                except BaseException as error:
+                    third_errors.append(error)
+
+            recovery_worker = threading.Thread(target=recover)
+            recovery_worker.start()
+            self.assertTrue(recovery_paused.wait(timeout=5))
+            third_worker = threading.Thread(target=run_third)
+            third_worker.start()
+            self.assertTrue(third_started.wait(timeout=5))
+            self.assertEqual([], third_transport.calls)
+            release_recovery.set()
+            recovery_worker.join(timeout=5)
+            third_worker.join(timeout=5)
+
+            self.assertFalse(recovery_worker.is_alive())
+            self.assertFalse(third_worker.is_alive())
+            self.assertEqual([], recovery_errors)
+            self.assertEqual([], third_errors)
+            self.assertEqual(1, len(recovery_results))
+            self.assertEqual(1, len(third_results))
+            self.assertEqual(recovery_results[0], third_results[0])
+            self.assertEqual(
+                ("blocked", "request_interrupted", 1, 0),
+                (
+                    recovery_results[0]["state"],
+                    recovery_results[0]["stop_reason"],
+                    recovery_results[0]["requests_attempted"],
+                    recovery_results[0]["observed_unique_records"],
+                ),
+            )
+            with sqlite3.connect(database) as connection:
+                report = json.loads(
+                    connection.execute(
+                        """
+                        SELECT report_body FROM discovery_runs
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0]
+                )
+                counts = (
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM discovery_request_facts
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0],
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) FROM discovery_observations
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0],
+                )
+            self.assertEqual(recovery_results[0], report)
+            self.assertEqual((1, 0), counts)
+            self.assertEqual([], third_transport.calls)
+
     def test_slow_response_cannot_cross_elapsed_budget_and_report_complete(
         self,
     ) -> None:
