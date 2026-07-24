@@ -18,6 +18,7 @@ PUBLIC_SOURCE_HOSTS = frozenset(
         "antiegg.kr",
         "njp.ggcf.kr",
         "njpvideo.ggcf.kr",
+        "www.googleapis.com",
         "www.youtube.com",
     }
 )

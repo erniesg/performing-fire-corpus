@@ -29,7 +29,8 @@ detect a declared login or subscription blocker, derive a stable record ID,
 and parse one bounded page. `MetadataRequest` intentionally has no headers,
 cookies, request body, credentials, or browser-state surface. A pagination
 value must be derived exactly from the current content-free checkpoint cursor.
-Optional constant query values must be identifier-like reviewed enum literals;
+Optional constant query values may be exact reviewed literals or a sorted,
+explicit metadata-part projection;
 credential, signed, content, media, transcript, caption, prose, raw, or
 download-expanding names and values fail closed. Query-key matching is
 case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
@@ -37,10 +38,13 @@ case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed
 separate contracts. Credential roles such as `accessToken`, `refreshToken`,
 and `idToken` cannot use the pagination exception. An opaque cursor is kept
 only in the local checkpoint; public manifests expose its SHA-256 digest.
+Platforms that do not provide a numeric page ordinal bind a locally derived
+ordinal to the opaque token. Loop detection compares the underlying token,
+while resume validates both the token and monotonic ordinal.
 
 The approved metadata projection uses exact value contracts. The current
-shared types are field-prefixed, identifier-like bounded enums and four-digit
-years. An enum
+shared types are field-prefixed, identifier-like bounded enums, four-digit
+years, UTC timestamps, and ISO 8601 durations. An enum
 cannot bless a sentence, person name with spaces, URL, signed value, or local
 path. Adding a new value type is a reviewed common-harness change, not a
 source-adapter escape hatch.
@@ -69,7 +73,8 @@ provides only its adapter factory plus invented item, page, and identity-variant
 builders. The inherited matrix instantiates `OfflineConformanceHarness` and
 exercises the same cases:
 
-- zero request budget and robots denial before request construction;
+- zero request budget and, when applicable, robots denial before request
+  construction;
 - `401`, `403`, `429`, login-required, and subscription-required blockers;
 - redirect target, MIME, response-size, and parser-shape mismatch;
 - pagination loops, non-monotonic page ordinals, and changed expected totals;

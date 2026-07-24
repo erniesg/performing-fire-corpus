@@ -28,6 +28,7 @@ class StandardAdapterConformanceMixin:
     unexpected_mime_type = "text/html"
     next_cursor = "page-002"
     alternate_cursor = "page-003"
+    server_supplies_ordinal = True
 
     def setUp(self) -> None:
         super().setUp()
@@ -80,8 +81,12 @@ class StandardAdapterConformanceMixin:
         self.assertEqual("zero_request_budget", zero.manifest()["stop_reason"])
 
         robots = self._harness(robots_allowed=False)
-        self.assertIsNone(robots.next_request())
-        self.assertEqual("robots_denied", robots.manifest()["stop_reason"])
+        if self.adapter_factory().robots_applicability == "required":
+            self.assertIsNone(robots.next_request())
+            self.assertEqual("robots_denied", robots.manifest()["stop_reason"])
+        else:
+            self.assertIsNotNone(robots.next_request())
+            self.assertNotEqual("robots_denied", robots.manifest()["stop_reason"])
 
         for status, reason in (
             (401, "login_required"),
@@ -169,35 +174,36 @@ class StandardAdapterConformanceMixin:
         )
         self.assertEqual("pagination_loop", loop["stop_reason"])
 
-        ordinal = self._harness()
-        request = ordinal.next_request()
-        ordinal.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("001")],
-                    next_cursor=self.next_cursor,
-                    next_ordinal=1,
-                    terminal=False,
-                ),
-                request.url,
+        if self.server_supplies_ordinal:
+            ordinal = self._harness()
+            request = ordinal.next_request()
+            ordinal.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("001")],
+                        next_cursor=self.next_cursor,
+                        next_ordinal=1,
+                        terminal=False,
+                    ),
+                    request.url,
+                )
             )
-        )
-        request = ordinal.next_request()
-        ordinal_result = ordinal.ingest(
-            self._response(
-                self.make_page(
-                    [self.make_item("002")],
-                    next_cursor=self.alternate_cursor,
-                    next_ordinal=3,
-                    terminal=False,
-                ),
-                request.url,
+            request = ordinal.next_request()
+            ordinal_result = ordinal.ingest(
+                self._response(
+                    self.make_page(
+                        [self.make_item("002")],
+                        next_cursor=self.alternate_cursor,
+                        next_ordinal=3,
+                        terminal=False,
+                    ),
+                    request.url,
+                )
             )
-        )
-        self.assertEqual(
-            "pagination_loop",
-            ordinal_result["stop_reason"],
-        )
+            self.assertEqual(
+                "pagination_loop",
+                ordinal_result["stop_reason"],
+            )
 
         changing_total = self._harness()
         request = changing_total.next_request()

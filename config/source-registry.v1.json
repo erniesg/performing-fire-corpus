@@ -95,10 +95,28 @@
       "canonical_url": "https://www.youtube.com/@NamJunePaikArtCenter/videos",
       "endpoints": [
         {
+          "endpoint_id": "njp-youtube-channels-api",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://www.googleapis.com/youtube/v3/channels",
+          "verification_state": "registered"
+        },
+        {
           "endpoint_id": "njp-youtube-handle",
           "endpoint_kind": "channel_handle",
           "public_url": "https://www.youtube.com/@NamJunePaikArtCenter/videos",
           "verification_state": "unverified"
+        },
+        {
+          "endpoint_id": "njp-youtube-playlist-items-api",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://www.googleapis.com/youtube/v3/playlistItems",
+          "verification_state": "registered"
+        },
+        {
+          "endpoint_id": "njp-youtube-videos-api",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://www.googleapis.com/youtube/v3/videos",
+          "verification_state": "registered"
         }
       ],
       "host_policy_id": "youtube-official-api",

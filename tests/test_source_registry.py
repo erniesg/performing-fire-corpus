@@ -80,7 +80,11 @@ class SourceRegistryTests(unittest.TestCase):
 
     def test_youtube_channel_id_remains_unverified(self) -> None:
         youtube = require_source(self.registry, "njp-youtube-official")
-        handle = youtube["endpoints"][0]
+        handle = next(
+            item
+            for item in youtube["endpoints"]
+            if item["endpoint_id"] == "njp-youtube-handle"
+        )
         self.assertEqual("channel_handle", handle["endpoint_kind"])
         self.assertEqual("unverified", handle["verification_state"])
         self.assertNotIn("platform_identifier", handle)

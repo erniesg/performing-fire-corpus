@@ -26,12 +26,21 @@ _QUERY_PARAMETER = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
 _CURSOR = re.compile(
     r"^(?:(?:page|offset)-[0-9]{1,18}"
-    r"|opaque-[A-Za-z0-9._~-]{8,128})$"
+    r"|opaque-(?:[0-9]{1,18}~)?[A-Za-z0-9._~-]{8,128})$"
 )
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
 _YEAR = re.compile(r"^[0-9]{4}$")
+_TIMESTAMP = re.compile(
+    r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+)
+_DURATION = re.compile(
+    r"^P(?=.+)(?:[0-9]+D)?(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?$"
+)
+_SAFE_QUERY_LITERAL = re.compile(r"^[A-Za-z0-9@._~,-]{1,256}$")
+_OFFICIAL_METADATA_PARTS = frozenset({"contentDetails", "id", "status"})
 _SAFE_ENUM_LITERAL = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
 _FORBIDDEN_FIELD_PARTS = frozenset(
     {
@@ -264,9 +273,21 @@ def validate_adapter_declaration(
             continue
         if (
             contract.get("value_type") == "cursor_opaque"
-            and set(contract) == {"cursor_prefix", "value_type"}
+            and set(contract)
+            in (
+                {"cursor_prefix", "value_type"},
+                {
+                    "checkpoint_ordinal",
+                    "cursor_prefix",
+                    "value_type",
+                },
+            )
             and contract["cursor_prefix"] == "opaque-"
             and parameter == "pageToken"
+            and (
+                "checkpoint_ordinal" not in contract
+                or contract["checkpoint_ordinal"] is True
+            )
         ):
             cursor_contracts += 1
             continue
@@ -286,6 +307,31 @@ def validate_adapter_declaration(
                 )
                 for item in contract["allowed_values"]
             )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "literal"
+            and set(contract) == {"exact_value", "value_type"}
+            and isinstance(contract["exact_value"], str)
+            and _SAFE_QUERY_LITERAL.fullmatch(contract["exact_value"])
+            and sanitize(contract["exact_value"], environ={})
+            == contract["exact_value"]
+            and not any(
+                part in contract["exact_value"].lower()
+                for part in _ACQUISITION_QUERY_VALUES
+            )
+        ):
+            continue
+        if (
+            contract.get("value_type") == "metadata_parts"
+            and set(contract) == {"allowed_values", "value_type"}
+            and isinstance(contract["allowed_values"], list)
+            and contract["allowed_values"]
+            == sorted(set(contract["allowed_values"]))
+            and set(contract["allowed_values"]).issubset(
+                _OFFICIAL_METADATA_PARTS
+            )
+            and parameter == "part"
         ):
             continue
         raise AdapterConformanceError(
@@ -351,7 +397,11 @@ def validate_adapter_declaration(
     for field, contract in contracts.items():
         if not isinstance(contract, Mapping):
             raise AdapterConformanceError(f"{field} has an invalid metadata contract")
-        if contract.get("value_type") == "year" and set(contract) == {"value_type"}:
+        if (
+            contract.get("value_type")
+            in {"duration_iso8601", "timestamp", "year"}
+            and set(contract) == {"value_type"}
+        ):
             continue
         if (
             contract.get("value_type") == "enum"
@@ -467,11 +517,28 @@ def _validate_request(
             expected_value = (
                 str(int(suffix))
                 if value_type == "cursor_integer"
-                else suffix
+                else (
+                    suffix.split("~", 1)[1]
+                    if contract.get("checkpoint_ordinal") is True
+                    and "~" in suffix
+                    else suffix
+                )
             )
             if query_values.get(parameter) != expected_value:
                 raise AdapterConformanceError(
                     "request query is not bound to the checkpoint cursor"
+                )
+        elif value_type == "literal":
+            if query_values.get(parameter) != contract["exact_value"]:
+                raise AdapterConformanceError(
+                    "request query value is outside its reviewed literal"
+                )
+        elif value_type == "metadata_parts":
+            if query_values.get(parameter) != ",".join(
+                contract["allowed_values"]
+            ):
+                raise AdapterConformanceError(
+                    "request metadata parts exceed the reviewed projection"
                 )
         elif (
             parameter in query_values
@@ -487,6 +554,24 @@ def _validate_request(
     return request
 
 
+def _cursor_identity(
+    declaration: Mapping[str, Any],
+    cursor: str,
+) -> str:
+    for contract in declaration["query_parameter_contracts"].values():
+        if (
+            contract.get("value_type") == "cursor_opaque"
+            and contract.get("checkpoint_ordinal") is True
+        ):
+            prefix = contract["cursor_prefix"]
+            suffix = cursor.removeprefix(prefix)
+            if "~" not in suffix:
+                raise AdapterConformanceError("opaque cursor lacks checkpoint ordinal")
+            _, token = suffix.split("~", 1)
+            return f"{prefix}{token}"
+    return cursor
+
+
 def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if not isinstance(value, str):
         return False
@@ -498,6 +583,10 @@ def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
         return False
     if contract["value_type"] == "year":
         return _YEAR.fullmatch(value) is not None
+    if contract["value_type"] == "timestamp":
+        return _TIMESTAMP.fullmatch(value) is not None
+    if contract["value_type"] == "duration_iso8601":
+        return _DURATION.fullmatch(value) is not None
     return value in contract["allowed_values"]
 
 
@@ -795,7 +884,13 @@ class OfflineConformanceHarness:
                 or sanitize(item, environ={}) != item
                 for item in seen
             )
-            or len(set(seen)) != len(seen)
+            or len(
+                {
+                    _cursor_identity(self.declaration, item)
+                    for item in seen
+                }
+            )
+            != len(seen)
             or (
                 cursor is not None
                 and (
@@ -971,7 +1066,11 @@ class OfflineConformanceHarness:
                 or not isinstance(next_ordinal, int)
                 or isinstance(next_ordinal, bool)
                 or next_ordinal != self._state["next_ordinal"] + 1
-                or next_cursor in self._state["seen_cursors"]
+                or _cursor_identity(self.declaration, next_cursor)
+                in {
+                    _cursor_identity(self.declaration, item)
+                    for item in self._state["seen_cursors"]
+                }
             ):
                 return self._stop("changed", "pagination_loop")
 
