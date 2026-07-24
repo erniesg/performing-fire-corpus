@@ -376,17 +376,37 @@ class NJPVideoLibraryAdapter:
         return state
 
     def _identity_value(self, item: Mapping[str, Any]) -> str:
-        item_id = item.get("id") or item.get("data-catalogue-id")
-        if item_id is not None:
+        source_keys = {
+            key
+            for key in ("data-canonical-url", "data-catalogue-id")
+            if key in item
+        }
+        if len(source_keys) > 1:
+            raise ValueError("record lacks a stable public identifier")
+        if "data-catalogue-id" in source_keys:
+            item_id = item["data-catalogue-id"]
             if (
                 not isinstance(item_id, str)
                 or not _SAFE_ID.fullmatch(item_id)
             ):
                 raise ValueError("record lacks a stable public identifier")
             return f"id:{item_id}"
-        canonical_url = item.get("canonical_url") or item.get(
-            "data-canonical-url"
-        )
+        if "data-canonical-url" in source_keys:
+            return f"url:{_canonical_record_url(item['data-canonical-url'])}"
+        explicit_keys = {
+            key for key in ("canonical_url", "id") if key in item
+        }
+        if len(explicit_keys) != 1:
+            raise ValueError("record lacks a stable public identifier")
+        if "id" in explicit_keys:
+            item_id = item["id"]
+            if (
+                not isinstance(item_id, str)
+                or not _SAFE_ID.fullmatch(item_id)
+            ):
+                raise ValueError("record lacks a stable public identifier")
+            return f"id:{item_id}"
+        canonical_url = item["canonical_url"]
         return f"url:{_canonical_record_url(canonical_url)}"
 
     def stable_record_id(self, item: Mapping[str, Any]) -> str:

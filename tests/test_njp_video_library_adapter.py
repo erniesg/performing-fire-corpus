@@ -232,6 +232,31 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
                 adapter.stable_record_id(unsafe)
 
+    def test_dom_id_never_overrides_the_catalogue_identity(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        body = invented_page([invented_item("catalogue-001")])
+        first = adapter.parse_page(
+            body.replace(
+                b"<article ",
+                b'<article id="mutable-dom-001" ',
+            ),
+            cursor=None,
+        )
+        second = adapter.parse_page(
+            body.replace(
+                b"<article ",
+                b'<article id="mutable-dom-002" ',
+            ),
+            cursor=None,
+        )
+        expected = adapter.stable_record_id({"id": "catalogue-001"})
+        self.assertEqual(expected, first["records"][0]["record_id"])
+        self.assertEqual(expected, second["records"][0]["record_id"])
+        self.assertEqual(
+            first["records"][0]["source_identity"],
+            second["records"][0]["source_identity"],
+        )
+
     def test_optional_facts_remain_absent_instead_of_being_invented(self) -> None:
         adapter = InventedVideoLibraryAdapter()
         body = invented_page([invented_item("catalogue-001")])
