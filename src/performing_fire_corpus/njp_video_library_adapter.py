@@ -347,7 +347,7 @@ class NJPVideoLibraryAdapter:
     }
     terminal_states = ("complete_for_observed_endpoint",)
     blocker_states = _BLOCKERS
-    reviewed_asset_path_prefixes: tuple[str, ...] = ()
+    reviewed_asset_path_patterns: tuple[str, ...] = ()
 
     def _require_reviewed_shape(self) -> None:
         raise SourceShapeUnreviewed(
@@ -551,15 +551,16 @@ class NJPVideoLibraryAdapter:
             or parsed.fragment
             or not _path_is_unambiguous(parsed.path)
             or public_url != f"https://njpvideo.ggcf.kr{parsed.path}"
-            or not self.reviewed_asset_path_prefixes
+            or not self.reviewed_asset_path_patterns
             or any(
-                not _path_is_unambiguous(prefix)
-                or not prefix.endswith("/")
-                for prefix in self.reviewed_asset_path_prefixes
+                not isinstance(pattern, str)
+                or not pattern
+                or len(pattern) > 256
+                for pattern in self.reviewed_asset_path_patterns
             )
             or not any(
-                parsed.path.startswith(prefix)
-                for prefix in self.reviewed_asset_path_prefixes
+                re.fullmatch(pattern, parsed.path, flags=re.ASCII) is not None
+                for pattern in self.reviewed_asset_path_patterns
             )
         ):
             raise ValueError("asset locator is outside the reviewed boundary")

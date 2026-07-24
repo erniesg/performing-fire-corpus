@@ -110,7 +110,7 @@ def identity_variants(item: dict[str, str]) -> list[dict[str, str]]:
 
 
 class InventedVideoLibraryAdapter(NJPVideoLibraryAdapter):
-    reviewed_asset_path_prefixes = ("/invented-assets/",)
+    reviewed_asset_path_patterns = (r"/invented-assets/[a-z0-9._~/-]+",)
 
     def _require_reviewed_shape(self) -> None:
         return None
@@ -329,6 +329,7 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             "https://njpvideo.ggcf.kr/invented-assets/%2e%2e/private",
             "https://njpvideo.ggcf.kr/invented-assets/%2Fprivate",
             "https://njpvideo.ggcf.kr/invented-assets//private",
+            "/invented-assets/file;variant=temporary",
             "/unreviewed/../invented-assets/private",
             "//njpvideo.ggcf.kr/invented-assets/private",
             "/invented-assets/raw space",

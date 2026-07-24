@@ -55,12 +55,12 @@ as relationship candidates. Every candidate begins with `pending` rights,
 `acquisition_eligible = false`, and `retry_allowed = false`. The adapter has
 no asset request, fetch, or download method.
 
-Candidate paths are unusable until a bounded source-shape review supplies an
-exact path policy. Synthetic tests override that empty policy with an
-invented path prefix. Off-host, credentialed, signed, alternate-port,
-ambiguous, and unreviewed-path locators fail closed. A later exact `401`,
-`403`, or `429` observation can make the matching candidate durably blocked;
-it cannot enable a retry or acquisition.
+Candidate paths are unusable until a bounded source-shape review supplies
+full-path patterns rather than a prefix-only allowlist. Synthetic tests
+override that empty policy with an invented exact path grammar. Off-host,
+credentialed, signed, alternate-port, ambiguous, and unreviewed-path locators
+fail closed. A later exact `401`, `403`, or `429` observation can make the
+matching candidate durably blocked; it cannot enable a retry or acquisition.
 
 Asset bytes, caption bytes, thumbnails, documents, source prose, and media
 remain outside this portable issue. They require separate operation-specific
