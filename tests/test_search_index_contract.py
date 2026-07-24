@@ -1065,6 +1065,8 @@ class SearchIndexContractTests(unittest.TestCase):
             "映像・アーカイブ「展示」",
             "映像、記録。",
             "录像档案（展览）",
+            "Signature performance",
+            "Credentialed artist",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value

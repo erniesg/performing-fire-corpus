@@ -30,7 +30,7 @@ _SAFE_VALUE = re.compile(
     r"\uFF08\uFF09]+"
 )
 _UNSAFE_VALUE = re.compile(
-    r"(?:x-amz-|signature|credential|full source prose)",
+    r"(?:x-amz-|full source prose)",
     re.IGNORECASE,
 )
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
