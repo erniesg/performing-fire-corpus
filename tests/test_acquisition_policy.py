@@ -36,6 +36,11 @@ class AcquisitionPolicyTests(unittest.TestCase):
         credential_query_url = (
             "https://njp.ggcf.kr/?" + "X-Amz-Credential=synthetic-account"
         )
+        credential_alias_urls = (
+            "https://njp.ggcf.kr/?session=synthetic",
+            "https://njp.ggcf.kr/?auth=synthetic",
+            "https://njp.ggcf.kr/?accessToken=synthetic",
+        )
         rejected = (
             "http://njp.ggcf.kr/",
             userinfo_url,
@@ -50,6 +55,7 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://www.googleapis.com/drive/v3/files/arbitrary",
             signed_query_url,
             credential_query_url,
+            *credential_alias_urls,
         )
         for url in rejected:
             with self.subTest(url=url):

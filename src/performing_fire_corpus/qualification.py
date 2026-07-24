@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
-from urllib.parse import parse_qsl, urlsplit
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
@@ -22,7 +21,10 @@ from performing_fire_corpus.governance import (
     evaluate_source_operation,
     validate_source_governance,
 )
-from performing_fire_corpus.policy import PUBLIC_SOURCE_HOSTS
+from performing_fire_corpus.policy import (
+    AcquisitionPolicyError,
+    validate_public_url,
+)
 from performing_fire_corpus.redaction import sanitize
 
 
@@ -115,27 +117,6 @@ _MEDIA_TYPE = re.compile(
 _LABEL = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _EVIDENCE = re.compile(r"^evidence_[a-z0-9][a-z0-9._-]{0,127}$")
 _HASH = re.compile(r"^[0-9a-f]{64}$")
-_UNSAFE_QUERY_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "authorization",
-        "awsaccesskeyid",
-        "cookie",
-        "credential",
-        "key",
-        "password",
-        "secret",
-        "sig",
-        "signature",
-        "token",
-        "x-amz-credential",
-        "x-amz-security-token",
-        "x-amz-signature",
-        "x-goog-credential",
-        "x-goog-signature",
-    }
-)
 _ACCESS_STATES = frozenset(
     {
         "available",
@@ -162,6 +143,21 @@ _ASSET_KINDS = frozenset(
 _APPROVED_CONTENT_BASES = frozenset(
     {"asset_specific_permission", "reviewed_lawful_basis"}
 )
+_APPROVED_CONTENT_AUTHORITIES = frozenset(
+    {
+        "authorized_licensor",
+        "copyright_holder",
+        "legal_reviewer",
+        "rights_reviewer",
+    }
+)
+_SOURCE_PUBLIC_HOSTS = {
+    "antiegg-fluxus": frozenset({"antiegg.kr"}),
+    "njp-center-main": frozenset({"njp.ggcf.kr"}),
+    "njp-center-video-archive": frozenset({"njp.ggcf.kr"}),
+    "njp-video-library": frozenset({"njpvideo.ggcf.kr"}),
+    "njp-youtube-official": frozenset({"www.youtube.com"}),
+}
 
 
 class QualificationError(ValueError):
@@ -283,29 +279,30 @@ def _validate_asset_facts(value: Mapping[str, Any]) -> dict[str, Any]:
         not isinstance(expected_host, str)
         or _HOST.fullmatch(expected_host) is None
         or expected_host != expected_host.lower()
-        or expected_host not in PUBLIC_SOURCE_HOSTS
+        or expected_host not in _SOURCE_PUBLIC_HOSTS[source_id]
     ):
-        raise QualificationError("expected host is outside the reviewed host boundary")
+        raise QualificationError(
+            "expected host is outside the source-scoped host boundary"
+        )
+    public_url = record["public_url"]
     try:
-        parsed = urlsplit(str(record["public_url"]))
-        port = parsed.port
-    except ValueError as error:
-        raise QualificationError("public URL is invalid") from error
+        checked_url = validate_public_url(
+            public_url,
+            allowed_hosts=_SOURCE_PUBLIC_HOSTS[source_id],
+        )
+    except (AcquisitionPolicyError, TypeError) as error:
+        raise QualificationError(
+            "public URL is outside the source-scoped host boundary or "
+            "credential-bearing"
+        ) from error
     if (
-        parsed.scheme != "https"
-        or parsed.hostname is None
-        or parsed.hostname.lower() != expected_host
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.fragment
-        or port not in {None, 443}
+        not isinstance(public_url, str)
+        or checked_url.hostname != expected_host
+        or checked_url.url != public_url
     ):
-        raise QualificationError("public URL is outside the reviewed host boundary")
-    if any(
-        key.lower() in _UNSAFE_QUERY_KEYS
-        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
-    ):
-        raise QualificationError("signed or credential-bearing URL is forbidden")
+        raise QualificationError(
+            "public URL must use its exact reviewed canonical form"
+        )
     media_type = record["media_type"]
     if not isinstance(media_type, str) or _MEDIA_TYPE.fullmatch(media_type) is None:
         raise QualificationError("media type is invalid")
@@ -376,11 +373,20 @@ def _source_reasons(
     operation: str,
     *,
     asset_id: str,
+    asset_kind: str,
     source_id: str,
     now: datetime,
 ) -> list[str]:
     reasons: list[str] = []
-    for source_operation in _SOURCE_REQUIREMENTS[operation]:
+    requirements = set(_SOURCE_REQUIREMENTS[operation])
+    requirements.add("deletion")
+    if operation in _CONTENT_OPERATIONS and asset_kind == "caption":
+        requirements.add("caption_retention")
+    if operation in _CONTENT_OPERATIONS and asset_kind == "prose":
+        requirements.add("prose_retention")
+    if operation in {"indexing", "public_retrieval"}:
+        requirements.add("search_visibility")
+    for source_operation in sorted(requirements):
         result = evaluate_source_operation(
             governance,
             source_operation,
@@ -503,6 +509,10 @@ def _compile_decision(
             reasons.append(f"access:{asset['access_state']}")
         if scope != "asset_specific":
             reasons.append("rights:asset_specific_scope_required")
+        if basis_code not in _APPROVED_CONTENT_BASES:
+            reasons.append("rights:affirmative_basis_required")
+        if authority_class not in _APPROVED_CONTENT_AUTHORITIES:
+            reasons.append("rights:reviewed_authority_required")
         if (
             asset["source_id"] == "njp-youtube-official"
             and asset["asset_kind"] in {"caption", "media"}
@@ -536,6 +546,7 @@ def _compile_decision(
             governance,
             operation,
             asset_id=str(asset["asset_id"]),
+            asset_kind=str(asset["asset_kind"]),
             source_id=str(asset["source_id"]),
             now=now,
         )
@@ -564,8 +575,10 @@ def compile_asset_qualification(
         raise QualificationError("source governance is invalid") from error
     if (
         governance["source_id"] != asset_value["source_id"]
-        or governance["endpoint_id"] != asset_value["endpoint_id"]
-        or governance.get("asset_id") != asset_value["asset_id"]
+        or governance.get("endpoint_id")
+        not in {None, asset_value["endpoint_id"]}
+        or governance.get("asset_id")
+        not in {None, asset_value["asset_id"]}
     ):
         raise QualificationError("source governance is not bound to the asset")
     decision_map: dict[str, Mapping[str, Any]] = {}
@@ -689,6 +702,14 @@ def validate_asset_qualification(
             ):
                 raise QualificationError(
                     "eligible content decision lacks exact access authority"
+                )
+            if (
+                decision["basis_code"] not in _APPROVED_CONTENT_BASES
+                or decision["authority_class"]
+                not in _APPROVED_CONTENT_AUTHORITIES
+            ):
+                raise QualificationError(
+                    "eligible content decision lacks affirmative reviewed rights"
                 )
             if (
                 (

@@ -374,6 +374,61 @@ class AssetQualificationTests(unittest.TestCase):
                 decision,
             )
 
+    def test_each_source_lifecycle_gate_holds_its_affected_operations(self) -> None:
+        cases = (
+            (
+                "caption",
+                "caption_retention",
+                {"download", "raw_storage", "indexing", "public_retrieval"},
+            ),
+            (
+                "prose",
+                "prose_retention",
+                {"download", "raw_storage", "indexing", "public_retrieval"},
+            ),
+            (
+                "media",
+                "deletion",
+                set(QUALIFICATION_OPERATIONS),
+            ),
+            (
+                "media",
+                "search_visibility",
+                {"indexing", "public_retrieval"},
+            ),
+        )
+        for asset_kind, source_operation, held_operations in cases:
+            with self.subTest(source_operation=source_operation):
+                asset_value = asset(asset_kind=asset_kind)
+                governance = source_governance(
+                    str(asset_value["source_id"]),
+                    asset_id=str(asset_value["asset_id"]),
+                    operation_overrides={source_operation: "blocked"},
+                )
+                qualified = self.qualify(
+                    asset_value,
+                    decisions(asset_value),
+                    governance,
+                )
+                by_operation = {
+                    value["operation"]: value
+                    for value in qualified["operation_decisions"]
+                }
+                for operation in held_operations:
+                    self.assertFalse(
+                        by_operation[operation]["eligible"],
+                        (source_operation, operation),
+                    )
+                    self.assertTrue(
+                        any(
+                            reason.startswith(f"source:{source_operation}:")
+                            for reason in by_operation[operation]["reasons"]
+                        ),
+                        (source_operation, operation),
+                    )
+                if source_operation == "search_visibility":
+                    self.assertTrue(by_operation["download"]["eligible"])
+
     def test_asset_locators_are_public_unsigned_and_source_scoped(self) -> None:
         for public_url, expected_host in (
             (
@@ -392,6 +447,22 @@ class AssetQualificationTests(unittest.TestCase):
                 "https://njpvideo.ggcf.kr/synthetic-object",
                 "antiegg.kr",
             ),
+            (
+                "https://antiegg.kr/synthetic-object",
+                "antiegg.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?session=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?auth=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
+            (
+                "https://njpvideo.ggcf.kr/synthetic-object?accessToken=synthetic",
+                "njpvideo.ggcf.kr",
+            ),
         ):
             with self.subTest(public_url=public_url):
                 asset_value = asset(public_url=public_url)
@@ -401,6 +472,97 @@ class AssetQualificationTests(unittest.TestCase):
                     "host boundary|credential-bearing|private or secret-like",
                 ):
                     self.qualify(asset_value)
+
+    def test_all_content_requires_an_affirmative_basis_and_authority(self) -> None:
+        for source_id in (
+            "njp-center-main",
+            "njp-center-video-archive",
+            "njp-video-library",
+        ):
+            for basis_code in (
+                "unclear_permission",
+                "official_site",
+                "no_permission",
+            ):
+                with self.subTest(
+                    source_id=source_id,
+                    basis_code=basis_code,
+                ):
+                    asset_value = asset(source_id, asset_kind="attachment")
+                    qualified = self.qualify(
+                        asset_value,
+                        decisions(asset_value, basis_code=basis_code),
+                    )
+                    by_operation = {
+                        value["operation"]: value
+                        for value in qualified["operation_decisions"]
+                    }
+                    self.assertTrue(
+                        by_operation["metadata_retention"]["eligible"]
+                    )
+                    for operation in QUALIFICATION_OPERATIONS:
+                        if operation != "metadata_retention":
+                            self.assertFalse(
+                                by_operation[operation]["eligible"],
+                                (source_id, basis_code, operation),
+                            )
+                            self.assertIn(
+                                "rights:affirmative_basis_required",
+                                by_operation[operation]["reasons"],
+                            )
+
+        asset_value = asset(asset_kind="attachment")
+        untrusted_authority = decisions(asset_value)
+        for decision in untrusted_authority:
+            if decision["operation"] != "metadata_retention":
+                decision["authority_class"] = "catalogue_editor"
+        qualified = self.qualify(asset_value, untrusted_authority)
+        for decision in qualified["operation_decisions"]:
+            if decision["operation"] != "metadata_retention":
+                self.assertFalse(decision["eligible"], decision["operation"])
+                self.assertIn(
+                    "rights:reviewed_authority_required",
+                    decision["reasons"],
+                )
+
+        forged = self.qualify(asset_value)
+        forged["operation_decisions"][1]["basis_code"] = "official_site"
+        forged["operation_decisions"][1]["authority_class"] = "catalogue_editor"
+        forged = rebind_qualification(forged)
+        with self.assertRaisesRegex(
+            QualificationError,
+            "affirmative reviewed rights",
+        ):
+            validate_asset_qualification(forged, now=NOW)
+
+    def test_checked_in_source_and_endpoint_governance_are_consumable(self) -> None:
+        registry = json.loads(
+            (ROOT / "config" / "source-governance.v1.json").read_text()
+        )
+        asset_value = asset("njp-video-library")
+        records = [
+            record
+            for record in registry["records"]
+            if record["source_id"] == "njp-video-library"
+        ]
+        self.assertEqual(2, len(records))
+        for governance in records:
+            with self.subTest(endpoint_id=governance["endpoint_id"]):
+                qualified = self.qualify(
+                    asset_value,
+                    decisions(asset_value),
+                    governance,
+                )
+                self.assertEqual(
+                    asset_value["asset_id"],
+                    qualified["asset_id"],
+                )
+                self.assertFalse(
+                    any(
+                        item["eligible"]
+                        for item in qualified["operation_decisions"]
+                    )
+                )
 
     def test_njp_access_blockers_hold_content_but_not_reviewed_metadata(
         self,

@@ -38,6 +38,30 @@ _SIGNED_QUERY_KEYS = frozenset(
         "x-goog-signature",
     }
 )
+_CREDENTIAL_QUERY_NAMES = frozenset(
+    re.sub(r"[^a-z0-9]", "", value.lower())
+    for value in (
+        *_SIGNED_QUERY_KEYS,
+        "auth",
+        "authorization",
+        "client_secret",
+        "cookie",
+        "password",
+        "refresh_token",
+        "session",
+    )
+)
+_CREDENTIAL_QUERY_AFFIXES = (
+    "auth",
+    "authorization",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "session",
+    "signature",
+    "token",
+)
 _ENCODED_CONTROL = re.compile(r"%(?:0[0-9a-f]|1[0-9a-f]|7f)", re.IGNORECASE)
 
 
@@ -59,6 +83,17 @@ class ValidatedURL:
 
 def _reject(code: str, reason: str) -> None:
     raise AcquisitionPolicyError(code, reason)
+
+
+def _credential_query_key(value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", value.lower())
+    return (
+        normalized in _CREDENTIAL_QUERY_NAMES
+        or any(
+            normalized.startswith(marker) or normalized.endswith(marker)
+            for marker in _CREDENTIAL_QUERY_AFFIXES
+        )
+    )
 
 
 def validate_public_url(
@@ -106,7 +141,7 @@ def validate_public_url(
         query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=False)
     except ValueError:
         _reject("invalid_query", "URL query could not be parsed safely.")
-    if any(key.lower() in _SIGNED_QUERY_KEYS for key, _ in query):
+    if any(_credential_query_key(key) for key, _ in query):
         _reject("signed_query_forbidden", "Credential-like query parameters are forbidden.")
     normalized_netloc = ascii_hostname if explicit_port is None else f"{ascii_hostname}:443"
     normalized = urlunsplit(
