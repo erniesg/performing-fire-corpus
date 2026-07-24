@@ -25,6 +25,6 @@
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*[A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"}
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*[A-Za-z][A-Za-z0-9+.-]*:)(?!.*(?:%[0-9A-Fa-f]{2}|&#(?:[Xx][0-9A-Fa-f]+|[0-9]+);|[：﹕꞉︓]))(?!.*(?:^|[^A-Za-z0-9])(?:[\\\\/]|~[\\\\/]|[A-Za-z]:[\\\\/]))(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=|[Ff]ull source prose))[^\\r\\n]+$"}
   }
 }
