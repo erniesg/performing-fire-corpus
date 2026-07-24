@@ -85,6 +85,7 @@ class FakeTransport:
 class SyntheticAdapter:
     adapter_id = "synthetic-json"
     adapter_version = "1.0.0"
+    approved_metadata_fields = ("date", "kind")
 
     def __init__(self, limits: dict[str, int | float]) -> None:
         self.limit_contract = dict(limits)
@@ -191,6 +192,7 @@ def plan(**overrides: Any) -> dict[str, Any]:
         "endpoint_id": "antiegg-posts-api",
         "adapter_id": "synthetic-json",
         "adapter_version": "1.0.0",
+        "approved_metadata_fields": ["date", "kind"],
         "policy_snapshot_id": governance_snapshot_id(governance_record),
         "policy_state": "approved",
         "policy_expires_at": "2026-07-25T00:00:00Z",
@@ -477,7 +479,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 transport=FakeTransport(
                     [
                         RetryableDiscoveryError(
-                            "synthetic_retry", retry_after_seconds=99.0
+                            "synthetic_retry", retry_after_seconds=1.5
                         ),
                         page(
                             [record("synthetic-001")],
@@ -494,7 +496,38 @@ class BoundedDiscoveryTests(unittest.TestCase):
             )
             self.assertEqual("complete_for_observed_endpoint", report["state"])
             self.assertEqual(2, report["requests_attempted"])
-            self.assertIn(2.0, clock.sleeps)
+            self.assertIn(1.5, clock.sleeps)
+
+            long_retry_plan = plan(
+                run_id="discovery_run_synthetic_long_retry"
+            )
+            long_retry_transport = FakeTransport(
+                [
+                    RetryableDiscoveryError(
+                        "synthetic_retry", retry_after_seconds=99.0
+                    ),
+                    page(
+                        [record("synthetic-001")],
+                        next_cursor=None,
+                        next_ordinal=None,
+                        terminal=True,
+                    ),
+                ]
+            )
+            long_retry = run_bounded_discovery(
+                long_retry_plan,
+                Path(temporary) / "long-retry.sqlite3",
+                adapter=SyntheticAdapter(long_retry_plan["limits"]),
+                transport=long_retry_transport,
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            self.assertEqual(
+                ("blocked", "retry_after_exceeds_limit"),
+                (long_retry["state"], long_retry["stop_reason"]),
+            )
+            self.assertEqual(1, len(long_retry_transport.calls))
 
             blocked = run_bounded_discovery(
                 plan(run_id="discovery_run_synthetic_002", limits={"max_retries": 1}),
@@ -606,47 +639,51 @@ class BoundedDiscoveryTests(unittest.TestCase):
             )
 
             resumable = plan(run_id="discovery_run_synthetic_005")
-
-            def interrupt_after(event: str, page_sequence: int) -> None:
-                if event == "after_commit" and page_sequence == 1:
-                    raise KeyboardInterrupt
-
-            with self.assertRaises(KeyboardInterrupt):
+            version_database = Path(temporary) / "version.sqlite3"
+            original_report = run_bounded_discovery(
+                resumable,
+                version_database,
+                adapter=SyntheticAdapter(resumable["limits"]),
+                transport=FakeTransport(
+                    [
+                        page(
+                            [record("synthetic-001")],
+                            next_cursor=None,
+                            next_ordinal=None,
+                            terminal=True,
+                        )
+                    ]
+                ),
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            changed = copy.deepcopy(resumable)
+            changed["adapter_version"] = "2.0.0"
+            with self.assertRaises(DiscoveryError):
                 run_bounded_discovery(
-                    resumable,
-                    Path(temporary) / "version.sqlite3",
-                    adapter=SyntheticAdapter(resumable["limits"]),
-                    transport=FakeTransport(
-                        [
-                            page(
-                                [record("synthetic-001")],
-                                next_cursor="page-002",
-                                next_ordinal=1,
-                                terminal=False,
-                            )
-                        ]
-                    ),
+                    changed,
+                    version_database,
+                    adapter=type(
+                        "ChangedAdapter",
+                        (SyntheticAdapter,),
+                        {"adapter_version": "2.0.0"},
+                    )(changed["limits"]),
+                    transport=FakeTransport([]),
                     wall_clock=lambda: T0,
                     monotonic=lambda: 0.0,
                     sleeper=lambda _: None,
-                    commit_hook=interrupt_after,
                 )
-            changed = copy.deepcopy(resumable)
-            changed["adapter_version"] = "2.0.0"
-            changed_report = run_bounded_discovery(
-                changed,
-                Path(temporary) / "version.sqlite3",
-                adapter=type(
-                    "ChangedAdapter",
-                    (SyntheticAdapter,),
-                    {"adapter_version": "2.0.0"},
-                )(changed["limits"]),
+            preserved_report = run_bounded_discovery(
+                resumable,
+                version_database,
+                adapter=SyntheticAdapter(resumable["limits"]),
                 transport=FakeTransport([]),
                 wall_clock=lambda: T0,
                 monotonic=lambda: 0.0,
                 sleeper=lambda _: None,
             )
-            self.assertEqual(("changed", "run_plan_changed"), (changed_report["state"], changed_report["stop_reason"]))
+            self.assertEqual(original_report, preserved_report)
 
     def test_duplicates_rejections_and_shape_drift_are_counted_honestly(self) -> None:
         run_plan = plan(run_id="discovery_run_synthetic_006")
@@ -860,6 +897,230 @@ class BoundedDiscoveryTests(unittest.TestCase):
                         "SELECT COUNT(*) FROM discovery_request_facts"
                     ).fetchone()[0],
                 )
+
+    def test_retry_budget_survives_interruption_after_durable_retry_fact(
+        self,
+    ) -> None:
+        run_plan = plan(
+            run_id="discovery_run_synthetic_retry_resume",
+            limits={"max_retries": 1},
+        )
+        interrupted = False
+
+        def interrupt_retry_sleep(_: float) -> None:
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "retry-resume.sqlite3"
+            with self.assertRaises(KeyboardInterrupt):
+                run_bounded_discovery(
+                    run_plan,
+                    database,
+                    adapter=SyntheticAdapter(run_plan["limits"]),
+                    transport=FakeTransport(
+                        [RetryableDiscoveryError("synthetic_retry")]
+                    ),
+                    wall_clock=lambda: T0,
+                    monotonic=lambda: 0.0,
+                    sleeper=interrupt_retry_sleep,
+                )
+            transport = FakeTransport(
+                [
+                    RetryableDiscoveryError("synthetic_retry"),
+                    page(
+                        [record("synthetic-001")],
+                        next_cursor=None,
+                        next_ordinal=None,
+                        terminal=True,
+                    ),
+                ]
+            )
+            report = run_bounded_discovery(
+                run_plan,
+                database,
+                adapter=SyntheticAdapter(run_plan["limits"]),
+                transport=transport,
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            self.assertEqual(
+                ("blocked", "retry_exhausted"),
+                (report["state"], report["stop_reason"]),
+            )
+            self.assertEqual(2, report["requests_attempted"])
+            self.assertEqual(1, len(transport.calls))
+
+    def test_slow_response_cannot_cross_elapsed_budget_and_report_complete(
+        self,
+    ) -> None:
+        run_plan = plan(
+            run_id="discovery_run_synthetic_elapsed_response",
+            limits={"elapsed_seconds": 1.0},
+        )
+        clock = FakeClock()
+
+        class SlowTransport(FakeTransport):
+            def fetch(self, *args: Any, **kwargs: Any) -> PageResponse:
+                response = super().fetch(*args, **kwargs)
+                clock.elapsed += 2.0
+                return response
+
+        transport = SlowTransport(
+            [
+                page(
+                    [record("synthetic-001")],
+                    next_cursor=None,
+                    next_ordinal=None,
+                    terminal=True,
+                )
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            report = run_bounded_discovery(
+                run_plan,
+                Path(temporary) / "elapsed.sqlite3",
+                adapter=SyntheticAdapter(run_plan["limits"]),
+                transport=transport,
+                wall_clock=clock.wall,
+                monotonic=clock.monotonic,
+                sleeper=clock.sleep,
+            )
+        self.assertEqual(
+            ("bounded_partial", "elapsed_budget_exhausted"),
+            (report["state"], report["stop_reason"]),
+        )
+        self.assertEqual(0, report["pages_committed"])
+        self.assertEqual(1.0, transport.calls[0]["timeout_seconds"])
+
+    def test_authority_expiring_during_request_blocks_before_parsing(self) -> None:
+        for dimension in ("policy", "robots"):
+            with self.subTest(dimension=dimension):
+                clock = FakeClock()
+
+                class SlowTransport(FakeTransport):
+                    def fetch(self, *args: Any, **kwargs: Any) -> PageResponse:
+                        response = super().fetch(*args, **kwargs)
+                        clock.elapsed += 2.0
+                        return response
+
+                run_plan = plan(
+                    run_id=f"discovery_run_synthetic_{dimension}_mid_request",
+                    **{
+                        f"{dimension}_expires_at": (
+                            T0 + timedelta(seconds=1)
+                        ).isoformat().replace("+00:00", "Z")
+                    },
+                )
+                adapter = SyntheticAdapter(run_plan["limits"])
+                with tempfile.TemporaryDirectory() as temporary:
+                    report = run_bounded_discovery(
+                        run_plan,
+                        Path(temporary) / f"{dimension}.sqlite3",
+                        adapter=adapter,
+                        transport=SlowTransport(
+                            [
+                                page(
+                                    [record("synthetic-001")],
+                                    next_cursor=None,
+                                    next_ordinal=None,
+                                    terminal=True,
+                                )
+                            ]
+                        ),
+                        wall_clock=clock.wall,
+                        monotonic=clock.monotonic,
+                        sleeper=clock.sleep,
+                    )
+                self.assertEqual(
+                    ("blocked", f"{dimension}_expired"),
+                    (report["state"], report["stop_reason"]),
+                )
+                self.assertEqual(0, report["pages_committed"])
+                self.assertEqual(0, adapter.parsed_bodies)
+
+    def test_only_the_exact_approved_metadata_projection_can_be_durable(
+        self,
+    ) -> None:
+        run_plan = plan(run_id="discovery_run_synthetic_projection")
+        unapproved = record("synthetic-001")
+        unapproved["metadata"]["description"] = "Synthetic prose must not persist."
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "projection.sqlite3"
+            report = run_bounded_discovery(
+                run_plan,
+                database,
+                adapter=SyntheticAdapter(run_plan["limits"]),
+                transport=FakeTransport(
+                    [
+                        page(
+                            [unapproved],
+                            next_cursor=None,
+                            next_ordinal=None,
+                            terminal=True,
+                        )
+                    ]
+                ),
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            self.assertEqual(
+                ("changed", "shape_drift"),
+                (report["state"], report["stop_reason"]),
+            )
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(
+                    0,
+                    connection.execute(
+                        "SELECT COUNT(*) FROM discovery_observations"
+                    ).fetchone()[0],
+                )
+                durable = "\n".join(
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT plan_body FROM discovery_runs
+                        UNION ALL
+                        SELECT checkpoint_body FROM discovery_runs
+                        UNION ALL
+                        SELECT COALESCE(report_body, '') FROM discovery_runs
+                        UNION ALL
+                        SELECT body FROM discovery_request_facts
+                        """
+                    )
+                )
+            self.assertNotIn("Synthetic prose", durable)
+
+        expanded = plan(
+            run_id="discovery_run_synthetic_forbidden_projection",
+            approved_metadata_fields=["date", "description", "kind"],
+        )
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaises(
+            DiscoveryError
+        ):
+            run_bounded_discovery(
+                expanded,
+                Path(temporary) / "forbidden.sqlite3",
+                adapter=type(
+                    "ExpandedAdapter",
+                    (SyntheticAdapter,),
+                    {
+                        "approved_metadata_fields": (
+                            "date",
+                            "description",
+                            "kind",
+                        )
+                    },
+                )(expanded["limits"]),
+                transport=FakeTransport([]),
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
 
     def test_governance_snapshot_endpoint_and_eligibility_are_bound_before_request(
         self,

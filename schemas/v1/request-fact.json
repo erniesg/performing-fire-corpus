@@ -57,6 +57,8 @@
     "outcome": {
       "enum": [
         "aggregate_budget_exceeded",
+        "authority_expired",
+        "elapsed_budget_exceeded",
         "http_error",
         "invalid_response_time",
         "response_oversized",

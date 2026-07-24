@@ -11,6 +11,12 @@ request facts, approved factual metadata, hashes, counts, and normalized
 pagination state—not response bodies, headers, URLs, cookies, credentials,
 signed values, prose, captions, transcripts, or media.
 
+The run plan names the exact canonically ordered factual metadata fields that
+may become durable. The adapter must declare the identical projection, and a
+record containing any other field is rejected before observations are written.
+Content-bearing fields such as descriptions, excerpts, captions, transcripts,
+and prose cannot be added to this metadata-only projection.
+
 ## Authority binding
 
 Every run requires both:
@@ -26,9 +32,11 @@ governance evaluator runs before the first request. Pending, blocked, revoked,
 expired, conflicting, or incomplete authority results in a durable blocked
 report and zero requests.
 
-A plan may shorten an authority window, but it cannot extend one. A changed
-plan, adapter version, or policy snapshot cannot silently resume an existing
-run ID.
+A plan may shorten an authority window, but it cannot extend one. Authority is
+checked both before and immediately after each request; if policy or robots
+evidence expires in flight, the response is not parsed. A changed plan, adapter
+version, or policy snapshot cannot reuse an existing run ID or replace its
+stored report.
 
 ## Bounds and pagination
 
@@ -45,8 +53,11 @@ The plan and adapter must agree exactly on every positive limit:
 - maximum honored `Retry-After`.
 
 Adapters cannot omit, weaken, or silently strengthen a bound. Transports receive
-the timeout and per-response byte ceiling for every request. The common engine
-also enforces the aggregate, request, page, retry, rate, and elapsed budgets.
+the smaller of the configured request timeout and remaining elapsed budget,
+plus the per-response byte ceiling, for every request. The common engine also
+enforces the aggregate, request, page, retry, rate, and elapsed budgets. A
+`Retry-After` greater than the reviewed ceiling blocks the page without sleeping
+or retrying early.
 
 Adapters normalize source pagination to a monotonic `page-N` or `offset-N`
 cursor plus the next ordinal. Only the cursor hash is written to request facts.
@@ -62,9 +73,11 @@ One SQLite transaction commits:
 2. new factual observations or explicit duplicate events; and
 3. the checkpoint that points to the next page.
 
-A crash before commit leaves the prior checkpoint authoritative. A crash after
-commit resumes from the new checkpoint. Re-running a terminal run returns the
-same stored completeness report without another request.
+A crash before commit leaves the prior checkpoint authoritative. Retry attempts
+are committed with the body-free request fact, so restarting cannot reset the
+current page's retry budget. A crash after a page commit resumes from the new
+checkpoint. Re-running a terminal run returns the same stored completeness
+report without another request.
 
 The versioned migration creates separate run, request-fact, observation, and
 duplicate-event tables. Migration versions are applied once and packaged with

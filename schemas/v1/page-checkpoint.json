@@ -50,6 +50,10 @@
       "minimum": 0,
       "type": "integer"
     },
+    "current_page_retries": {
+      "minimum": 0,
+      "type": "integer"
+    },
     "elapsed_seconds": {
       "minimum": 0,
       "type": "number"
@@ -134,6 +138,7 @@
     "adapter_version",
     "aggregate_bytes",
     "committed_request_fact_id",
+    "current_page_retries",
     "duplicate_records",
     "elapsed_seconds",
     "endpoint_id",

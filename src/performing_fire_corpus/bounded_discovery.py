@@ -48,6 +48,21 @@ _ERROR_CODE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
 )
+_FORBIDDEN_METADATA_FIELDS = frozenset(
+    {
+        "body",
+        "caption",
+        "description",
+        "excerpt",
+        "html",
+        "lyrics",
+        "notes",
+        "prose",
+        "summary",
+        "text",
+        "transcript",
+    }
+)
 
 
 class DiscoveryError(ValueError):
@@ -95,6 +110,7 @@ class PageResponse:
 class DiscoveryAdapter(Protocol):
     adapter_id: str
     adapter_version: str
+    approved_metadata_fields: tuple[str, ...]
     limit_contract: Mapping[str, int | float]
 
     def parse_page(
@@ -460,6 +476,7 @@ def _initial_checkpoint(plan: Mapping[str, Any]) -> dict[str, Any]:
         "rejected_records": 0,
         "duplicate_records": 0,
         "expected_total": None,
+        "current_page_retries": 0,
         "terminal": False,
         "terminal_pages": 0,
     }
@@ -516,6 +533,8 @@ def _observations(
         if not isinstance(record_id, str) or not _RECORD_ID.fullmatch(record_id):
             raise DiscoveryError("shape_drift")
         if not isinstance(metadata, Mapping):
+            raise DiscoveryError("shape_drift")
+        if not set(metadata).issubset(plan["approved_metadata_fields"]):
             raise DiscoveryError("shape_drift")
         observation_hash = hashlib.sha256(
             f"{plan['run_id']}|{record_id}".encode("utf-8")
@@ -635,6 +654,15 @@ def _validate_plan_and_adapter(
         or adapter.adapter_version != plan["adapter_version"]
     ):
         raise DiscoveryError("adapter identity does not match the run plan")
+    approved_fields = plan["approved_metadata_fields"]
+    if approved_fields != sorted(approved_fields):
+        raise DiscoveryError("approved metadata fields must use canonical ordering")
+    if set(approved_fields).intersection(_FORBIDDEN_METADATA_FIELDS):
+        raise DiscoveryError("approved metadata fields include content-bearing prose")
+    if tuple(adapter.approved_metadata_fields) != tuple(approved_fields):
+        raise DiscoveryError(
+            "adapter approved metadata projection does not match the run plan"
+        )
     contract = dict(adapter.limit_contract)
     if set(contract) != LIMIT_KEYS:
         raise DiscoveryError("adapter omits a required run-plan limit")
@@ -744,7 +772,7 @@ def run_bounded_discovery(
             return store.finish(report, _time_text(wall_clock()))
 
         if stored_fingerprint != plan_fingerprint:
-            return finish("changed", "run_plan_changed")
+            raise DiscoveryError("run id is already bound to a different plan")
         if existing_report is not None:
             return _validate("completeness-report", existing_report)
 
@@ -799,7 +827,6 @@ def run_bounded_discovery(
             if checkpoint["aggregate_bytes"] >= plan["limits"]["aggregate_bytes"]:
                 return finish("bounded_partial", "aggregate_byte_budget_exhausted")
 
-            retry_count = 0
             response: PageResponse | None = None
             fact: dict[str, Any] | None = None
             while response is None:
@@ -817,14 +844,20 @@ def run_bounded_discovery(
                     return finish("blocked", "robots_expired")
                 if checkpoint["elapsed_seconds"] >= plan["limits"]["elapsed_seconds"]:
                     return finish("bounded_partial", "elapsed_budget_exhausted")
+                remaining_elapsed = float(plan["limits"]["elapsed_seconds"]) - float(
+                    checkpoint["elapsed_seconds"]
+                )
                 checkpoint["requests_attempted"] += 1
-                attempt = retry_count + 1
+                attempt = int(checkpoint["current_page_retries"]) + 1
                 last_request_at = monotonic()
                 try:
                     response = transport.fetch(
                         plan["endpoint_id"],
                         checkpoint["next_cursor"],
-                        timeout_seconds=float(plan["limits"]["timeout_seconds"]),
+                        timeout_seconds=min(
+                            float(plan["limits"]["timeout_seconds"]),
+                            remaining_elapsed,
+                        ),
                         max_response_bytes=int(
                             plan["limits"]["max_response_bytes"]
                         ),
@@ -834,32 +867,46 @@ def run_bounded_discovery(
                     _validate_response(response)
                 except RetryableDiscoveryError as error:
                     sync_elapsed()
+                    retry_limit_exhausted = (
+                        checkpoint["current_page_retries"]
+                        >= plan["limits"]["max_retries"]
+                    )
+                    retry_after_exceeded = (
+                        error.retry_after_seconds is not None
+                        and error.retry_after_seconds
+                        > plan["limits"]["max_retry_after_seconds"]
+                    )
+                    checkpoint["current_page_retries"] += 1
                     fact = _request_fact(
                         plan,
                         checkpoint,
                         attempt=attempt,
                         response=None,
                         outcome="retryable_error",
-                        failure_code=error.code,
+                        failure_code=(
+                            "retry_after_exceeded"
+                            if retry_after_exceeded
+                            else error.code
+                        ),
                         observed_at=wall_clock(),
                     )
                     checkpoint = store.commit_fact(
                         fact, checkpoint, _time_text(wall_clock())
                     )
-                    if retry_count >= plan["limits"]["max_retries"]:
+                    if retry_after_exceeded:
+                        return finish(
+                            "blocked",
+                            "retry_after_exceeds_limit",
+                            blocked_pages=1,
+                        )
+                    if retry_limit_exhausted:
                         return finish("blocked", "retry_exhausted", blocked_pages=1)
-                    retry_count += 1
                     requested_delay = (
                         float(plan["limits"]["per_host_interval_seconds"])
                         if error.retry_after_seconds is None
                         else float(error.retry_after_seconds)
                     )
-                    sleeper(
-                        min(
-                            max(requested_delay, 0.0),
-                            float(plan["limits"]["max_retry_after_seconds"]),
-                        )
-                    )
+                    sleeper(max(requested_delay, 0.0))
                 except Exception:
                     sync_elapsed()
                     fact = _request_fact(
@@ -878,11 +925,53 @@ def run_bounded_discovery(
 
             sync_elapsed()
             observed_at = _time(response.observed_at)
+            if (
+                checkpoint["elapsed_seconds"]
+                > plan["limits"]["elapsed_seconds"]
+            ):
+                fact = _request_fact(
+                    plan,
+                    checkpoint,
+                    attempt=attempt,
+                    response=response,
+                    outcome="elapsed_budget_exceeded",
+                    failure_code="elapsed_budget_exceeded",
+                    observed_at=observed_at,
+                )
+                checkpoint = store.commit_fact(
+                    fact, checkpoint, _time_text(wall_clock())
+                )
+                return finish(
+                    "bounded_partial",
+                    "elapsed_budget_exhausted",
+                    blocked_pages=1,
+                )
+            authority_now = _time(wall_clock())
+            for authority_name in ("policy", "robots"):
+                if _time(plan[f"{authority_name}_expires_at"]) <= authority_now:
+                    failure_code = f"{authority_name}_expired"
+                    fact = _request_fact(
+                        plan,
+                        checkpoint,
+                        attempt=attempt,
+                        response=response,
+                        outcome="authority_expired",
+                        failure_code=failure_code,
+                        observed_at=observed_at,
+                    )
+                    checkpoint = store.commit_fact(
+                        fact, checkpoint, _time_text(wall_clock())
+                    )
+                    return finish(
+                        "blocked",
+                        failure_code,
+                        blocked_pages=1,
+                    )
             if observed_at > _time(wall_clock()):
                 fact = _request_fact(
                     plan,
                     checkpoint,
-                    attempt=retry_count + 1,
+                    attempt=attempt,
                     response=response,
                     outcome="invalid_response_time",
                     failure_code="invalid_response_time",
@@ -897,7 +986,7 @@ def run_bounded_discovery(
                 fact = _request_fact(
                     plan,
                     checkpoint,
-                    attempt=retry_count + 1,
+                    attempt=attempt,
                     response=response,
                     outcome="response_oversized",
                     failure_code="response_oversized",
@@ -914,7 +1003,7 @@ def run_bounded_discovery(
                 fact = _request_fact(
                     plan,
                     checkpoint,
-                    attempt=retry_count + 1,
+                    attempt=attempt,
                     response=response,
                     outcome="aggregate_budget_exceeded",
                     failure_code="aggregate_budget_exceeded",
@@ -932,7 +1021,7 @@ def run_bounded_discovery(
                 fact = _request_fact(
                     plan,
                     checkpoint,
-                    attempt=retry_count + 1,
+                    attempt=attempt,
                     response=response,
                     outcome="http_error",
                     failure_code="http_error",
@@ -946,7 +1035,7 @@ def run_bounded_discovery(
             fact = _request_fact(
                 plan,
                 checkpoint,
-                attempt=retry_count + 1,
+                attempt=attempt,
                 response=response,
                 outcome="success",
                 failure_code=None,
@@ -1033,6 +1122,7 @@ def run_bounded_discovery(
                 checkpoint["next_ordinal"] = parsed["next_ordinal"]
 
             checkpoint["page_sequence"] = page_sequence
+            checkpoint["current_page_retries"] = 0
             checkpoint["rejected_records"] += parsed["rejected_count"]
             checkpoint["committed_request_fact_id"] = fact["request_fact_id"]
             checkpoint = store.commit_page(
