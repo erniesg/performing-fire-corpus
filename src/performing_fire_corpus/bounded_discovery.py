@@ -44,6 +44,7 @@ LIMIT_KEYS = frozenset(
 )
 _CURSOR = re.compile(r"^(?:page|offset)-[0-9]{1,18}$")
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
+_YEAR = re.compile(r"^[0-9]{4}$")
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
@@ -111,6 +112,7 @@ class DiscoveryAdapter(Protocol):
     adapter_id: str
     adapter_version: str
     approved_metadata_fields: tuple[str, ...]
+    metadata_field_contracts: Mapping[str, Mapping[str, Any]]
     limit_contract: Mapping[str, int | float]
 
     def parse_page(
@@ -223,6 +225,20 @@ class _DiscoveryStore:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    def _assert_stored_pending(self, run_id: str, request_fact_id: str) -> None:
+        row = self.connection.execute(
+            """
+            SELECT checkpoint_body, report_body
+            FROM discovery_runs WHERE run_id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None or row["report_body"] is not None:
+            raise DiscoveryError("discovery run is not available for request resolution")
+        stored_checkpoint = json.loads(row["checkpoint_body"])
+        if stored_checkpoint.get("pending_request_fact_id") != request_fact_id:
+            raise DiscoveryError("stored request reservation does not match the fact")
+
     def start(
         self,
         plan: Mapping[str, Any],
@@ -279,9 +295,16 @@ class _DiscoveryStore:
         now: str,
     ) -> dict[str, Any]:
         fact_value = _validate("request-fact", fact)
-        checkpoint_value = _validate("page-checkpoint", checkpoint)
+        if checkpoint.get("pending_request_fact_id") != fact_value["request_fact_id"]:
+            raise DiscoveryError("request fact does not resolve its pending reservation")
+        checkpoint_value = dict(checkpoint)
+        checkpoint_value["pending_request_fact_id"] = None
+        checkpoint_value = _validate("page-checkpoint", checkpoint_value)
         try:
             self.connection.execute("BEGIN IMMEDIATE")
+            self._assert_stored_pending(
+                fact_value["run_id"], fact_value["request_fact_id"]
+            )
             self.connection.execute(
                 """
                 INSERT INTO discovery_request_facts(
@@ -312,6 +335,59 @@ class _DiscoveryStore:
             raise
         return checkpoint_value
 
+    def reserve_request(
+        self,
+        plan: Mapping[str, Any],
+        checkpoint: Mapping[str, Any],
+        *,
+        attempt: int,
+        now: str,
+    ) -> dict[str, Any]:
+        if checkpoint.get("pending_request_fact_id") is not None:
+            raise DiscoveryError("a discovery request is already pending")
+        prior_checkpoint = _validate("page-checkpoint", checkpoint)
+        checkpoint_value = dict(checkpoint)
+        checkpoint_value["requests_attempted"] += 1
+        checkpoint_value["pending_request_fact_id"] = _request_fact_id(
+            plan, checkpoint_value, attempt
+        )
+        checkpoint_value = _validate("page-checkpoint", checkpoint_value)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                """
+                SELECT checkpoint_body, report_body
+                FROM discovery_runs WHERE run_id = ?
+                """,
+                (plan["run_id"],),
+            ).fetchone()
+            if row is None or row["report_body"] is not None:
+                raise DiscoveryError("discovery run is not available for reservation")
+            stored_checkpoint = json.loads(row["checkpoint_body"])
+            comparable_prior = dict(prior_checkpoint)
+            comparable_prior["elapsed_seconds"] = stored_checkpoint["elapsed_seconds"]
+            if comparable_prior != stored_checkpoint:
+                raise DiscoveryError("discovery checkpoint changed before reservation")
+            cursor = self.connection.execute(
+                """
+                UPDATE discovery_runs
+                SET checkpoint_body = ?, updated_at = ?
+                WHERE run_id = ? AND report_body IS NULL
+                """,
+                (
+                    _canonical(checkpoint_value),
+                    now,
+                    plan["run_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise DiscoveryError("discovery checkpoint changed before reservation")
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+        return checkpoint_value
+
     def commit_page(
         self,
         fact: Mapping[str, Any],
@@ -321,12 +397,18 @@ class _DiscoveryStore:
         commit_hook: Callable[[str, int], None] | None,
     ) -> dict[str, Any]:
         fact_value = _validate("request-fact", fact)
+        if checkpoint.get("pending_request_fact_id") != fact_value["request_fact_id"]:
+            raise DiscoveryError("request fact does not resolve its pending reservation")
         observation_values = [
             _validate("discovery-observation", item) for item in observations
         ]
         checkpoint_value = dict(checkpoint)
+        checkpoint_value["pending_request_fact_id"] = None
         try:
             self.connection.execute("BEGIN IMMEDIATE")
+            self._assert_stored_pending(
+                fact_value["run_id"], fact_value["request_fact_id"]
+            )
             self.connection.execute(
                 """
                 INSERT INTO discovery_request_facts(
@@ -477,9 +559,20 @@ def _initial_checkpoint(plan: Mapping[str, Any]) -> dict[str, Any]:
         "duplicate_records": 0,
         "expected_total": None,
         "current_page_retries": 0,
+        "pending_request_fact_id": None,
         "terminal": False,
         "terminal_pages": 0,
     }
+
+
+def _request_fact_id(
+    plan: Mapping[str, Any],
+    checkpoint: Mapping[str, Any],
+    attempt: int,
+) -> str:
+    sequence = int(checkpoint["requests_attempted"])
+    run_suffix = str(plan["run_id"]).removeprefix("discovery_run_")
+    return f"request_fact_{run_suffix}_{sequence:06d}_{attempt:03d}"
 
 
 def _request_fact(
@@ -493,14 +586,11 @@ def _request_fact(
     observed_at: datetime,
 ) -> dict[str, Any]:
     sequence = int(checkpoint["requests_attempted"])
-    run_suffix = str(plan["run_id"]).removeprefix("discovery_run_")
     body = None if response is None else response.body
     return {
         "schema_version": 1,
         "record_type": "request_fact",
-        "request_fact_id": (
-            f"request_fact_{run_suffix}_{sequence:06d}_{attempt:03d}"
-        ),
+        "request_fact_id": _request_fact_id(plan, checkpoint, attempt),
         "run_id": plan["run_id"],
         "source_id": plan["source_id"],
         "endpoint_id": plan["endpoint_id"],
@@ -519,6 +609,20 @@ def _request_fact(
     }
 
 
+def _metadata_value_matches_contract(
+    value: Any,
+    contract: Mapping[str, Any],
+) -> bool:
+    if not isinstance(value, str):
+        return False
+    value_type = contract["value_type"]
+    if value_type == "year":
+        return _YEAR.fullmatch(value) is not None
+    if value_type == "enum":
+        return value in contract["allowed_values"]
+    raise DiscoveryError("metadata field contract has an unsupported value type")
+
+
 def _observations(
     plan: Mapping[str, Any],
     page_sequence: int,
@@ -535,6 +639,12 @@ def _observations(
         if not isinstance(metadata, Mapping):
             raise DiscoveryError("shape_drift")
         if not set(metadata).issubset(plan["approved_metadata_fields"]):
+            raise DiscoveryError("shape_drift")
+        contracts = plan["metadata_field_contracts"]
+        if any(
+            not _metadata_value_matches_contract(value, contracts[field])
+            for field, value in metadata.items()
+        ):
             raise DiscoveryError("shape_drift")
         observation_hash = hashlib.sha256(
             f"{plan['run_id']}|{record_id}".encode("utf-8")
@@ -663,6 +773,21 @@ def _validate_plan_and_adapter(
         raise DiscoveryError(
             "adapter approved metadata projection does not match the run plan"
         )
+    field_contracts = plan["metadata_field_contracts"]
+    if set(field_contracts) != set(approved_fields):
+        raise DiscoveryError(
+            "metadata field contracts do not cover the approved projection"
+        )
+    if any(
+        contract["value_type"] == "enum"
+        and contract["allowed_values"] != sorted(contract["allowed_values"])
+        for contract in field_contracts.values()
+    ):
+        raise DiscoveryError("metadata enum values must use canonical ordering")
+    if _canonical(adapter.metadata_field_contracts) != _canonical(field_contracts):
+        raise DiscoveryError(
+            "adapter metadata field contracts do not match the run plan"
+        )
     contract = dict(adapter.limit_contract)
     if set(contract) != LIMIT_KEYS:
         raise DiscoveryError("adapter omits a required run-plan limit")
@@ -775,6 +900,21 @@ def run_bounded_discovery(
             raise DiscoveryError("run id is already bound to a different plan")
         if existing_report is not None:
             return _validate("completeness-report", existing_report)
+        if checkpoint["pending_request_fact_id"] is not None:
+            interrupted_attempt = int(checkpoint["current_page_retries"]) + 1
+            interrupted_fact = _request_fact(
+                plan,
+                checkpoint,
+                attempt=interrupted_attempt,
+                response=None,
+                outcome="request_interrupted",
+                failure_code="request_interrupted",
+                observed_at=wall_clock(),
+            )
+            checkpoint = store.commit_fact(
+                interrupted_fact, checkpoint, _time_text(wall_clock())
+            )
+            return finish("blocked", "request_interrupted", blocked_pages=1)
 
         now = _time(wall_clock())
         try:
@@ -847,8 +987,13 @@ def run_bounded_discovery(
                 remaining_elapsed = float(plan["limits"]["elapsed_seconds"]) - float(
                     checkpoint["elapsed_seconds"]
                 )
-                checkpoint["requests_attempted"] += 1
                 attempt = int(checkpoint["current_page_retries"]) + 1
+                checkpoint = store.reserve_request(
+                    plan,
+                    checkpoint,
+                    attempt=attempt,
+                    now=_time_text(wall_clock()),
+                )
                 last_request_at = monotonic()
                 try:
                     response = transport.fetch(
@@ -925,10 +1070,7 @@ def run_bounded_discovery(
 
             sync_elapsed()
             observed_at = _time(response.observed_at)
-            if (
-                checkpoint["elapsed_seconds"]
-                > plan["limits"]["elapsed_seconds"]
-            ):
+            if checkpoint["elapsed_seconds"] >= plan["limits"]["elapsed_seconds"]:
                 fact = _request_fact(
                     plan,
                     checkpoint,

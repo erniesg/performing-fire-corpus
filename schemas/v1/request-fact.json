@@ -61,6 +61,7 @@
         "elapsed_budget_exceeded",
         "http_error",
         "invalid_response_time",
+        "request_interrupted",
         "response_oversized",
         "retryable_error",
         "success"

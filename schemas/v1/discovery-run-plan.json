@@ -77,6 +77,55 @@
       ],
       "type": "object"
     },
+    "metadata_field_contracts": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "value_type": {
+                "const": "year"
+              }
+            },
+            "required": [
+              "value_type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "allowed_values": {
+                "items": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$",
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "value_type": {
+                "const": "enum"
+              }
+            },
+            "required": [
+              "allowed_values",
+              "value_type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxProperties": 32,
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "type": "object"
+    },
     "policy_expires_at": {
       "format": "date-time",
       "pattern": "Z$",
@@ -127,6 +176,7 @@
     "approved_metadata_fields",
     "endpoint_id",
     "limits",
+    "metadata_field_contracts",
     "policy_expires_at",
     "policy_snapshot_id",
     "policy_state",

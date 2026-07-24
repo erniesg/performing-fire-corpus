@@ -86,6 +86,13 @@ class SyntheticAdapter:
     adapter_id = "synthetic-json"
     adapter_version = "1.0.0"
     approved_metadata_fields = ("date", "kind")
+    metadata_field_contracts = {
+        "date": {"value_type": "year"},
+        "kind": {
+            "allowed_values": ["synthetic_catalogue_record"],
+            "value_type": "enum",
+        },
+    }
 
     def __init__(self, limits: dict[str, int | float]) -> None:
         self.limit_contract = dict(limits)
@@ -193,6 +200,13 @@ def plan(**overrides: Any) -> dict[str, Any]:
         "adapter_id": "synthetic-json",
         "adapter_version": "1.0.0",
         "approved_metadata_fields": ["date", "kind"],
+        "metadata_field_contracts": {
+            "date": {"value_type": "year"},
+            "kind": {
+                "allowed_values": ["synthetic_catalogue_record"],
+                "value_type": "enum",
+            },
+        },
         "policy_snapshot_id": governance_snapshot_id(governance_record),
         "policy_state": "approved",
         "policy_expires_at": "2026-07-25T00:00:00Z",
@@ -371,7 +385,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 self.assertNotIn('"body"', rendered)
                 self.assertNotIn("records", rendered)
 
-    def test_interruptions_before_and_after_commit_resume_without_duplicates(
+    def test_commit_interruptions_resume_or_block_without_duplicates(
         self,
     ) -> None:
         for stage in ("before_commit", "after_commit"):
@@ -416,19 +430,38 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 ]
                 if stage == "before_commit":
                     outcomes.insert(0, first_page)
+                resume_transport = FakeTransport(outcomes)
                 report = run_bounded_discovery(
                     run_plan,
                     database,
                     adapter=SyntheticAdapter(run_plan["limits"]),
-                    transport=FakeTransport(outcomes),
+                    transport=resume_transport,
                     wall_clock=lambda: T0,
                     monotonic=lambda: 0.0,
                     sleeper=lambda _: None,
                 )
-                self.assertEqual(2, report["observed_unique_records"])
+                expected = (
+                    ("blocked", "request_interrupted", 0, 1, 0)
+                    if stage == "before_commit"
+                    else (
+                        "complete_for_observed_endpoint",
+                        "terminal_page",
+                        2,
+                        2,
+                        2,
+                    )
+                )
+                self.assertEqual(
+                    expected[:3],
+                    (
+                        report["state"],
+                        report["stop_reason"],
+                        report["observed_unique_records"],
+                    ),
+                )
                 with sqlite3.connect(database) as connection:
                     self.assertEqual(
-                        (2, 2),
+                        expected[3:],
                         (
                             connection.execute(
                                 "SELECT COUNT(*) FROM discovery_request_facts"
@@ -438,6 +471,8 @@ class BoundedDiscoveryTests(unittest.TestCase):
                             ).fetchone()[0],
                         ),
                     )
+                if stage == "before_commit":
+                    self.assertEqual([], resume_transport.calls)
 
     def test_bounds_report_partial_without_claiming_whole_source_completeness(
         self,
@@ -837,6 +872,23 @@ class BoundedDiscoveryTests(unittest.TestCase):
                     monotonic=lambda: 0.0,
                     sleeper=lambda _: None,
                 )
+            mismatched_projection = SyntheticAdapter(run_plan["limits"])
+            mismatched_projection.metadata_field_contracts = copy.deepcopy(
+                SyntheticAdapter.metadata_field_contracts
+            )
+            mismatched_projection.metadata_field_contracts["kind"][
+                "allowed_values"
+            ] = ["different_kind"]
+            with self.assertRaises(DiscoveryError):
+                run_bounded_discovery(
+                    run_plan,
+                    Path(temporary) / "mismatched-projection.sqlite3",
+                    adapter=mismatched_projection,
+                    transport=FakeTransport([]),
+                    wall_clock=lambda: T0,
+                    monotonic=lambda: 0.0,
+                    sleeper=lambda _: None,
+                )
         self.assertEqual(LIMIT_KEYS, set(run_plan["limits"]))
 
     def test_policy_expiry_after_rate_wait_and_transport_errors_stop_safely(
@@ -954,6 +1006,73 @@ class BoundedDiscoveryTests(unittest.TestCase):
             self.assertEqual(2, report["requests_attempted"])
             self.assertEqual(1, len(transport.calls))
 
+    def test_in_flight_interruption_reserves_request_before_network(self) -> None:
+        run_plan = plan(
+            run_id="discovery_run_synthetic_in_flight_interrupt",
+            limits={"max_requests": 1},
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "in-flight.sqlite3"
+            with self.assertRaises(KeyboardInterrupt):
+                run_bounded_discovery(
+                    run_plan,
+                    database,
+                    adapter=SyntheticAdapter(run_plan["limits"]),
+                    transport=FakeTransport([KeyboardInterrupt()]),
+                    wall_clock=lambda: T0,
+                    monotonic=lambda: 0.0,
+                    sleeper=lambda _: None,
+                )
+            with sqlite3.connect(database) as connection:
+                checkpoint = json.loads(
+                    connection.execute(
+                        """
+                        SELECT checkpoint_body FROM discovery_runs
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0]
+                )
+            self.assertEqual(1, checkpoint["requests_attempted"])
+            self.assertIsNotNone(checkpoint["pending_request_fact_id"])
+
+            transport = FakeTransport(
+                [
+                    page(
+                        [record("synthetic-001")],
+                        next_cursor=None,
+                        next_ordinal=None,
+                        terminal=True,
+                    )
+                ]
+            )
+            report = run_bounded_discovery(
+                run_plan,
+                database,
+                adapter=SyntheticAdapter(run_plan["limits"]),
+                transport=transport,
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            self.assertEqual(
+                ("blocked", "request_interrupted"),
+                (report["state"], report["stop_reason"]),
+            )
+            self.assertEqual(1, report["requests_attempted"])
+            self.assertEqual([], transport.calls)
+            with sqlite3.connect(database) as connection:
+                fact = json.loads(
+                    connection.execute(
+                        """
+                        SELECT body FROM discovery_request_facts
+                        WHERE run_id = ?
+                        """,
+                        (run_plan["run_id"],),
+                    ).fetchone()[0]
+                )
+            self.assertEqual("request_interrupted", fact["outcome"])
+
     def test_slow_response_cannot_cross_elapsed_budget_and_report_complete(
         self,
     ) -> None:
@@ -966,7 +1085,7 @@ class BoundedDiscoveryTests(unittest.TestCase):
         class SlowTransport(FakeTransport):
             def fetch(self, *args: Any, **kwargs: Any) -> PageResponse:
                 response = super().fetch(*args, **kwargs)
-                clock.elapsed += 2.0
+                clock.elapsed += 1.0
                 return response
 
         transport = SlowTransport(
@@ -1121,6 +1240,58 @@ class BoundedDiscoveryTests(unittest.TestCase):
                 monotonic=lambda: 0.0,
                 sleeper=lambda _: None,
             )
+
+        prose_plan = plan(
+            run_id="discovery_run_synthetic_allowed_key_prose"
+        )
+        prose_record = record("synthetic-001")
+        prose_record["metadata"]["kind"] = (
+            "This is arbitrary prose hidden under an approved factual key."
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "allowed-key-prose.sqlite3"
+            report = run_bounded_discovery(
+                prose_plan,
+                database,
+                adapter=SyntheticAdapter(prose_plan["limits"]),
+                transport=FakeTransport(
+                    [
+                        page(
+                            [prose_record],
+                            next_cursor=None,
+                            next_ordinal=None,
+                            terminal=True,
+                        )
+                    ]
+                ),
+                wall_clock=lambda: T0,
+                monotonic=lambda: 0.0,
+                sleeper=lambda _: None,
+            )
+            self.assertEqual(
+                ("changed", "shape_drift"),
+                (report["state"], report["stop_reason"]),
+            )
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(
+                    0,
+                    connection.execute(
+                        "SELECT COUNT(*) FROM discovery_observations"
+                    ).fetchone()[0],
+                )
+                durable = "\n".join(
+                    row[0]
+                    for row in connection.execute(
+                        """
+                        SELECT checkpoint_body FROM discovery_runs
+                        UNION ALL
+                        SELECT COALESCE(report_body, '') FROM discovery_runs
+                        UNION ALL
+                        SELECT body FROM discovery_request_facts
+                        """
+                    )
+                )
+            self.assertNotIn("arbitrary prose", durable)
 
     def test_governance_snapshot_endpoint_and_eligibility_are_bound_before_request(
         self,

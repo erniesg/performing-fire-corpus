@@ -92,6 +92,17 @@
       "minimum": 0,
       "type": "integer"
     },
+    "pending_request_fact_id": {
+      "anyOf": [
+        {
+          "pattern": "^request_fact_[a-z0-9][a-z0-9._-]{0,160}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "policy_snapshot_id": {
       "pattern": "^policy_snapshot_[a-z0-9][a-z0-9._-]{0,127}$",
       "type": "string"
@@ -146,6 +157,7 @@
     "next_cursor",
     "next_ordinal",
     "page_sequence",
+    "pending_request_fact_id",
     "policy_snapshot_id",
     "record_type",
     "rejected_records",

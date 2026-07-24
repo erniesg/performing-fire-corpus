@@ -15,7 +15,10 @@ The run plan names the exact canonically ordered factual metadata fields that
 may become durable. The adapter must declare the identical projection, and a
 record containing any other field is rejected before observations are written.
 Content-bearing fields such as descriptions, excerpts, captions, transcripts,
-and prose cannot be added to this metadata-only projection.
+and prose cannot be added to this metadata-only projection. Every approved
+field also has an exact declarative value contract in both the plan and adapter.
+The plan fingerprint binds those contracts to the run ID; values outside the
+field-specific year or enumerated-value contract fail closed before persistence.
 
 ## Authority binding
 
@@ -73,11 +76,14 @@ One SQLite transaction commits:
 2. new factual observations or explicit duplicate events; and
 3. the checkpoint that points to the next page.
 
-A crash before commit leaves the prior checkpoint authoritative. Retry attempts
-are committed with the body-free request fact, so restarting cannot reset the
-current page's retry budget. A crash after a page commit resumes from the new
-checkpoint. Re-running a terminal run returns the same stored completeness
-report without another request.
+Before any network call, the engine durably reserves one request in the
+checkpoint. The corresponding body-free fact and page commit atomically resolve
+that reservation. If execution ends after reservation but before resolution,
+resume records `request_interrupted` and blocks without reissuing the uncertain
+request. Retry attempts are likewise committed with the body-free request fact,
+so restarting cannot reset the current page's retry budget. A crash after a page
+commit resumes from the new checkpoint. Re-running a terminal run returns the
+same stored completeness report without another request.
 
 The versioned migration creates separate run, request-fact, observation, and
 duplicate-event tables. Migration versions are applied once and packaged with

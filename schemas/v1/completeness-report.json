@@ -101,6 +101,7 @@
         "policy_expired",
         "policy_ineligible",
         "record_changed",
+        "request_interrupted",
         "request_budget_exhausted",
         "response_oversized",
         "retry_exhausted",
