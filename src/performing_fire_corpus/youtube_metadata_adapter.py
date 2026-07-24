@@ -25,6 +25,10 @@ _VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,55}$")
 _PAGE_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{6,128}$")
 _RUN_ID = re.compile(r"^youtube_metadata_run_[a-z0-9][a-z0-9._-]{0,96}$")
 _AUTHORITY_ID = re.compile(r"^youtube_quota_authority_[0-9a-f]{32}$")
+_ARTIFACT_KINDS = {
+    "channel_resolution",
+    "uploads_inventory",
+}
 _METHOD_COSTS = {
     "channels.list": 1,
     "playlistItems.list": 1,
@@ -176,6 +180,17 @@ class YouTubeQuotaStore:
                 channels_list INTEGER NOT NULL,
                 playlist_items_list INTEGER NOT NULL,
                 videos_list INTEGER NOT NULL
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS youtube_run_artifact (
+                run_id TEXT NOT NULL,
+                authority_id TEXT NOT NULL,
+                artifact_kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (run_id, artifact_kind)
             )
             """
         )
@@ -357,6 +372,89 @@ class YouTubeQuotaStore:
         except Exception:
             self._connection.rollback()
             raise
+
+    def _bind_artifact(
+        self,
+        *,
+        authority_id: str,
+        run_id: str,
+        artifact_kind: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if (
+            artifact_kind not in _ARTIFACT_KINDS
+            or not isinstance(payload, Mapping)
+        ):
+            raise ValueError("YouTube run artifact is invalid")
+        payload_json = _canonical(payload)
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            current = self.snapshot(run_id=run_id)
+            if current.authority_id != authority_id:
+                raise ValueError("YouTube quota authority changed")
+            row = self._connection.execute(
+                """
+                SELECT authority_id, payload_json
+                FROM youtube_run_artifact
+                WHERE run_id = ? AND artifact_kind = ?
+                """,
+                (run_id, artifact_kind),
+            ).fetchone()
+            if row is None:
+                self._connection.execute(
+                    """
+                    INSERT INTO youtube_run_artifact (
+                        run_id,
+                        authority_id,
+                        artifact_kind,
+                        payload_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        authority_id,
+                        artifact_kind,
+                        payload_json,
+                    ),
+                )
+            elif (
+                row[0] != authority_id
+                or row[1] != payload_json
+            ):
+                raise ValueError("YouTube run artifact conflicts")
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
+
+    def _load_artifact(
+        self,
+        *,
+        authority_id: str,
+        run_id: str,
+        artifact_kind: str,
+    ) -> dict[str, Any] | None:
+        if artifact_kind not in _ARTIFACT_KINDS:
+            raise ValueError("YouTube run artifact kind is invalid")
+        row = self._connection.execute(
+            """
+            SELECT authority_id, payload_json
+            FROM youtube_run_artifact
+            WHERE run_id = ? AND artifact_kind = ?
+            """,
+            (run_id, artifact_kind),
+        ).fetchone()
+        if row is None:
+            return None
+        if row[0] != authority_id:
+            raise ValueError("YouTube run artifact authority changed")
+        try:
+            payload = json.loads(row[1])
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError("YouTube run artifact is invalid") from error
+        if not isinstance(payload, dict) or _canonical(payload) != row[1]:
+            raise ValueError("YouTube run artifact is invalid")
+        return payload
 
 
 class YouTubeQuotaLedger:
@@ -999,14 +1097,47 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
                 }.get(privacy)
                 if availability is None:
                     raise ValueError("video privacy state is unknown")
-                if details.get("regionRestriction"):
+                region_restriction = details.get("regionRestriction")
+                if region_restriction is not None:
+                    if (
+                        not isinstance(region_restriction, Mapping)
+                        or len(region_restriction) != 1
+                        or set(region_restriction)
+                        not in ({"allowed"}, {"blocked"})
+                    ):
+                        raise ValueError(
+                            "video region restriction shape changed"
+                        )
+                    countries = next(iter(region_restriction.values()))
+                    if (
+                        not isinstance(countries, list)
+                        or not countries
+                        or any(
+                            not isinstance(country, str)
+                            or not re.fullmatch(r"[A-Z]{2}", country)
+                            for country in countries
+                        )
+                    ):
+                        raise ValueError(
+                            "video region restriction shape changed"
+                        )
                     availability = "availability_region_blocked"
                 rating = details.get("contentRating")
-                if (
-                    isinstance(rating, Mapping)
-                    and rating.get("ytRating") == "ytAgeRestricted"
-                ):
-                    availability = "availability_age_gated"
+                if rating is not None:
+                    if not isinstance(rating, Mapping):
+                        raise ValueError(
+                            "video content rating shape changed"
+                        )
+                    youtube_rating = rating.get("ytRating")
+                    if youtube_rating not in {
+                        None,
+                        "ytAgeRestricted",
+                    }:
+                        raise ValueError(
+                            "video content rating shape changed"
+                        )
+                    if youtube_rating == "ytAgeRestricted":
+                        availability = "availability_age_gated"
                 metadata["availability"] = availability
                 live_details = item.get("liveStreamingDetails")
                 if live_details is not None:
@@ -1095,6 +1226,7 @@ class YouTubeMetadataCoordinator:
         self._channel_resolution: ChannelResolution | None = None
         self._uploads_harness: OfflineConformanceHarness | None = None
         self._uploads_resolution: ChannelResolution | None = None
+        self._uploads_inventory: UploadsInventory | None = None
 
     @property
     def quota(self) -> YouTubeQuotaSnapshot:
@@ -1207,6 +1339,58 @@ class YouTubeMetadataCoordinator:
         resolution.validate(
             expected_session_binding_sha256=self._session.binding_sha256
         )
+        self._session.ledger._store._bind_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="channel_resolution",
+            payload=self._channel_resolution_payload(resolution),
+        )
+        self._channel_resolution = resolution
+        return resolution
+
+    @staticmethod
+    def _channel_resolution_payload(
+        resolution: ChannelResolution,
+    ) -> dict[str, str]:
+        return {
+            "channel_id": resolution.channel_id,
+            "handle": resolution.handle,
+            "lineage_sha256": resolution.lineage_sha256,
+            "session_binding_sha256": resolution.session_binding_sha256,
+            "uploads_playlist_id": resolution.uploads_playlist_id,
+        }
+
+    def issued_channel_resolution(self) -> ChannelResolution:
+        payload = self._session.ledger._store._load_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="channel_resolution",
+        )
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload)
+            != {
+                "channel_id",
+                "handle",
+                "lineage_sha256",
+                "session_binding_sha256",
+                "uploads_playlist_id",
+            }
+            or any(not isinstance(value, str) for value in payload.values())
+        ):
+            raise ValueError("issued channel resolution is absent")
+        resolution = object.__new__(ChannelResolution)
+        for field in (
+            "handle",
+            "channel_id",
+            "uploads_playlist_id",
+            "session_binding_sha256",
+            "lineage_sha256",
+        ):
+            object.__setattr__(resolution, field, payload[field])
+        resolution.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
         self._channel_resolution = resolution
         return resolution
 
@@ -1214,13 +1398,23 @@ class YouTubeMetadataCoordinator:
         self,
         resolution: ChannelResolution,
     ) -> None:
-        if resolution is not self._channel_resolution:
+        if not isinstance(resolution, ChannelResolution):
             raise ValueError(
                 "channel resolution was not issued by this coordinator"
             )
         resolution.validate(
             expected_session_binding_sha256=self._session.binding_sha256
         )
+        issued = self._session.ledger._store._load_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="channel_resolution",
+        )
+        if issued != self._channel_resolution_payload(resolution):
+            raise ValueError(
+                "channel resolution was not issued by this coordinator"
+            )
+        self._channel_resolution = resolution
 
     def _new_uploads_adapter(
         self,
@@ -1403,6 +1597,87 @@ class YouTubeMetadataCoordinator:
             ("lineage_sha256", _digest(payload)),
         ):
             object.__setattr__(inventory, field, value)
+        self._session.ledger._store._bind_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="uploads_inventory",
+            payload=self._uploads_inventory_payload(inventory),
+        )
+        self._uploads_inventory = inventory
+        return inventory
+
+    @staticmethod
+    def _uploads_inventory_payload(
+        inventory: UploadsInventory,
+    ) -> dict[str, Any]:
+        return {
+            "channel_lineage_sha256": (
+                inventory.channel_lineage_sha256
+            ),
+            "lineage_sha256": inventory.lineage_sha256,
+            "session_binding_sha256": (
+                inventory.session_binding_sha256
+            ),
+            "uploads_manifest_sha256": (
+                inventory.uploads_manifest_sha256
+            ),
+            "video_ids": list(inventory.video_ids),
+        }
+
+    def issued_uploads_inventory(self) -> UploadsInventory:
+        payload = self._session.ledger._store._load_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="uploads_inventory",
+        )
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload)
+            != {
+                "channel_lineage_sha256",
+                "lineage_sha256",
+                "session_binding_sha256",
+                "uploads_manifest_sha256",
+                "video_ids",
+            }
+            or any(
+                not isinstance(payload[field], str)
+                for field in (
+                    "channel_lineage_sha256",
+                    "lineage_sha256",
+                    "session_binding_sha256",
+                    "uploads_manifest_sha256",
+                )
+            )
+            or not isinstance(payload["video_ids"], list)
+            or any(
+                not isinstance(video_id, str)
+                for video_id in payload["video_ids"]
+            )
+        ):
+            raise ValueError("issued uploads inventory is absent")
+        inventory = object.__new__(UploadsInventory)
+        for field, value in (
+            (
+                "channel_lineage_sha256",
+                payload["channel_lineage_sha256"],
+            ),
+            (
+                "session_binding_sha256",
+                payload["session_binding_sha256"],
+            ),
+            ("video_ids", tuple(payload["video_ids"])),
+            (
+                "uploads_manifest_sha256",
+                payload["uploads_manifest_sha256"],
+            ),
+            ("lineage_sha256", payload["lineage_sha256"]),
+        ):
+            object.__setattr__(inventory, field, value)
+        inventory.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
+        self._uploads_inventory = inventory
         return inventory
 
     def videos_adapter(
@@ -1410,6 +1685,23 @@ class YouTubeMetadataCoordinator:
         inventory: UploadsInventory,
         video_ids: tuple[str, ...],
     ) -> YouTubeVideosAdapter:
+        if not isinstance(inventory, UploadsInventory):
+            raise ValueError(
+                "uploads inventory was not issued by this coordinator"
+            )
+        inventory.validate(
+            expected_session_binding_sha256=self._session.binding_sha256
+        )
+        issued = self._session.ledger._store._load_artifact(
+            authority_id=self._session.ledger.authority_id,
+            run_id=self._session.run_id,
+            artifact_kind="uploads_inventory",
+        )
+        if issued != self._uploads_inventory_payload(inventory):
+            raise ValueError(
+                "uploads inventory was not issued by this coordinator"
+            )
+        self._uploads_inventory = inventory
         return YouTubeVideosAdapter(
             self._session,
             inventory,

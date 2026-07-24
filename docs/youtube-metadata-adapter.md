@@ -49,6 +49,13 @@ budget. Reservations use an immediate SQLite transaction, so separate
 coordinators cannot each spend the final unit. The coordinator exposes only an
 immutable quota snapshot.
 
+The same authority stores canonical channel-resolution and uploads-inventory
+artifacts only after their coordinator-owned stages finalize. A restarted
+coordinator can reload those issued artifacts and resume the next stage without
+spending another channel-resolution unit. A caller-created artifact, an
+artifact from a fresh store, or a conflicting artifact for the same run cannot
+authorize a downstream request.
+
 The coordinator is the only normal constructor for all three stages. Every
 request builder reserves its reviewed method cost before returning a request;
 a request cannot be built without the ledger. The common checkpoint stores the
@@ -92,8 +99,10 @@ that a source record was deleted. Public, unlisted, private, region-restricted,
 and age-gated observations are reduced to bounded enums. Live items are
 separately classified as upcoming, live, or completed from the reviewed
 `liveStreamingDetails` part; absent details are `not_live`, and an unknown
-lifecycle shape fails closed. Titles, descriptions, tags, thumbnails, URLs,
-prose, and source payloads are not retained.
+lifecycle shape fails closed. Region restrictions must use exactly one
+documented country-code list, and non-object or unknown YouTube age-rating
+shapes also fail closed instead of defaulting public. Titles, descriptions,
+tags, thumbnails, URLs, prose, and source payloads are not retained.
 
 Caption, thumbnail, audio, and video entries are only non-acquirable candidate
 types with `rights_state = pending`. Metadata permission never implies asset

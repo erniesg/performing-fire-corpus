@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import tempfile
@@ -706,16 +707,12 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             max_quota_units=3,
             quota_store=quota_store,
         )
-        channel = coordinator._new_channel_adapter()
-        channel.build_request(None)
-        resolution = channel._resolve_channel(
-            channel_page([channel_item("Channel001")])
+        resolution = channel_resolution(coordinator)
+        self.assertIsNotNone(
+            coordinator.begin_uploads(resolution, REGISTRY)
         )
-        uploads = coordinator._new_uploads_adapter(resolution)
-        harness = OfflineConformanceHarness(uploads, REGISTRY)
-        harness.next_request()
-        harness.record_retry("temporary_unavailable")
-        checkpoint = harness.checkpoint()
+        coordinator.record_uploads_retry("temporary_unavailable")
+        checkpoint = coordinator.uploads_checkpoint()
         self.assertEqual(
             2,
             checkpoint["adapter_runtime_checkpoint"]["quota"][
@@ -726,23 +723,29 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             max_quota_units=3,
             quota_store=quota_store,
         )
-        resumed_harness = OfflineConformanceHarness.resume(
-            resumed_coordinator._new_uploads_adapter(resolution),
+        resumed_resolution = (
+            resumed_coordinator.issued_channel_resolution()
+        )
+        resumed_coordinator.resume_uploads(
+            resumed_resolution,
             REGISTRY,
             checkpoint,
-            expected_bounds=harness.bounds,
+            expected_bounds=checkpoint["bounds"],
             expected_checkpoint_sha256=checkpoint["checkpoint_sha256"],
         )
-        self.assertIsNotNone(resumed_harness.next_request())
+        self.assertIsNotNone(
+            resumed_coordinator.next_uploads_request()
+        )
         self.assertEqual(3, resumed_coordinator.quota.consumed_units)
-        resumed_harness.record_retry("temporary_unavailable")
-        self.assertIsNone(resumed_harness.next_request())
+        resumed_coordinator.record_uploads_retry(
+            "temporary_unavailable"
+        )
+        self.assertIsNone(
+            resumed_coordinator.next_uploads_request()
+        )
         self.assertEqual(
             ("blocked", "quota_exhausted"),
-            (
-                resumed_harness.manifest()["state"],
-                resumed_harness.manifest()["stop_reason"],
-            ),
+            resumed_coordinator.uploads_state(),
         )
         with self.assertRaises(AttributeError):
             resumed_coordinator.quota.consumed_units = 0
@@ -754,14 +757,49 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             quota_store=quota_store,
         )
         with self.assertRaises(AdapterConformanceError):
-            OfflineConformanceHarness.resume(
-                stale_coordinator._new_uploads_adapter(resolution),
+            stale_coordinator.resume_uploads(
+                stale_coordinator.issued_channel_resolution(),
                 REGISTRY,
                 checkpoint,
-                expected_bounds=harness.bounds,
+                expected_bounds=checkpoint["bounds"],
                 expected_checkpoint_sha256=checkpoint[
                     "checkpoint_sha256"
                 ],
+            )
+
+    def test_forged_uploads_inventory_cannot_authorize_videos(self) -> None:
+        coordinator = youtube_coordinator()
+        payload = {
+            "channel_lineage_sha256": hashlib.sha256(
+                b"invented-channel"
+            ).hexdigest(),
+            "session_binding_sha256": (
+                coordinator._session.binding_sha256
+            ),
+            "uploads_manifest_sha256": hashlib.sha256(
+                b"invented-manifest"
+            ).hexdigest(),
+            "video_ids": ("foreign001",),
+        }
+        inventory = object.__new__(UploadsInventory)
+        for field, value in (
+            *payload.items(),
+            (
+                "lineage_sha256",
+                hashlib.sha256(
+                    json.dumps(
+                        payload,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest(),
+            ),
+        ):
+            object.__setattr__(inventory, field, value)
+        with self.assertRaisesRegex(ValueError, "not issued"):
+            coordinator.videos_adapter(
+                inventory,
+                ("foreign001",),
             )
 
     def test_quota_authority_is_shared_across_coordinators(self) -> None:
@@ -810,6 +848,41 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             )
             self.assertEqual(authority_id, reopened.quota.authority_id)
             self.assertEqual(1, reopened.quota.consumed_units)
+            reopened_connection.close()
+
+    def test_issued_stage_artifacts_survive_reopened_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            database = Path(temporary_directory) / "youtube-run.sqlite3"
+            first_connection = sqlite3.connect(database)
+            first = youtube_coordinator(
+                max_quota_units=5,
+                quota_store=YouTubeQuotaStore(first_connection),
+            )
+            inventory = uploads_inventory(first, ("video001",))
+            first_connection.close()
+
+            reopened_connection = sqlite3.connect(database)
+            reopened = youtube_coordinator(
+                max_quota_units=5,
+                quota_store=YouTubeQuotaStore(reopened_connection),
+            )
+            self.assertEqual(
+                "UCinventedChannel001",
+                reopened.issued_channel_resolution().channel_id,
+            )
+            restored_inventory = (
+                reopened.issued_uploads_inventory()
+            )
+            self.assertEqual(inventory, restored_inventory)
+            harness = OfflineConformanceHarness(
+                reopened.videos_adapter(
+                    restored_inventory,
+                    ("video001",),
+                ),
+                REGISTRY,
+            )
+            self.assertIsNotNone(harness.next_request())
+            self.assertEqual(3, reopened.quota.consumed_units)
             reopened_connection.close()
 
     def test_quota_error_is_a_durable_body_free_blocker(self) -> None:
@@ -937,6 +1010,51 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
                 "availability"
             ],
         )
+
+    def test_changed_restriction_shapes_fail_closed(self) -> None:
+        coordinator = youtube_coordinator()
+        adapter = coordinator.videos_adapter(
+            uploads_inventory(coordinator, ("invalid001",)),
+            ("invalid001",),
+        )
+        invalid_details = (
+            {"duration": "PT1M", "regionRestriction": []},
+            {
+                "duration": "PT1M",
+                "regionRestriction": {"blocked": []},
+            },
+            {
+                "duration": "PT1M",
+                "regionRestriction": {"blocked": "KR"},
+            },
+            {
+                "duration": "PT1M",
+                "regionRestriction": {"unknown": ["KR"]},
+            },
+            {"contentRating": "age", "duration": "PT1M"},
+            {
+                "contentRating": {"ytRating": "invented"},
+                "duration": "PT1M",
+            },
+        )
+        for details in invalid_details:
+            with self.subTest(details=details), self.assertRaises(
+                ValueError
+            ):
+                adapter.parse_page(
+                    video_page(
+                        [
+                            {
+                                "id": "invalid001",
+                                "contentDetails": details,
+                                "status": {
+                                    "privacyStatus": "public"
+                                },
+                            }
+                        ]
+                    ),
+                    cursor=None,
+                )
 
     def test_live_lifecycle_is_explicit_and_foreign_ids_cannot_be_enriched(
         self,
