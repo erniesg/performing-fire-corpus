@@ -11,7 +11,10 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
 from performing_fire_corpus.governance import (
+    CANONICAL_ENDPOINT_IDS,
+    CANONICAL_SOURCE_IDS,
     GovernanceError,
+    PROJECT_NATIVE_SOURCE_IDS,
     canonical_governance_registry_bytes,
     evaluate_project_native_use,
     evaluate_source_operation,
@@ -166,6 +169,27 @@ class GovernanceTests(unittest.TestCase):
             {item["source_id"] for item in governance["records"]},
         )
         self.assertEqual(
+            CANONICAL_SOURCE_IDS,
+            {item["source_id"] for item in source_registry["sources"]},
+        )
+        self.assertEqual(
+            PROJECT_NATIVE_SOURCE_IDS,
+            {
+                item["source_id"]
+                for item in source_registry["sources"]
+                if item["source_class"] == "project_native"
+            },
+        )
+        self.assertEqual(
+            CANONICAL_ENDPOINT_IDS,
+            {
+                item["source_id"]: frozenset(
+                    endpoint["endpoint_id"] for endpoint in item["endpoints"]
+                )
+                for item in source_registry["sources"]
+            },
+        )
+        self.assertEqual(
             GOVERNANCE_REGISTRY_PATH.read_bytes(),
             canonical_governance_registry_bytes(governance),
         )
@@ -265,6 +289,41 @@ class GovernanceTests(unittest.TestCase):
         self.assertTrue(metadata["eligible"])
         self.assertFalse(media["eligible"])
         self.assertEqual("pending", media["state"])
+
+    def test_direct_evaluation_enforces_endpoint_and_project_native_boundaries(
+        self,
+    ) -> None:
+        governance = synthetic_governance()
+        governance["endpoint_id"] = "njp-center-main-home"
+        with self.assertRaises(GovernanceError):
+            evaluate_source_operation(
+                governance, "metadata_inventory", now=NOW
+            )
+
+        governance = synthetic_governance()
+        governance["source_id"] = "project-native-visitor-inputs"
+        governance["endpoint_id"] = None
+        with self.assertRaises(GovernanceError):
+            evaluate_source_operation(
+                governance, "metadata_inventory", now=NOW
+            )
+
+        governance = synthetic_governance()
+        governance["asset_id"] = "asset_synthetic_001"
+        with self.assertRaises(GovernanceError):
+            evaluate_source_operation(
+                governance, "metadata_inventory", now=NOW
+            )
+        self.assertTrue(
+            evaluate_source_operation(
+                governance,
+                "metadata_inventory",
+                reviewed_asset_sources={
+                    "asset_synthetic_001": "antiegg-fluxus"
+                },
+                now=NOW,
+            )["eligible"]
+        )
 
     def test_fact_states_are_dimension_specific_permissions(self) -> None:
         governance = synthetic_governance()
@@ -448,6 +507,17 @@ class GovernanceTests(unittest.TestCase):
                 deletion,
                 "derived_processing",
                 viewer_role="researcher",
+                redaction_applied="false",
+                now=NOW,
+            )["eligible"]
+        )
+        self.assertFalse(
+            evaluate_project_native_use(
+                consent,
+                retention,
+                deletion,
+                "derived_processing",
+                viewer_role="researcher",
                 redaction_applied=False,
                 now=NOW,
             )["eligible"]
@@ -513,6 +583,68 @@ class GovernanceTests(unittest.TestCase):
                 new_state="revoked",
                 at=before_consent,
             )
+
+        early_expiry = datetime(2026, 7, 24, tzinfo=timezone.utc)
+        with self.assertRaises(GovernanceError):
+            transition_consent(
+                consent,
+                retention,
+                deletion,
+                new_state="expired",
+                at=early_expiry,
+            )
+
+        expiry_time = datetime(2026, 8, 23, tzinfo=timezone.utc)
+        expired, expiry_outcome = transition_consent(
+            consent,
+            retention,
+            deletion,
+            new_state="expired",
+            at=expiry_time,
+        )
+        self.assertEqual("expired", expired["state"])
+        self.assertEqual(
+            "consent_expired",
+            expiry_outcome["deletion_record"]["trigger_state"],
+        )
+
+        revoked, outcome = transition_consent(
+            consent,
+            retention,
+            deletion,
+            new_state="revoked",
+            at=NOW,
+        )
+        outcome["deletion_record"]["requested_at"] = "2026-07-23T12:00:00Z"
+        with self.assertRaises(GovernanceError):
+            validate_project_native_contract(
+                revoked,
+                retention,
+                outcome["deletion_record"],
+            )
+
+        revoked, outcome = transition_consent(
+            consent,
+            retention,
+            deletion,
+            new_state="revoked",
+            at=NOW,
+        )
+        outcome["deletion_record"]["deletion_due_at"] = "2026-07-27T00:00:01Z"
+        with self.assertRaises(GovernanceError):
+            validate_project_native_contract(
+                revoked,
+                retention,
+                outcome["deletion_record"],
+            )
+
+        consent, retention, deletion = project_native_contract()
+        deletion["trigger_state"] = "retention_expired"
+        deletion["requested_at"] = "2026-07-24T00:00:00Z"
+        deletion["deletion_due_at"] = "2026-07-27T00:00:00Z"
+        deletion["status"] = "pending"
+        with self.assertRaises(GovernanceError):
+            validate_project_native_contract(consent, retention, deletion)
 
     def test_legal_hold_blocks_use_and_requires_review_without_silent_retention(
         self,

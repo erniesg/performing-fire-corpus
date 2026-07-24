@@ -12,6 +12,9 @@ non-expired observation must support every fact. Unknown, stale, conflicting,
 missing, future-dated, or expired evidence blocks the operation.
 Passing states are dimension-specific: API availability cannot stand in for
 robots permission, platform permission, or a copyright lawful basis.
+Direct evaluation also verifies that an endpoint belongs to its canonical
+source. Asset-scoped decisions require an explicit reviewed asset-to-source
+binding.
 
 Permissions are operation-specific. Metadata inventory, prose retention,
 caption retention, media acquisition, derived processing, indexing, search
@@ -54,6 +57,13 @@ creates a durable deletion request plus deletion or review and reindexing work.
 A reviewed legal hold changes both content and derivative actions to review and
 creates legal-hold review plus reindexing work; it does not restore use
 eligibility.
+
+The generic source evaluator rejects every project-native family. Those
+families can be evaluated only through the combined consent, retention,
+deletion, viewer-role, and exact-boolean redaction gate. Expiry transitions
+cannot run before the approved expiry, and deletion request timestamps must
+match their consent event or follow the retention expiry. The due time is
+derived exactly from the declared deletion SLA.
 
 Audit events contain only the schema version, consent ID, source ID, transition
 type, and timestamp. They contain no names, contact details, roles in the

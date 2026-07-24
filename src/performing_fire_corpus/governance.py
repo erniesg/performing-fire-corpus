@@ -62,6 +62,21 @@ CANONICAL_SOURCE_IDS = PROJECT_NATIVE_SOURCE_IDS | {
     "njp-video-library",
     "njp-youtube-official",
 }
+CANONICAL_ENDPOINT_IDS = {
+    "antiegg-fluxus": frozenset(
+        {
+            "antiegg-article",
+            "antiegg-media-api",
+            "antiegg-posts-api",
+            "antiegg-sitemap",
+        }
+    ),
+    "njp-center-main": frozenset({"njp-center-main-home"}),
+    "njp-center-video-archive": frozenset({"njp-center-video-archive-page"}),
+    "njp-video-library": frozenset({"njp-video-library-home"}),
+    "njp-youtube-official": frozenset({"njp-youtube-handle"}),
+    **{source_id: frozenset() for source_id in PROJECT_NATIVE_SOURCE_IDS},
+}
 
 
 class GovernanceError(ValueError):
@@ -112,6 +127,24 @@ def validate_source_governance(value: Mapping[str, Any]) -> dict[str, Any]:
     record = _validate_schema("source-governance", value)
     if record["source_id"] not in CANONICAL_SOURCE_IDS:
         raise GovernanceError("source governance targets an unreviewed source family")
+    source_endpoints = CANONICAL_ENDPOINT_IDS[record["source_id"]]
+    if (
+        record["endpoint_id"] is not None
+        and record["endpoint_id"] not in source_endpoints
+    ):
+        raise GovernanceError("source governance endpoint belongs to another source")
+    for blocker in record["blockers"]:
+        blocker_endpoint = blocker["endpoint_id"]
+        if blocker_endpoint is not None and blocker_endpoint not in source_endpoints:
+            raise GovernanceError("source blocker endpoint belongs to another source")
+        if (
+            record["endpoint_id"] is not None
+            and blocker_endpoint is not None
+            and blocker_endpoint != record["endpoint_id"]
+        ):
+            raise GovernanceError(
+                "endpoint-scoped governance cannot cite another endpoint"
+            )
     observations = record["observations"]
     if any(
         _parse_time(item["observed_at"]) >= _parse_time(item["expires_at"])
@@ -243,11 +276,25 @@ def canonical_governance_registry_bytes(value: Mapping[str, Any]) -> bytes:
 
 
 def evaluate_source_operation(
-    value: Mapping[str, Any], operation: str, *, now: datetime
+    value: Mapping[str, Any],
+    operation: str,
+    *,
+    reviewed_asset_sources: Mapping[str, str] | None = None,
+    now: datetime,
 ) -> dict[str, Any]:
     """Evaluate one operation without allowing any permission inference."""
 
     record = validate_source_governance(value)
+    if record["source_id"] in PROJECT_NATIVE_SOURCE_IDS:
+        raise GovernanceError(
+            "project-native operations require consent and lifecycle evaluation"
+        )
+    asset_id = record.get("asset_id")
+    if asset_id is not None and (
+        reviewed_asset_sources is None
+        or reviewed_asset_sources.get(asset_id) != record["source_id"]
+    ):
+        raise GovernanceError("asset-scoped governance lacks a reviewed source binding")
     if operation not in SOURCE_OPERATIONS:
         raise GovernanceError("unknown source operation")
     if now.tzinfo is None:
@@ -355,6 +402,18 @@ def validate_project_native_contract(
             raise GovernanceError("consent audit event is not linked to its parent")
         if _parse_time(event["occurred_at"]) < consent_decided_at:
             raise GovernanceError("consent audit event predates the consent decision")
+        if (
+            event["event_type"] == "consent_expired"
+            and _parse_time(event["occurred_at"])
+            < _parse_time(consent_value["expires_at"])
+        ):
+            raise GovernanceError("consent expiry event predates consent expiry")
+        if (
+            event["event_type"] == "consent_revoked"
+            and _parse_time(event["occurred_at"])
+            >= _parse_time(consent_value["expires_at"])
+        ):
+            raise GovernanceError("consent revocation event follows consent expiry")
     if consent_value["state"] in {"active", "pending"} and audit_events:
         raise GovernanceError("current consent state contradicts its terminal audit event")
     if consent_value["state"] in {"revoked", "expired"}:
@@ -382,8 +441,14 @@ def validate_project_native_contract(
             or deletion_value["status"] == "not_requested"
         ):
             raise GovernanceError("triggered deletion requires durable request state")
-        if _parse_time(deletion_due_at) < _parse_time(requested_at):
-            raise GovernanceError("deletion due time predates its request")
+        requested_time = _parse_time(requested_at)
+        expected_due_time = requested_time + timedelta(
+            hours=deletion_value["deletion_sla_hours"]
+        )
+        if requested_time < consent_decided_at:
+            raise GovernanceError("deletion request predates the consent decision")
+        if _parse_time(deletion_due_at) != expected_due_time:
+            raise GovernanceError("deletion due time does not match its bounded SLA")
     expected_trigger = {
         "revoked": "consent_revoked",
         "expired": "consent_expired",
@@ -394,6 +459,20 @@ def validate_project_native_contract(
         raise GovernanceError("revocation deletion trigger lacks revoked consent")
     if trigger_state == "consent_expired" and consent_value["state"] != "expired":
         raise GovernanceError("expiry deletion trigger lacks expired consent")
+    if trigger_state in {"consent_revoked", "consent_expired"}:
+        if (
+            len(audit_events) != 1
+            or _parse_time(requested_at)
+            != _parse_time(audit_events[0]["occurred_at"])
+        ):
+            raise GovernanceError(
+                "deletion request time must match its consent transition"
+            )
+    if (
+        trigger_state == "retention_expired"
+        and requested_time < _parse_time(retention_value["expires_at"])
+    ):
+        raise GovernanceError("retention deletion request predates retention expiry")
 
     legal_hold_active = retention_value["legal_hold_state"] == "active"
     if legal_hold_active:
@@ -456,7 +535,7 @@ def evaluate_project_native_use(
             reasons.append("confidentiality:not_public")
     elif viewer_role not in consent_value["allowed_viewer_roles"]:
         reasons.append("access:viewer_not_allowed")
-    if consent_value["redaction_required"] and not redaction_applied:
+    if consent_value["redaction_required"] and redaction_applied is not True:
         reasons.append("redaction:required")
     if _parse_time(consent_value["expires_at"]) <= current:
         reasons.append("consent:expired")
@@ -498,6 +577,11 @@ def transition_consent(
         raise GovernanceError("transition time must be timezone-aware")
     if at.astimezone(UTC) < _parse_time(consent_value["decided_at"]):
         raise GovernanceError("consent transition cannot predate the consent decision")
+    consent_expiry = _parse_time(consent_value["expires_at"])
+    if new_state == "expired" and at.astimezone(UTC) < consent_expiry:
+        raise GovernanceError("consent cannot expire before its approved expiry")
+    if new_state == "revoked" and at.astimezone(UTC) >= consent_expiry:
+        raise GovernanceError("expired consent must use the expiry transition")
     occurred_at = _utc_text(at)
     event = {
         "schema_version": 1,
