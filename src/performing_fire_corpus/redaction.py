@@ -114,7 +114,13 @@ def _json_object_segment(value: str) -> bool:
         ValueError,
     ):
         return False
-    return isinstance(parsed, dict)
+    if not isinstance(parsed, dict):
+        return False
+    algorithm = parsed.get("alg")
+    return (
+        isinstance(algorithm, str)
+        and re.fullmatch(r"[A-Za-z0-9._+-]{1,64}", algorithm) is not None
+    )
 
 
 def contains_secret_like_text(value: str) -> bool:

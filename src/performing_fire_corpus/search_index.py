@@ -41,22 +41,18 @@ _ABSOLUTE_OR_TRAVERSAL = re.compile(
     r"|(?:^|[\\/])\.\.(?:[\\/]|$)"
 )
 _SANITIZED_TEXT_FORMAT = "performing-fire-sanitized-text-v1"
-_INDEX_FORMAT_CHECKER = FormatChecker()
 
 
 def _is_sanitized_index_text(value: object) -> bool:
     return isinstance(value, str) and not contains_secret_like_text(value)
 
 
-_INDEX_FORMAT_CHECKER.checks(_SANITIZED_TEXT_FORMAT)(
-    _is_sanitized_index_text
-)
-
-
 def index_format_checker() -> FormatChecker:
     """Return the configured checker required for index schema admission."""
 
-    return _INDEX_FORMAT_CHECKER
+    checker = FormatChecker()
+    checker.checks(_SANITIZED_TEXT_FORMAT)(_is_sanitized_index_text)
+    return checker
 
 
 class SearchIndexError(ValueError):

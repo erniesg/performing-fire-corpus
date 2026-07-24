@@ -245,6 +245,19 @@ class SearchIndexContractTests(unittest.TestCase):
             {"performing-fire-sanitized-text-v1"},
             safe_text_formats,
         )
+
+        caller_checker = index_format_checker()
+        caller_checker.checkers["performing-fire-sanitized-text-v1"] = (
+            lambda value: True,
+            (),
+        )
+        unsafe_policy = policy()
+        unsafe_policy["review_trigger"] = (
+            "Bearer syntheticvalue1234567890"
+        )
+        with self.assertRaises(SearchIndexError):
+            validate_visibility_policy(unsafe_policy)
+
         snapshot_schema = json.loads(
             (ROOT / "schemas" / "v1" / "index-snapshot.json").read_text(
                 encoding="utf-8"
@@ -1166,6 +1179,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "Token counterinstitutionalization",
             "Token hyperinstitutionalization",
             "eyewitness.performance.collection",
+            "e30.performance.collection",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value
