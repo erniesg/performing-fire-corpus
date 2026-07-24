@@ -26,10 +26,20 @@ marks are excluded so decomposed equivalents cannot acquire distinct hashes;
 producers normalize them to NFC before admission. Colon forms, percent or
 entity syntax, path separators, locator syntax, and arbitrary Unicode symbols
 are outside the set and fail closed rather than being decoded or interpreted
-inside the index boundary. Context-sensitive Bearer/JWT, AWS access-key,
-GitHub-token, and labeled credential shapes are also rejected without
-forbidding ordinary artistic uses of words such as “signature” or
-“credentialed.”
+inside the index boundary. Every `safeText` field declares the
+`performing-fire-sanitized-text-v1` format. The configured validator resolves
+that format through the central redaction module, including labeled
+credential shapes, reviewed raw credential families, and JWT header decoding;
+it does not guess a JWT from a text prefix. This rejects secret-like values
+without forbidding ordinary artistic uses of words such as “signature” or
+“credentialed,” or ordinary dotted metadata.
+
+JSON Schema implementations may ignore unknown formats by specification.
+Schema shape validation without the repository-configured format checker is
+therefore structural validation only and is never index admission authority.
+All standalone and nested record admission goes through the same configured
+runtime checker. Updating the versioned central detector updates every
+`safeText` path without copying a finite denylist among schemas.
 Field names are stored separately, so renderers can add label punctuation
 without persisting an ambiguous locator-like value.
 
@@ -96,7 +106,8 @@ for those fields.
 
 The v1 records are `index-document`, `provenance-edge`,
 `duplicate-cluster`, `visibility-policy`, `deletion-event`, and
-`index-snapshot`. Schemas are strict and runtime validation recomputes
+`index-snapshot`. Schemas are strict and configured format validation plus
+runtime validation recomputes
 cross-record identity, snapshot hashes, ordering, authority hashes, evidence
 windows, deletion targets, and duplicate membership.
 

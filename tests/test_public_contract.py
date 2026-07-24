@@ -192,6 +192,9 @@ class PublicRepositoryContractTests(unittest.TestCase):
             "trusted authority boundary",
             "exact-field removal",
             "not a deployed search service",
+            "performing-fire-sanitized-text-v1",
+            "structural validation only",
+            "central redaction module",
         ):
             self.assertIn(value, contract)
 

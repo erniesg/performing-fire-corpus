@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -57,6 +60,82 @@ _ACCOUNT_IDENTIFIER_VALUE = re.compile(
     r"(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+_INDEX_TOKENISH_VALUE = (
+    r"(?:"
+    r"(?=[A-Za-z0-9._+/=-]{0,255}[0-9._+/=-])"
+    r"[A-Za-z0-9._+/=-]{16,}|"
+    r"(?=[A-Za-z0-9._-]{0,255}[A-Z][A-Za-z0-9._-]*[A-Z])"
+    r"[A-Za-z0-9._-]{20,}|"
+    r"([A-Za-z]{4,16})\1{1,}|"
+    r"(?![A-Za-z]*([A-Za-z])(?:[A-Za-z]*\2){2})[A-Za-z]{24,40}"
+    r")"
+)
+_INDEX_LABELED_CREDENTIAL = re.compile(
+    r"\b(?i:"
+    r"authorization +(?:(?:basic|bearer) +)?|"
+    r"basic +|bearer +|credentials? +|"
+    r"password +|token +|api +key +|"
+    r"(?:aws +)?secret +access +key +|"
+    r"client +secret +|github +token +|jwt +"
+    r")"
+    + _INDEX_TOKENISH_VALUE
+    + r"(?![A-Za-z0-9._+/=-])"
+)
+_INDEX_RAW_CREDENTIAL = re.compile(
+    r"\b(?:"
+    r"(?:AKIA|ASIA)[A-Z0-9]{16}|"
+    r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"sk-(?:(?:proj|svcacct)-)?[A-Za-z0-9_-]{20,}|"
+    r"(?:xox[bcaprs]|xapp)-[A-Za-z0-9-]{20,}|"
+    r"(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|"
+    r"glpat-[A-Za-z0-9_-]{20,}|"
+    r"AIza[A-Za-z0-9_-]{20,}"
+    r")\b"
+)
+_INDEX_JWT_CANDIDATE = re.compile(
+    r"\b([A-Za-z0-9_-]{2,256})\."
+    r"([A-Za-z0-9_-]{2,4096})\."
+    r"([A-Za-z0-9_-]{8,4096})\b"
+)
+
+
+def _json_object_segment(value: str) -> bool:
+    try:
+        padding = "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode(value + padding)
+        if not 2 <= len(decoded) <= 512:
+            return False
+        parsed = json.loads(decoded.decode("utf-8"))
+    except (
+        binascii.Error,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ):
+        return False
+    return isinstance(parsed, dict)
+
+
+def contains_secret_like_text(value: str) -> bool:
+    """Return whether portable index text resembles a credential.
+
+    This is the authoritative v1 detector used by every index `safeText`
+    schema format and runtime validator. Schemas without this format checker
+    are structural checks only and are not admission authority.
+    """
+
+    if not isinstance(value, str):
+        return True
+    if (
+        _INDEX_LABELED_CREDENTIAL.search(value)
+        or _INDEX_RAW_CREDENTIAL.search(value)
+    ):
+        return True
+    return any(
+        _json_object_segment(match.group(1))
+        for match in _INDEX_JWT_CANDIDATE.finditer(value)
+    )
 
 
 def _sensitive_key(key: object) -> bool:

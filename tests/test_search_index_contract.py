@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from performing_fire_corpus.search_index import (
     SearchIndexError,
     build_index_snapshot,
+    index_format_checker,
     query_index,
     validate_deletion_event,
     validate_duplicate_cluster,
@@ -216,6 +217,7 @@ def cluster() -> dict[str, object]:
 class SearchIndexContractTests(unittest.TestCase):
     def test_published_schemas_are_valid_and_strict(self) -> None:
         safe_text_patterns = set()
+        safe_text_formats = set()
         for name in (
             "index-document",
             "provenance-edge",
@@ -237,7 +239,12 @@ class SearchIndexContractTests(unittest.TestCase):
                 "index-snapshot",
             }:
                 safe_text_patterns.add(schema["$defs"]["safeText"]["pattern"])
+                safe_text_formats.add(schema["$defs"]["safeText"]["format"])
         self.assertEqual(1, len(safe_text_patterns))
+        self.assertEqual(
+            {"performing-fire-sanitized-text-v1"},
+            safe_text_formats,
+        )
         snapshot_schema = json.loads(
             (ROOT / "schemas" / "v1" / "index-snapshot.json").read_text(
                 encoding="utf-8"
@@ -993,6 +1000,7 @@ class SearchIndexContractTests(unittest.TestCase):
 
     def test_raw_content_signed_urls_and_private_paths_are_rejected(self) -> None:
         safe_text_schemas = []
+        record_schemas = {}
         for schema_name in (
             "duplicate-cluster",
             "index-document",
@@ -1005,6 +1013,24 @@ class SearchIndexContractTests(unittest.TestCase):
                 )
             )
             safe_text_schemas.append(schema["$defs"]["safeText"])
+            record_schemas[schema_name] = schema
+
+        def nested_snapshot(
+            index_document: dict[str, object],
+        ) -> dict[str, object]:
+            return {
+                "schema_version": 1,
+                "record_type": "index_snapshot",
+                "index_snapshot_id": "index_snapshot_text_boundary",
+                "snapshot_sha256": "0" * 64,
+                "built_at": NOW,
+                "documents": [index_document],
+                "provenance_edges": [],
+                "visibility_policies": [],
+                "duplicate_clusters": [],
+                "deletion_events": [],
+                "event_lineage_edges": [],
+            }
 
         for unsafe_value in (
             "https://example.invalid/object?X-Amz-Signature=secret",
@@ -1093,6 +1119,11 @@ class SearchIndexContractTests(unittest.TestCase):
             "xox" + "b-" + ("synthetic" * 4),
             "sk" + "_live_" + ("synthetic" * 4),
             "gl" + "pat-" + ("synthetic" * 4),
+            "ew" + "ogImFsZyI6IkhTMjU2In0.e30.syntheticxx",
+            "sk" + "-" + ("synthetic" * 4),
+            "xapp" + "-1-" + ("synthetic" * 4),
+            "sk" + "_test_" + ("synthetic" * 4),
+            "AI" + "za" + ("synthetic" * 4),
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
@@ -1100,9 +1131,20 @@ class SearchIndexContractTests(unittest.TestCase):
                 validate_index_document(unsafe)
             for safe_text_schema in safe_text_schemas:
                 with self.assertRaises(ValidationError):
-                    Draft202012Validator(safe_text_schema).validate(
-                        unsafe_value
-                    )
+                    Draft202012Validator(
+                        safe_text_schema,
+                        format_checker=index_format_checker(),
+                    ).validate(unsafe_value)
+            with self.assertRaises(ValidationError):
+                Draft202012Validator(
+                    record_schemas["index-document"],
+                    format_checker=index_format_checker(),
+                ).validate(unsafe)
+            with self.assertRaises(ValidationError):
+                Draft202012Validator(
+                    record_schemas["index-snapshot"],
+                    format_checker=index_format_checker(),
+                ).validate(nested_snapshot(unsafe))
 
         for safe_value in (
             "Synthetic catalogue title",
@@ -1123,12 +1165,24 @@ class SearchIndexContractTests(unittest.TestCase):
             "Bearer interdisciplinary",
             "Token counterinstitutionalization",
             "Token hyperinstitutionalization",
+            "eyewitness.performance.collection",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value
             self.assertEqual(safe, validate_index_document(safe))
             for safe_text_schema in safe_text_schemas:
-                Draft202012Validator(safe_text_schema).validate(safe_value)
+                Draft202012Validator(
+                    safe_text_schema,
+                    format_checker=index_format_checker(),
+                ).validate(safe_value)
+            Draft202012Validator(
+                record_schemas["index-document"],
+                format_checker=index_format_checker(),
+            ).validate(safe)
+            Draft202012Validator(
+                record_schemas["index-snapshot"],
+                format_checker=index_format_checker(),
+            ).validate(nested_snapshot(safe))
 
         unsafe_policy = policy()
         unsafe_policy["review_trigger"] = "https://example.invalid/review"

@@ -15,7 +15,10 @@ from typing import Any, Mapping, Protocol, Sequence
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
-from performing_fire_corpus.redaction import sanitize
+from performing_fire_corpus.redaction import (
+    contains_secret_like_text,
+    sanitize,
+)
 
 
 UTC = timezone.utc
@@ -33,44 +36,27 @@ _UNSAFE_VALUE = re.compile(
     r"(?:x-amz-|full source prose)",
     re.IGNORECASE,
 )
-_TOKENISH_VALUE = (
-    r"(?:"
-    r"(?=[A-Za-z0-9._+/=-]{0,255}[0-9._+/=-])"
-    r"[A-Za-z0-9._+/=-]{16,}|"
-    r"(?=[A-Za-z0-9._-]{0,255}[A-Z][A-Za-z0-9._-]*[A-Z])"
-    r"[A-Za-z0-9._-]{20,}|"
-    r"([A-Za-z]{4,16})\1{1,}|"
-    r"(?![A-Za-z]*([A-Za-z])(?:[A-Za-z]*\2){2})[A-Za-z]{24,40}"
-    r")"
-)
-_CREDENTIAL_VALUE = re.compile(
-    r"(?:"
-    r"\b(?:"
-    r"(?i:"
-    r"authorization +(?:(?:basic|bearer) +)?|"
-    r"basic +|bearer +|credentials? +|"
-    r"password +|token +|api +key +|"
-    r"(?:aws +)?secret +access +key +|"
-    r"client +secret +|github +token +|jwt +"
-    r")"
-    r")"
-    + _TOKENISH_VALUE
-    + r"(?![A-Za-z0-9._+/=-])|"
-    r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|"
-    r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|"
-    r"\bgithub_pat_[A-Za-z0-9_]{20,}\b|"
-    r"\bsk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,}\b|"
-    r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b|"
-    r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b|"
-    r"\bglpat-[A-Za-z0-9_-]{20,}\b|"
-    r"\bey[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{2,}\."
-    r"[A-Za-z0-9_-]{8,}\b"
-    r")"
-)
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
     r"(?:^|[^A-Za-z0-9])(?:/|\\\\|~[\\/]|[A-Za-z]:[\\/])"
     r"|(?:^|[\\/])\.\.(?:[\\/]|$)"
 )
+_SANITIZED_TEXT_FORMAT = "performing-fire-sanitized-text-v1"
+_INDEX_FORMAT_CHECKER = FormatChecker()
+
+
+def _is_sanitized_index_text(value: object) -> bool:
+    return isinstance(value, str) and not contains_secret_like_text(value)
+
+
+_INDEX_FORMAT_CHECKER.checks(_SANITIZED_TEXT_FORMAT)(
+    _is_sanitized_index_text
+)
+
+
+def index_format_checker() -> FormatChecker:
+    """Return the configured checker required for index schema admission."""
+
+    return _INDEX_FORMAT_CHECKER
 
 
 class SearchIndexError(ValueError):
@@ -113,7 +99,7 @@ def _validate(name: str, value: Mapping[str, Any]) -> dict[str, Any]:
     try:
         schema = json.loads(_schema_resource(name).read_text(encoding="utf-8"))
         Draft202012Validator(
-            schema, format_checker=FormatChecker()
+            schema, format_checker=index_format_checker()
         ).validate(record)
     except (
         OSError,
@@ -194,7 +180,7 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
             _SAFE_VALUE.fullmatch(text) is None
             or unicodedata.normalize("NFC", text) != text
             or _UNSAFE_VALUE.search(text)
-            or _CREDENTIAL_VALUE.search(text)
+            or contains_secret_like_text(text)
             or _ABSOLUTE_OR_TRAVERSAL.search(text)
         ):
             raise SearchIndexError("raw content or locator is forbidden in the index")
