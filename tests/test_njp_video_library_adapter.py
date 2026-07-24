@@ -366,6 +366,34 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             candidate.relationship_record_id,
         )
 
+    def test_asset_candidates_admit_the_current_paginated_response(
+        self,
+    ) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        body = invented_page(
+            [invented_item("catalogue-002")],
+            terminal=False,
+            next_cursor="page-003",
+            next_ordinal=2,
+            assets=[
+                {
+                    "record_id": "catalogue-002",
+                    "asset_kind": "asset_kind_video",
+                    "mime_type": "video/mp4",
+                    "url": "/invented-assets/2",
+                }
+            ],
+        )
+        candidates = adapter.asset_candidates(
+            body,
+            cursor="page-002",
+        )
+        self.assertEqual(1, len(candidates))
+        self.assertEqual(
+            adapter.stable_record_id({"id": "catalogue-002"}),
+            candidates[0].relationship_record_id,
+        )
+
     def test_candidates_require_the_same_admitted_page_and_records(
         self,
     ) -> None:

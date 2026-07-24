@@ -538,9 +538,11 @@ class NJPVideoLibraryAdapter:
     def asset_candidates(
         self,
         body: bytes,
+        *,
+        cursor: str | None = None,
     ) -> tuple[VideoLibraryAssetCandidate, ...]:
         self._require_reviewed_shape()
-        admitted = self.parse_page(body, cursor=None)
+        admitted = self.parse_page(body, cursor=cursor)
         admitted_record_ids = {
             item["record_id"] for item in admitted["records"]
         }
