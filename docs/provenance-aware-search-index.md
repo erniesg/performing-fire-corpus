@@ -19,7 +19,10 @@ identify:
 
 Raw objects, media, full source prose, signed URLs, credentials, private
 proposal material, personal identifiers, and machine-local paths are forbidden
-from index fields.
+from index fields. Syntactically valid URI schemes, empty scheme references,
+and whitespace-obfuscated executable or object-store schemes are also
+forbidden; ordinary reviewed labels using a colon followed by a space remain
+representable.
 
 ## Query-time authority
 

@@ -858,6 +858,30 @@ class SearchIndexContractTests(unittest.TestCase):
                     documents=[value],
                 ),
             )
+        equal_time_lineage = copy.deepcopy(historical_lineage)
+        equal_time_lineage[0]["evidence_at"] = (
+            root_replacement["occurred_at"]
+        )
+        equal_root_event = copy.deepcopy(root_replacement)
+        equal_derived_event = copy.deepcopy(derived_replacement)
+        equal_authority = lineage_hash(equal_time_lineage)
+        equal_root_event["authority_snapshot_sha256"] = equal_authority
+        equal_derived_event["authority_snapshot_sha256"] = equal_authority
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                **base_arguments,
+                deletion_events=[
+                    equal_root_event,
+                    equal_derived_event,
+                ],
+                event_lineage_edges=equal_time_lineage,
+                authority_resolver=SyntheticIndexAuthority(
+                    policies,
+                    [equal_root_event, equal_derived_event],
+                    edges=[root_edge, derived_edge],
+                    documents=[value],
+                ),
+            )
         replaced = build_index_snapshot(
             **base_arguments,
             deletion_events=[root_replacement, derived_replacement],
@@ -969,9 +993,16 @@ class SearchIndexContractTests(unittest.TestCase):
             "Copied from \\\\server\\private\\catalogue.json",
             "s3://private-bucket/object",
             "s3:private-bucket/object",
+            "s3: private-bucket/object",
             "data:text/plain,private",
+            "data: text/plain,private",
+            "DATA: text/plain,private",
+            "data:",
             "urn:performing-fire:private",
+            "urn:",
             "javascript:alert(1)",
+            "javascript: alert(1)",
+            "JavaScript: alert(1)",
             "~/private/catalogue.json",
             "../private/catalogue.json",
         ):

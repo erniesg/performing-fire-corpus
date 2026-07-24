@@ -20,6 +20,8 @@ from performing_fire_corpus.redaction import sanitize
 UTC = timezone.utc
 _UNSAFE_VALUE = re.compile(
     r"(?:[A-Za-z][A-Za-z0-9+.-]*:(?![ \t])|"
+    r"(?:about|blob|data|file|ftp|ftps|gs|http|https|ipfs|ipns|"
+    r"javascript|mailto|r2|s3|ssh|tel|urn|ws|wss):[ \t]+|"
     r"x-amz-|signature=|credential=|full source prose)",
     re.IGNORECASE,
 )
@@ -547,7 +549,7 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
         )
         if any(
             _parse_time(edge["evidence_at"], "evidence_at")
-            > earliest_event
+            >= earliest_event
             or latest_event
             >= _parse_time(
                 edge["evidence_expires_at"], "evidence_expires_at"
@@ -724,7 +726,7 @@ def build_index_snapshot(
         )
         if any(
             _parse_time(edge["evidence_at"], "evidence_at")
-            > earliest_event
+            >= earliest_event
             or latest_event
             >= _parse_time(
                 edge["evidence_expires_at"], "evidence_expires_at"
