@@ -26,7 +26,10 @@ marks are excluded so decomposed equivalents cannot acquire distinct hashes;
 producers normalize them to NFC before admission. Colon forms, percent or
 entity syntax, path separators, locator syntax, and arbitrary Unicode symbols
 are outside the set and fail closed rather than being decoded or interpreted
-inside the index boundary.
+inside the index boundary. Context-sensitive Bearer/JWT, AWS access-key,
+GitHub-token, and labeled credential shapes are also rejected without
+forbidding ordinary artistic uses of words such as “signature” or
+“credentialed.”
 Field names are stored separately, so renderers can add label punctuation
 without persisting an ambiguous locator-like value.
 

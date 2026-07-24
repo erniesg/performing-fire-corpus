@@ -1042,6 +1042,14 @@ class SearchIndexContractTests(unittest.TestCase):
             "Cafe\u0301",
             "가",
             "か\u3099",
+            (
+                "Authorization Bearer "
+                "eyJhbGciOiJIUzI1NiJ9."
+                "eyJzdWIiOiIxMjM0NTY3ODkwIn0.synthetic"
+            ),
+            "AWS Access Key ID AKIAIOSFODNN7EXAMPLE",
+            "GitHub token " + "gh" + "p_" + ("synthetic" * 4),
+            "Credential abcdefghijklmnopqrstuvwxyz",
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
@@ -1067,6 +1075,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "录像档案（展览）",
             "Signature performance",
             "Credentialed artist",
+            "Token performance",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value

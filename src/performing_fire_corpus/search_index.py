@@ -33,6 +33,16 @@ _UNSAFE_VALUE = re.compile(
     r"(?:x-amz-|full source prose)",
     re.IGNORECASE,
 )
+_CREDENTIAL_VALUE = re.compile(
+    r"(?:"
+    r"\b(?:authorization|bearer|credential|password) +"
+    r"[A-Za-z0-9._-]{16,}\b|"
+    r"\b(?:akia|asia)[A-Z0-9]{16}\b|"
+    r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|"
+    r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"
+    r")",
+    re.IGNORECASE,
+)
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
     r"(?:^|[^A-Za-z0-9])(?:/|\\\\|~[\\/]|[A-Za-z]:[\\/])"
     r"|(?:^|[\\/])\.\.(?:[\\/]|$)"
@@ -160,6 +170,7 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
             _SAFE_VALUE.fullmatch(text) is None
             or unicodedata.normalize("NFC", text) != text
             or _UNSAFE_VALUE.search(text)
+            or _CREDENTIAL_VALUE.search(text)
             or _ABSOLUTE_OR_TRAVERSAL.search(text)
         ):
             raise SearchIndexError("raw content or locator is forbidden in the index")
