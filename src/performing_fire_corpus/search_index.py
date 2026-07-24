@@ -18,10 +18,17 @@ from performing_fire_corpus.redaction import sanitize
 
 
 UTC = timezone.utc
+_SAFE_VALUE = re.compile(
+    r"[A-Za-z0-9 .,!?;'\"()[\]{}_+\-"
+    r"\u00B7\u00C0-\u024F"
+    r"\u1100-\u11FF\u3040-\u30FF\u3130-\u318F"
+    r"\u3400-\u4DBF\u4E00-\u9FFF"
+    r"\uA960-\uA97F\uAC00-\uD7AF\uD7B0-\uD7FF"
+    r"\uF900-\uFAFF"
+    r"\u2013\u2014\u2018-\u201D\u2026]+"
+)
 _UNSAFE_VALUE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:|"
-    r"%[0-9a-f]{2}|&#(?:x[0-9a-f]+|[0-9]+);|[：﹕꞉︓]|"
-    r"x-amz-|signature=|credential=|full source prose)",
+    r"(?:x-amz-|signature|credential|full source prose)",
     re.IGNORECASE,
 )
 _ABSOLUTE_OR_TRAVERSAL = re.compile(
@@ -147,7 +154,11 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
         raise SearchIndexError("index fields must have unique canonical identities")
     for item in record["fields"]:
         text = str(item["value"])
-        if _UNSAFE_VALUE.search(text) or _ABSOLUTE_OR_TRAVERSAL.search(text):
+        if (
+            _SAFE_VALUE.fullmatch(text) is None
+            or _UNSAFE_VALUE.search(text)
+            or _ABSOLUTE_OR_TRAVERSAL.search(text)
+        ):
             raise SearchIndexError("raw content or locator is forbidden in the index")
         if (
             str(record["source_id"]).startswith("project-native-")

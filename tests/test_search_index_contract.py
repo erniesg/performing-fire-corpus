@@ -1015,7 +1015,17 @@ class SearchIndexContractTests(unittest.TestCase):
             "custom%253A payload",
             "custom&#58; payload",
             "custom&#x3a; payload",
+            "custom&#58 payload",
+            "custom&#x3a payload",
             "custom： payload",
+            "custom∶ payload",
+            "customː payload",
+            "custom˸ payload",
+            "custom։ payload",
+            "custom᠄ payload",
+            "custom⁚ payload",
+            "custom⦂ payload",
+            "custom፡ payload",
             "Title: Synthetic catalogue entry",
             "~/private/catalogue.json",
             "../private/catalogue.json",
@@ -1031,6 +1041,18 @@ class SearchIndexContractTests(unittest.TestCase):
             )
             with self.assertRaises(ValidationError):
                 Draft202012Validator(schema).validate(unsafe)
+
+        for safe_value in (
+            "Synthetic catalogue title",
+            "백남준 비디오 아카이브",
+            "Nam June Paik — 1980s",
+            "ビデオ アーカイブ",
+            "录像档案",
+        ):
+            safe = document()
+            safe["fields"][0]["value"] = safe_value
+            self.assertEqual(safe, validate_index_document(safe))
+            Draft202012Validator(schema).validate(safe)
 
         unsafe_policy = policy()
         unsafe_policy["review_trigger"] = "https://example.invalid/review"

@@ -19,10 +19,11 @@ identify:
 
 Raw objects, media, full source prose, signed URLs, credentials, private
 proposal material, personal identifiers, and machine-local paths are forbidden
-from index fields. Any alphabetic scheme-like `token:` sequence is forbidden,
-including empty, encoded, custom-protocol, or whitespace-obfuscated forms.
-Percent-encoded octets, numeric HTML entities, and Unicode colon lookalikes
-are rejected rather than decoded inside the index boundary.
+from index fields. Safe text is a positive normalized-character contract for
+Latin, Korean, Japanese, and CJK metadata plus a small reviewed punctuation
+set. Colon forms, percent or entity syntax, path separators, locator syntax,
+and arbitrary Unicode symbols are outside that set and fail closed rather
+than being decoded or interpreted inside the index boundary.
 Field names are stored separately, so renderers can add label punctuation
 without persisting an ambiguous locator-like value.
 
