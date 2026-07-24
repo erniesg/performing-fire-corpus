@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/derivation-lineage.json",
+  "title": "Complete derivation lineage snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "lineage_id",
+    "source_id",
+    "asset_id",
+    "root_receipt_id",
+    "receipt_ids",
+    "descendant_receipt_ids",
+    "manifest_ids",
+    "graph_sha256",
+    "complete",
+    "evidence_ref",
+    "lineage_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "derivation_lineage"},
+    "lineage_id": {
+      "type": "string",
+      "pattern": "^lineage_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "root_receipt_id": {
+      "type": "string",
+      "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "receipt_ids": {"$ref": "#/$defs/receipt_ids"},
+    "descendant_receipt_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+      }
+    },
+    "manifest_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^manifest_[a-z0-9][a-z0-9._-]{0,127}$"
+      }
+    },
+    "graph_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "complete": {"const": true},
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "lineage_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "receipt_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
+      }
+    }
+  }
+}

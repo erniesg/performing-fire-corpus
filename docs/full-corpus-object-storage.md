@@ -41,12 +41,20 @@ after all of these facts agree:
 3. A follow-up exact-key `HEAD` matches byte size, normalized MIME type, and
    SHA-256.
 4. The receipt names the stable source and asset IDs, rights-snapshot hash,
-   retention class, creation-run ID, and sanitized evidence reference.
+   retention class, creation-run ID, retrieval decision, and sanitized
+   evidence reference.
 
 A matching object may be reused without another create. A lost create response
-is treated as successful only when the immediate exact-key `HEAD` matches
-every immutable fact. An absent or conflicting object is held; a receipt never
-becomes verified merely because a request was attempted.
+is treated as a verified but non-owned
+`reused_after_ambiguous_create` only when the immediate exact-key `HEAD`
+matches every immutable fact. It is never same-proof deletion authority. An
+absent or conflicting object is held; a receipt never becomes verified merely
+because a request was attempted.
+
+The receipt ID binds every immutable receipt fact, including creation run,
+create disposition, size, MIME type, rights snapshot, retention class,
+retrieval decision, and evidence reference. Changing any fact without
+re-binding the ID fails validation.
 
 ## Receipts and crash reconciliation
 
@@ -64,6 +72,8 @@ succeeds:
 Both durable copies must equal the expected verified receipt. A mismatched
 copy, missing object, or conflicting exact-key `HEAD` produces a durable hold.
 Reconciliation never creates another object and never lists storage.
+The repository ledger accepts strict `object_receipt` records, applies the
+existing approved-rights gate, and enforces one durable receipt per exact key.
 
 ## Exact-content deduplication and provenance
 
@@ -77,7 +87,9 @@ approved < metadata_only < blocked
 ```
 
 An approved edge does not relax another source's block, retention class,
-consent, deletion obligation, or downstream-use restriction.
+consent, deletion obligation, or downstream-use restriction. Derivation
+manifests compute the effective decision from all input receipts and require
+every output to use a rights snapshot carrying that most restrictive decision.
 
 ## Raw-to-derived manifests
 
@@ -95,6 +107,12 @@ laptop carry these identifiers and object keys, never machine-local media
 paths. OCR, transcription, and video-understanding tools cannot silently
 replace or weaken the input authority.
 
+A complete derivation-lineage snapshot verifies each output receipt against
+its owning manifest, rejects disconnected or multiply owned descendants, and
+hash-binds the complete receipt/manifest graph. Retention targets are derived
+from that snapshot; callers cannot add an unrelated same-asset object or omit a
+known descendant.
+
 ## Retention, legal holds, and exact cleanup
 
 Retention work lists each exact raw and derived key. Derived targets are
@@ -108,8 +126,7 @@ States are:
 
 The only executable portable cleanup authority is
 `same_proof_disposable`. It requires every target receipt to identify the same
-creation run and a create disposition of `created` or
-`recovered_after_lost_response`. It never authorizes deletion of a reused or pre-existing object.
+creation run and a create disposition of `created`. It never authorizes deletion of a reused or pre-existing object.
 Ordinary corpus data remains `held_for_review`, even after retention expiry.
 
 Exact cleanup verifies the current object metadata before deletion, deletes
@@ -117,6 +134,13 @@ only the named key, confirms that exact key is absent, and emits a deterministic
 tombstone. An already absent exact key is an idempotent tombstone state. A
 provider error or conflicting object becomes `failed_cleanup`; the worker does
 not broaden scope or include the provider response in evidence.
+
+Every retention work item binds both a complete lineage hash and a current retention/legal-hold authority
+hash. That authority has a bounded validity
+window and normalized whole-second UTC timestamps. Both records are
+revalidated immediately before deletion. A newly active hold, expired
+authority, changed retention decision, or changed lineage stops cleanup and
+requires rebuilt work.
 
 ## Production boundary
 

@@ -17,6 +17,7 @@
     "media_type",
     "rights_snapshot_sha256",
     "retention_class",
+    "retrieval_decision",
     "redaction_state"
   ],
   "properties": {
@@ -66,6 +67,9 @@
     "retention_class": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "retrieval_decision": {
+      "enum": ["approved", "metadata_only", "blocked"]
     },
     "redaction_state": {
       "type": "string",

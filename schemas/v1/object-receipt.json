@@ -18,6 +18,7 @@
     "rights_snapshot_sha256",
     "retention_class",
     "creation_run_id",
+    "retrieval_decision",
     "evidence_ref",
     "verification_state",
     "create_disposition"
@@ -72,13 +73,16 @@
       "type": "string",
       "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
     },
+    "retrieval_decision": {
+      "enum": ["approved", "metadata_only", "blocked"]
+    },
     "evidence_ref": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
     },
     "verification_state": {"const": "verified"},
     "create_disposition": {
-      "enum": ["created", "reused", "recovered_after_lost_response"]
+      "enum": ["created", "reused", "reused_after_ambiguous_create"]
     }
   },
   "allOf": [

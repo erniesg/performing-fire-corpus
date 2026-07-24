@@ -14,7 +14,8 @@
     "byte_size",
     "media_type",
     "rights_snapshot_sha256",
-    "retention_class"
+    "retention_class",
+    "retrieval_decision"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -50,6 +51,9 @@
     "retention_class": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "retrieval_decision": {
+      "enum": ["approved", "metadata_only", "blocked"]
     }
   }
 }

@@ -20,8 +20,26 @@ from performing_fire_corpus.redaction import sanitize
 
 
 UTC = timezone.utc
-RECORD_TYPES = ("source", "asset", "rights", "job", "lease", "object", "evidence")
-ID_FIELDS = {record_type: f"{record_type}_id" for record_type in RECORD_TYPES}
+RECORD_TYPES = (
+    "source",
+    "asset",
+    "rights",
+    "job",
+    "lease",
+    "object",
+    "object_receipt",
+    "evidence",
+)
+ID_FIELDS = {
+    "source": "source_id",
+    "asset": "asset_id",
+    "rights": "rights_id",
+    "job": "job_id",
+    "lease": "lease_id",
+    "object": "object_id",
+    "object_receipt": "receipt_id",
+    "evidence": "evidence_id",
+}
 ASSET_STATES = (
     "discovered",
     "metadata_verified",
@@ -83,13 +101,21 @@ def _canonical(value: Any) -> str:
 
 
 def _schema_resource(record_type: str) -> Any:
+    schema_name = {
+        "object_receipt": "object-receipt",
+    }.get(record_type, record_type)
     packaged = files("performing_fire_corpus").joinpath(
-        "schemas", "v1", f"{record_type}.json"
+        "schemas", "v1", f"{schema_name}.json"
     )
     if packaged.is_file():
         return packaged
     # Source checkouts retain the public contracts at repository root.
-    return Path(__file__).resolve().parents[2] / "schemas" / "v1" / f"{record_type}.json"
+    return (
+        Path(__file__).resolve().parents[2]
+        / "schemas"
+        / "v1"
+        / f"{schema_name}.json"
+    )
 
 
 def validate_record(record: Mapping[str, Any]) -> None:
@@ -272,18 +298,24 @@ class Ledger:
                 existing = self.get_record(record_type, record_id)
                 if existing is not None and existing != value:
                     raise LedgerError(f"conflicting upsert for stable identifier {record_id}")
-                if record_type == "object":
+                if record_type in {"object", "object_receipt"}:
                     self._require_approved_rights(str(value["asset_id"]))
                     for row in self._connection.execute(
-                        "SELECT record_id, body FROM records WHERE record_type='object'"
+                        """SELECT record_type, record_id, body
+                           FROM records
+                           WHERE record_type IN ('object', 'object_receipt')"""
                     ):
                         other = json.loads(row["body"])
                         if (
                             other["object_key"] == value["object_key"]
-                            and row["record_id"] != record_id
+                            and (
+                                row["record_type"] != record_type
+                                or row["record_id"] != record_id
+                            )
                         ):
                             raise LedgerError(
-                                f"object key already has receipt {row['record_id']}"
+                                "object key already has durable receipt "
+                                f"{row['record_id']}"
                             )
                 self._connection.execute(
                     """INSERT INTO records(record_type, record_id, body, updated_at)
@@ -320,6 +352,19 @@ class Ledger:
 
         for row in self._connection.execute(
             "SELECT body FROM records WHERE record_type='object'"
+        ):
+            record = json.loads(row["body"])
+            if record.get("object_key") == object_key:
+                return record
+        return None
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        """Return the unique full-corpus receipt for one immutable key."""
+
+        for row in self._connection.execute(
+            "SELECT body FROM records WHERE record_type='object_receipt'"
         ):
             record = json.loads(row["body"])
             if record.get("object_key") == object_key:

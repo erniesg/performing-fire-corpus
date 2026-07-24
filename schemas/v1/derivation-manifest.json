@@ -25,6 +25,7 @@
     "input_rights_snapshot_sha256",
     "output_rights_snapshot_sha256",
     "rights_inheritance",
+    "effective_retrieval_decision",
     "redaction_state",
     "evidence_ref"
   ],
@@ -75,6 +76,9 @@
     "input_rights_snapshot_sha256": {"$ref": "#/$defs/hashes"},
     "output_rights_snapshot_sha256": {"$ref": "#/$defs/hashes"},
     "rights_inheritance": {"const": "most_restrictive"},
+    "effective_retrieval_decision": {
+      "enum": ["approved", "metadata_only", "blocked"]
+    },
     "redaction_state": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
