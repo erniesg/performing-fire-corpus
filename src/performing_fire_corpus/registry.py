@@ -10,6 +10,12 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
+from performing_fire_corpus.policy import (
+    PUBLIC_SOURCE_HOSTS,
+    AcquisitionPolicyError,
+    validate_public_url,
+)
+
 
 _SOURCE_ID = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 _UNSAFE_IDENTIFIER = re.compile(
@@ -68,7 +74,13 @@ def canonicalize_public_url(value: str) -> str:
     path = parsed.path or "/"
     if path != "/":
         path = path.rstrip("/")
-    return urlunsplit(("https", host, path, "", ""))
+    normalized = urlunsplit(("https", host, path, "", ""))
+    try:
+        return validate_public_url(
+            normalized, allowed_hosts=PUBLIC_SOURCE_HOSTS
+        ).url
+    except AcquisitionPolicyError as error:
+        raise RegistryError("public locator violates acquisition host policy") from error
 
 
 def _registry_schema() -> dict[str, Any]:
@@ -191,14 +203,51 @@ def validate_registry_migration(
     removed_sources = set(previous_sources) - set(candidate_sources)
     if removed_sources:
         raise RegistryError("reviewed source identifiers cannot be removed or rewritten")
+
+    previous_alias_owners = {
+        alias: source_id
+        for source_id, source in previous_sources.items()
+        for alias in source["aliases"]
+    }
+    candidate_alias_owners = {
+        alias: source_id
+        for source_id, source in candidate_sources.items()
+        for alias in source["aliases"]
+    }
+    if any(
+        candidate_alias_owners.get(alias) != owner
+        for alias, owner in previous_alias_owners.items()
+    ):
+        raise RegistryError("reviewed source aliases cannot be removed or rebound")
+
     for source_id, earlier in previous_sources.items():
         later = candidate_sources[source_id]
         if (
             earlier["source_class"] != later["source_class"]
             or earlier["host_policy_id"] != later["host_policy_id"]
+            or earlier["canonical_url"] != later["canonical_url"]
         ):
             raise RegistryError("reviewed source identity semantics cannot change")
-        earlier_endpoints = {item["endpoint_id"] for item in earlier["endpoints"]}
-        later_endpoints = {item["endpoint_id"] for item in later["endpoints"]}
-        if not earlier_endpoints.issubset(later_endpoints):
+        earlier_endpoints = {
+            item["endpoint_id"]: item for item in earlier["endpoints"]
+        }
+        later_endpoints = {
+            item["endpoint_id"]: item for item in later["endpoints"]
+        }
+        if not set(earlier_endpoints).issubset(later_endpoints):
             raise RegistryError("reviewed endpoint identifiers cannot be removed")
+        for endpoint_id, earlier_endpoint in earlier_endpoints.items():
+            later_endpoint = later_endpoints[endpoint_id]
+            if (
+                earlier_endpoint["endpoint_kind"]
+                != later_endpoint["endpoint_kind"]
+                or earlier_endpoint["public_url"] != later_endpoint["public_url"]
+                or (
+                    "platform_identifier" in earlier_endpoint
+                    and earlier_endpoint["platform_identifier"]
+                    != later_endpoint.get("platform_identifier")
+                )
+            ):
+                raise RegistryError(
+                    "reviewed endpoint identifiers cannot be silently rebound"
+                )

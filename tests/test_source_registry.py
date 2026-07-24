@@ -119,6 +119,12 @@ class SourceRegistryTests(unittest.TestCase):
             "https://user:password@example.test/",
             "https://example.test/path?token=value",
             "https://example.test/path#fragment",
+            "https://127.0.0.1/",
+            "https://169.254.169.254/latest/meta-data",
+            "https://10.0.0.1/",
+            "https://example.com./path",
+            "https://antiegg.kr/path%0d%0aheader",
+            "https://antiegg.kr/path%09tab",
         ):
             with self.subTest(unsafe_url=unsafe_url), self.assertRaises(
                 RegistryError
@@ -153,6 +159,20 @@ class SourceRegistryTests(unittest.TestCase):
         rewritten["sources"][0]["source_id"] = "antiegg-editorial"
         with self.assertRaises(RegistryError):
             validate_registry_migration(self.registry, rewritten)
+
+        alias_rebound = copy.deepcopy(self.registry)
+        alias = alias_rebound["sources"][0]["aliases"].pop()
+        alias_rebound["sources"][1]["aliases"].append(alias)
+        alias_rebound["sources"][1]["aliases"].sort()
+        with self.assertRaises(RegistryError):
+            validate_registry_migration(self.registry, alias_rebound)
+
+        endpoint_rebound = copy.deepcopy(self.registry)
+        endpoint = endpoint_rebound["sources"][0]["endpoints"][0]
+        endpoint["endpoint_kind"] = "homepage"
+        endpoint["public_url"] = "https://njp.ggcf.kr/"
+        with self.assertRaises(RegistryError):
+            validate_registry_migration(self.registry, endpoint_rebound)
 
 
 if __name__ == "__main__":
