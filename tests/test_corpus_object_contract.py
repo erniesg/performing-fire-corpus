@@ -98,10 +98,13 @@ class FakeCorpusAuthority:
         self,
         receipts: list[Mapping[str, object]],
         manifests: list[Mapping[str, object]],
+        tombstones: list[Mapping[str, object]] | None = None,
     ) -> None:
         self.receipts = [dict(value) for value in receipts]
         self.manifests = [dict(value) for value in manifests]
-        self.tombstones: list[dict[str, object]] = []
+        self.tombstones = [
+            dict(value) for value in ([] if tombstones is None else tombstones)
+        ]
 
     def get_corpus_receipt_by_key(
         self, object_key: str
@@ -136,6 +139,16 @@ class FakeCorpusAuthority:
             for value in self.manifests
             if value["source_id"] == source_id and value["asset_id"] == asset_id
         ]
+
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> dict[str, object] | None:
+        matches = [
+            value
+            for value in self.tombstones
+            if value["deleted_object_key"] == object_key
+        ]
+        return None if not matches else dict(matches[0])
 
     def exact_cleanup_guard(self) -> object:
         return nullcontext(self)
@@ -417,6 +430,21 @@ class ImmutableCreateTests(unittest.TestCase):
                     receipt_authority=FakeCorpusAuthority([durable], []),
                 )
                 self.assertEqual(durable, rerun)
+
+    def test_absent_key_with_durable_receipt_is_never_recreated(self) -> None:
+        durable = receipt(
+            object_key=self.key,
+            create_disposition="created",
+        )
+        storage = FakeStorage()
+        with self.assertRaises(CorpusObjectError) as raised:
+            self.call(
+                storage,
+                receipt_authority=FakeCorpusAuthority([durable], []),
+            )
+        self.assertEqual("durable_receipt_object_absent", raised.exception.code)
+        self.assertEqual([], storage.created)
+        self.assertEqual([], storage.deleted)
 
     def test_inapplicable_transformation_fails_before_storage_is_touched(self) -> None:
         storage = FakeStorage()
@@ -974,6 +1002,115 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(first["tombstones"], second["tombstones"])
         self.assertEqual(first["tombstones"], self.object_authority.tombstones)
         self.assertEqual(0, storage.list_calls)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "raw.bin"
+            path.write_bytes(b"synthetic raw object")
+            head_calls = storage.head_calls
+            with self.assertRaises(CorpusObjectError) as raised:
+                immutable_create_and_verify(
+                    storage,
+                    key=self.raw_key,
+                    path=path,
+                    object_kind="raw",
+                    source_id="source_synthetic_001",
+                    asset_id="asset_synthetic_001",
+                    byte_size=20,
+                    media_type="video/mp4",
+                    sha256=SHA,
+                    rights_snapshot_sha256=RIGHTS_SHA,
+                    retention_class="reviewed-retain-30d",
+                    creation_run_id="run_synthetic_001",
+                    retrieval_decision="approved",
+                    evidence_ref="evidence:issue-37",
+                    receipt_authority=self.object_authority,
+                )
+        self.assertEqual("object_tombstoned", raised.exception.code)
+        self.assertEqual(head_calls, storage.head_calls)
+        self.assertEqual([], storage.created)
+
+    def test_rebuilt_terminal_resume_reuses_the_authoritative_tombstones(self) -> None:
+        work = self.make_work()
+        storage = FakeStorage()
+        for item in (self.raw_receipt, self.derived_receipt):
+            storage.objects[str(item["object_key"])] = {
+                "byte_size": item["byte_size"],
+                "media_type": item["media_type"],
+                "sha256": item["sha256"],
+            }
+        first = self.execute(storage, work)
+        rebuilt = self.make_work(current_time="2026-07-27T00:00:00Z")
+        second = self.execute(
+            storage,
+            rebuilt,
+            current_time="2026-07-27T00:00:00Z",
+        )
+        self.assertEqual(first["tombstones"], second["tombstones"])
+        self.assertEqual(first["tombstones"], self.object_authority.tombstones)
+
+    def test_cleanup_preflights_tombstone_capacity_before_storage_io(self) -> None:
+        prefix = "p" * 200 + "/"
+        source_id = "source_" + "s" * 80
+        asset_id = "asset_" + "a" * 80
+        near_limit_key = raw_object_key(
+            prefix,
+            source_id,
+            asset_id,
+            SHA,
+        )
+        self.assertLessEqual(len(near_limit_key), 512)
+        near_limit = receipt(
+            object_key=near_limit_key,
+            source_id=source_id,
+            asset_id=asset_id,
+        )
+        authority = FakeCorpusAuthority([near_limit], [])
+        lineage = build_derivation_lineage(
+            lineage_id="lineage_near_limit_001",
+            authority=authority,
+            root_receipt_id=str(near_limit["receipt_id"]),
+            evidence_ref="evidence:issue-37",
+        )
+        retention_authority = build_retention_authority(
+            authority_id="retention_authority_near_limit_001",
+            source_id=source_id,
+            asset_id=asset_id,
+            retention_class="reviewed-retain-30d",
+            expires_at="2026-07-25T00:00:00Z",
+            legal_hold_state="none",
+            legal_hold_basis_sha256=None,
+            decided_at="2026-07-24T00:00:00Z",
+            valid_until="2026-08-01T00:00:00Z",
+            evidence_ref="evidence:issue-37",
+        )
+        work = build_retention_work(
+            work_id="retention_work_near_limit_001",
+            object_authority=authority,
+            lineage_snapshot=lineage,
+            retention_authority=retention_authority,
+            current_time="2026-07-26T00:00:00Z",
+            cleanup_authority="same_proof_disposable",
+            cleanup_run_id="run_synthetic_001",
+            reason_code="proof_teardown",
+            evidence_ref="evidence:issue-37",
+        )
+        storage = FakeStorage()
+        storage.objects[near_limit_key] = {
+            "byte_size": near_limit["byte_size"],
+            "media_type": near_limit["media_type"],
+            "sha256": near_limit["sha256"],
+        }
+        with self.assertRaises(CorpusObjectError) as raised:
+            execute_exact_cleanup(
+                storage,
+                work,
+                object_authority=authority,
+                current_retention_authority=retention_authority,
+                current_lineage_snapshot=lineage,
+                current_time="2026-07-26T00:00:00Z",
+            )
+        self.assertEqual("invalid_object_key", raised.exception.code)
+        self.assertEqual(0, storage.head_calls)
+        self.assertEqual([], storage.deleted)
 
     def test_failed_exact_cleanup_is_durable_and_does_not_broaden_scope(self) -> None:
         work = self.make_work(
@@ -1343,6 +1480,23 @@ class RetentionTests(unittest.TestCase):
                     reason_code="proof_teardown",
                     evidence_ref="evidence:issue-37",
                 )
+                for state in (
+                    "metadata_verified",
+                    "approved_for_ingest",
+                    "transfer_pending",
+                    "raw_in_object_store",
+                    "extraction_pending",
+                ):
+                    ledger.transition_asset(
+                        "asset_synthetic_001",
+                        state,
+                        operation_id=f"cleanup_guard_{state}",
+                    )
+                ledger.transition_asset(
+                    "asset_synthetic_001",
+                    "failed_retryable",
+                    operation_id="cleanup_guard_retryable",
+                )
                 storage = FakeStorage()
                 for item in (self.raw_receipt, self.derived_receipt):
                     storage.objects[str(item["object_key"])] = {
@@ -1358,22 +1512,28 @@ class RetentionTests(unittest.TestCase):
                     current_lineage_snapshot=lineage,
                     current_time="2026-07-26T00:00:00Z",
                 )
-                for state in (
-                    "metadata_verified",
-                    "approved_for_ingest",
-                    "transfer_pending",
-                ):
-                    ledger.transition_asset(
-                        "asset_synthetic_001",
-                        state,
-                        operation_id=f"cleanup_guard_{state}",
-                    )
+                self.assertEqual(
+                    "blocked",
+                    ledger.asset_state("asset_synthetic_001"),
+                )
                 with self.assertRaises(InvalidTransition):
                     ledger.transition_asset(
                         "asset_synthetic_001",
-                        "raw_in_object_store",
-                        operation_id="cleanup_guard_raw_absent",
+                        "extracting",
+                        operation_id="cleanup_guard_post_delete",
                     )
+                tombstone = result["tombstones"][0]
+                with self.assertRaises(LedgerError):
+                    ledger.upsert(tombstone)
+                with self.assertRaises(LedgerError):
+                    ledger.record_cleanup_tombstones([tombstone])
+                mismatched = copy.deepcopy(tombstone)
+                mismatched["deleted_object_sha256"] = hashlib.sha256(
+                    b"forged tombstone hash"
+                ).hexdigest()
+                with ledger.exact_cleanup_guard():
+                    with self.assertRaises(LedgerError):
+                        ledger.record_cleanup_tombstones([mismatched])
         self.assertEqual("complete", result["state"])
         self.assertEqual({self.raw_key, self.derived_key}, set(storage.deleted))
 

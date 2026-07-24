@@ -158,6 +158,18 @@ def validate_record(record: Mapping[str, Any]) -> None:
             raise LedgerError(
                 "derivation manifest failed its content-bound runtime contract"
             ) from error
+    if record_type == "object_tombstone":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_object_tombstone,
+        )
+
+        try:
+            validate_object_tombstone(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "object tombstone failed its content-bound runtime contract"
+            ) from error
 
 
 def _assert_sanitized(value: Any, *, field: str = "payload") -> None:
@@ -198,6 +210,7 @@ class Ledger:
         )
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._cleanup_guard_active = False
         self._connection.execute("PRAGMA foreign_keys = ON")
         if self.database != ":memory:":
             self._connection.execute("PRAGMA journal_mode = WAL")
@@ -314,6 +327,10 @@ class Ledger:
         value = dict(record)
         _assert_sanitized(value)
         record_type = str(value["record_type"])
+        if record_type == "object_tombstone":
+            raise LedgerError(
+                "object tombstones require the exact cleanup guard"
+            )
         record_id = str(value[ID_FIELDS[record_type]])
         operation_subject = f"{record_type}:{record_id}"
         now = utc_text()
@@ -461,30 +478,79 @@ class Ledger:
             key=lambda record: str(record["manifest_id"]),
         )
 
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> dict[str, Any] | None:
+        """Return the sole authoritative tombstone for one exact object key."""
+
+        matches: list[dict[str, Any]] = []
+        for row in self._connection.execute(
+            "SELECT body FROM records WHERE record_type='object_tombstone'"
+        ):
+            value = json.loads(row["body"])
+            if value.get("deleted_object_key") == object_key:
+                matches.append(value)
+        if len(matches) > 1:
+            raise LedgerError(
+                "multiple tombstones claim the same exact object key"
+            )
+        return None if not matches else matches[0]
+
     @contextmanager
     def exact_cleanup_guard(self) -> Iterable["Ledger"]:
         """Freeze authoritative receipt/manifest writes during exact cleanup."""
 
         with self._lock:
+            if self._cleanup_guard_active:
+                raise LedgerError("exact cleanup guards may not be nested")
             self._connection.execute("BEGIN IMMEDIATE")
+            self._cleanup_guard_active = True
             try:
                 yield self
                 self._connection.commit()
             except Exception:
                 self._connection.rollback()
                 raise
+            finally:
+                self._cleanup_guard_active = False
 
     def record_cleanup_tombstones(
         self, tombstones: Iterable[Mapping[str, object]]
     ) -> None:
         """Persist exact-key absence under the active cleanup transaction."""
 
+        if not self._cleanup_guard_active or not self._connection.in_transaction:
+            raise LedgerError(
+                "object tombstones require the active exact cleanup guard"
+            )
         now = utc_text()
+        affected_assets: set[str] = set()
         for tombstone in tombstones:
             validate_record(tombstone)
             value = dict(tombstone)
             _assert_sanitized(value)
             tombstone_id = str(value["tombstone_id"])
+            receipt = self.get_corpus_receipt(str(value["receipt_id"]))
+            if receipt is None or any(
+                receipt.get(receipt_field) != value.get(tombstone_field)
+                for receipt_field, tombstone_field in (
+                    ("receipt_id", "receipt_id"),
+                    ("source_id", "source_id"),
+                    ("asset_id", "asset_id"),
+                    ("object_key", "deleted_object_key"),
+                    ("sha256", "deleted_object_sha256"),
+                )
+            ):
+                raise LedgerError(
+                    "tombstone must match its authoritative object receipt"
+                )
+            existing_for_key = self.get_cleanup_tombstone_by_key(
+                str(value["deleted_object_key"])
+            )
+            if existing_for_key is not None and existing_for_key != value:
+                raise LedgerError(
+                    "conflicting tombstone for exact object key"
+                )
             existing = self.get_record("object_tombstone", tombstone_id)
             if existing is not None and existing != value:
                 raise LedgerError(
@@ -497,6 +563,37 @@ class Ledger:
                    DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at""",
                 (tombstone_id, _canonical(value), now),
             )
+            affected_assets.add(str(value["asset_id"]))
+        for asset_id in affected_assets:
+            row = self._connection.execute(
+                "SELECT state, resume_state FROM asset_states WHERE asset_id=?",
+                (asset_id,),
+            ).fetchone()
+            state = None if row is None else str(row["state"])
+            resume_state = (
+                None
+                if row is None or row["resume_state"] is None
+                else str(row["resume_state"])
+            )
+            presence_state = (
+                state in ASSET_STATES
+                and ASSET_STATES.index(str(state))
+                >= ASSET_STATES.index("raw_in_object_store")
+            )
+            presence_resume = (
+                state == "failed_retryable"
+                and resume_state in ASSET_STATES
+                and ASSET_STATES.index(str(resume_state))
+                >= ASSET_STATES.index("raw_in_object_store")
+            )
+            if presence_state or presence_resume:
+                self._connection.execute(
+                    """UPDATE asset_states
+                       SET state='blocked', resume_state=NULL,
+                           blocker='object_tombstoned', updated_at=?
+                       WHERE asset_id=?""",
+                    (now, asset_id),
+                )
 
     def _require_approved_rights(self, asset_id: str) -> None:
         rows = self._connection.execute(

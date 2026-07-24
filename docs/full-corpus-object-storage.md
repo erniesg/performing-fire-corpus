@@ -55,6 +55,10 @@ is treated as a verified but non-owned
 matches every immutable fact. It is never same-proof deletion authority. An
 absent or conflicting object is held; a receipt never becomes verified merely
 because a request was attempted.
+Create preflight also reserves enough key capacity for the terminal tombstone
+namespace. An absent key with a durable receipt is a reconciliation hold, not
+permission to recreate it. A durable tombstone is terminal for that exact key
+and stops before any storage request.
 
 The receipt ID binds every immutable receipt fact, including creation run,
 create disposition, size, MIME type, rights snapshot, retention class,
@@ -154,7 +158,12 @@ only the named key, confirms that exact key is absent, and emits a deterministic
 tombstone. Every target, receipt, authority fact, and namespace is completely
 preflighted before the first storage `HEAD` or exact delete. Deleted and already
 absent objects converge on the same immutable `absent_exact_key` tombstone, so
-reruns cannot change a tombstone payload under the same identity. A
+reruns, including rebuilt work with a later evaluation time, return the
+authoritative tombstone rather than changing its payload. Tombstone identity
+binds its work, receipt, source, asset, deleted key and hash, reason, and
+evidence facts. Every generated tombstone key is validated before the first
+storage request, so an overlong lifecycle namespace cannot be discovered only
+after deletion. A
 provider error or conflicting object becomes `failed_cleanup`; the worker does
 not broaden scope or include the provider response in evidence.
 
@@ -166,8 +175,10 @@ write guard across that validation and the exact-key operations, so a new
 receipt or manifest cannot race a supposedly complete cleanup snapshot. Each
 target is resolved again by exact key from that guarded ledger and must equal
 the work receipt. Successful absence tombstones are persisted under the same
-guard, and tombstoned receipts no longer satisfy object-present asset-state
-gates. A newly active hold, expired
+guard; ordinary ledger upsert cannot create deletion evidence. Tombstoning an
+asset already in an object-present or downstream state atomically moves it to
+`blocked` with no resumable present state. Tombstoned receipts no longer
+satisfy object-present asset-state gates. A newly active hold, expired
 authority, changed retention decision, or changed lineage stops cleanup and
 requires rebuilt work.
 

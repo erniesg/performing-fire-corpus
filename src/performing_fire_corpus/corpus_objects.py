@@ -149,6 +149,10 @@ class CorpusAuthority(Protocol):
         self, source_id: str, asset_id: str
     ) -> Iterable[Mapping[str, object]]: ...
 
+    def get_cleanup_tombstone_by_key(
+        self, object_key: str
+    ) -> Mapping[str, object] | None: ...
+
     def exact_cleanup_guard(self) -> Any: ...
 
     def record_cleanup_tombstones(
@@ -548,11 +552,54 @@ def immutable_create_and_verify(
     elif key != expected_key:
         _fail("object_key_mismatch", "The object key does not match its facts.")
 
+    # Every object namespace must leave enough room for its terminal lifecycle
+    # record.  Validate that capacity before reading the file or touching
+    # storage, even though the actual tombstone identity is derived later.
+    tombstone_object_key(
+        prefix,
+        source_id,
+        asset_id,
+        f"tombstone_{'0' * 64}",
+        sha256,
+    )
+
     actual_size, actual_sha256 = _file_digest(Path(path))
     if actual_size != byte_size or actual_sha256 != sha256:
         _fail(
             "object_file_mismatch",
             "The bounded file does not match the declared size and hash.",
+        )
+
+    durable = receipt_authority.get_corpus_receipt_by_key(key)
+    if durable is not None:
+        durable = _validate_receipt(durable)
+        expected_durable = _verified_receipt(
+            key=key,
+            object_kind=object_kind,
+            source_id=source_id,
+            asset_id=asset_id,
+            transformation_id=transformation_id,
+            byte_size=byte_size,
+            media_type=media_type,
+            sha256=sha256,
+            rights_snapshot_sha256=rights_snapshot_sha256,
+            retention_class=retention_class,
+            creation_run_id=creation_run_id,
+            retrieval_decision=retrieval_decision,
+            evidence_ref=evidence_ref,
+            create_disposition=str(durable["create_disposition"]),
+        )
+        if durable != expected_durable:
+            _fail(
+                "durable_receipt_conflict",
+                "Hold the exact key and its durable receipt for review.",
+            )
+    durable_tombstone = receipt_authority.get_cleanup_tombstone_by_key(key)
+    if durable_tombstone is not None:
+        validate_object_tombstone(durable_tombstone)
+        _fail(
+            "object_tombstoned",
+            "Keep the exact key absent and review authority before reacquisition.",
         )
 
     try:
@@ -571,32 +618,14 @@ def immutable_create_and_verify(
                 "Hold the exact key for operator conflict review.",
             )
         disposition = "reused"
-        durable = receipt_authority.get_corpus_receipt_by_key(key)
         if durable is not None:
-            durable = _validate_receipt(durable)
-            expected_durable = _verified_receipt(
-                key=key,
-                object_kind=object_kind,
-                source_id=source_id,
-                asset_id=asset_id,
-                transformation_id=transformation_id,
-                byte_size=byte_size,
-                media_type=media_type,
-                sha256=sha256,
-                rights_snapshot_sha256=rights_snapshot_sha256,
-                retention_class=retention_class,
-                creation_run_id=creation_run_id,
-                retrieval_decision=retrieval_decision,
-                evidence_ref=evidence_ref,
-                create_disposition=str(durable["create_disposition"]),
-            )
-            if durable != expected_durable:
-                _fail(
-                    "durable_receipt_conflict",
-                    "Hold the exact key and its durable receipt for review.",
-                )
             return durable
     else:
+        if durable is not None:
+            _fail(
+                "durable_receipt_object_absent",
+                "Reconcile retention and tombstone authority; never recreate this key.",
+            )
         disposition = "created"
         try:
             created = storage.create_file_if_absent(
@@ -1850,14 +1879,18 @@ def _tombstone(
     work: Mapping[str, object],
     target: Mapping[str, object],
 ) -> dict[str, object]:
+    identity = {
+        "retention_work_id": work["retention_work_id"],
+        "receipt_id": target["receipt_id"],
+        "source_id": work["source_id"],
+        "asset_id": work["asset_id"],
+        "deleted_object_key": target["object_key"],
+        "deleted_object_sha256": target["sha256"],
+        "reason_code": work["reason_code"],
+        "evidence_ref": work["evidence_ref"],
+    }
     digest = hashlib.sha256(
-        _canonical(
-            {
-                "object_key": target["object_key"],
-                "retention_work_id": work["retention_work_id"],
-                "sha256": target["sha256"],
-            }
-        )
+        _canonical(identity)
     ).hexdigest()
     tombstone_id = f"tombstone_{digest}"
     key = tombstone_object_key(
@@ -1871,18 +1904,127 @@ def _tombstone(
         "schema_version": 1,
         "record_type": "object_tombstone",
         "tombstone_id": tombstone_id,
+        **identity,
+        "tombstone_object_key": key,
+        "deletion_state": "absent_exact_key",
+        "deleted_at": work["evaluated_at"],
+    }
+
+
+def validate_object_tombstone(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the content-bound identity and namespace of one tombstone."""
+
+    required = {
+        "schema_version",
+        "record_type",
+        "tombstone_id",
+        "retention_work_id",
+        "receipt_id",
+        "source_id",
+        "asset_id",
+        "deleted_object_key",
+        "deleted_object_sha256",
+        "tombstone_object_key",
+        "deletion_state",
+        "deleted_at",
+        "reason_code",
+        "evidence_ref",
+    }
+    if (
+        set(value) != required
+        or value.get("schema_version") != 1
+        or value.get("record_type") != "object_tombstone"
+        or value.get("deletion_state") != "absent_exact_key"
+    ):
+        _fail(
+            "invalid_object_tombstone",
+            "Provide one strict version-1 exact-key tombstone.",
+        )
+    identity = {
+        "retention_work_id": _require(
+            value.get("retention_work_id"),
+            _RETENTION_WORK_ID,
+            "retention_work_id",
+        ),
+        "receipt_id": _require(
+            value.get("receipt_id"),
+            re.compile(r"^receipt_[a-z0-9][a-z0-9._-]{0,127}$"),
+            "receipt_id",
+        ),
+        "source_id": _require(value.get("source_id"), _SOURCE_ID, "source_id"),
+        "asset_id": _require(value.get("asset_id"), _ASSET_ID, "asset_id"),
+        "deleted_object_key": value.get("deleted_object_key"),
+        "deleted_object_sha256": _require_sha256(
+            value.get("deleted_object_sha256"),
+            "deleted_object_sha256",
+        ),
+        "reason_code": _require(
+            value.get("reason_code"), _SAFE_LABEL, "reason_code"
+        ),
+        "evidence_ref": _require(
+            value.get("evidence_ref"), _EVIDENCE_REF, "evidence_ref"
+        ),
+    }
+    deleted_key = identity["deleted_object_key"]
+    if not isinstance(deleted_key, str) or not _OBJECT_KEY.fullmatch(deleted_key):
+        _fail("invalid_object_key", "Provide one exact deleted object key.")
+    _parse_time(value.get("deleted_at"), "deleted_at")
+    expected_id = "tombstone_" + hashlib.sha256(_canonical(identity)).hexdigest()
+    if value.get("tombstone_id") != expected_id:
+        _fail(
+            "tombstone_identity_mismatch",
+            "Rebuild the tombstone from the exact durable cleanup facts.",
+        )
+    expected_key = tombstone_object_key(
+        _prefix_from_key(deleted_key),
+        str(identity["source_id"]),
+        str(identity["asset_id"]),
+        expected_id,
+        str(identity["deleted_object_sha256"]),
+    )
+    if value.get("tombstone_object_key") != expected_key:
+        _fail(
+            "tombstone_key_mismatch",
+            "Use the content-bound tombstone namespace.",
+        )
+    _assert_safe_metadata(value)
+    return dict(value)
+
+
+def _planned_tombstone(
+    work: Mapping[str, object],
+    target: Mapping[str, object],
+    *,
+    object_authority: CorpusAuthority,
+) -> tuple[dict[str, object], bool]:
+    existing = object_authority.get_cleanup_tombstone_by_key(
+        str(target["object_key"])
+    )
+    if existing is None:
+        planned = validate_object_tombstone(_tombstone(work, target))
+        return planned, False
+    planned = validate_object_tombstone(existing)
+    expected_bindings = {
         "retention_work_id": work["retention_work_id"],
         "receipt_id": target["receipt_id"],
         "source_id": work["source_id"],
         "asset_id": work["asset_id"],
         "deleted_object_key": target["object_key"],
         "deleted_object_sha256": target["sha256"],
-        "tombstone_object_key": key,
-        "deletion_state": "absent_exact_key",
-        "deleted_at": work["evaluated_at"],
         "reason_code": work["reason_code"],
         "evidence_ref": work["evidence_ref"],
     }
+    if any(
+        planned.get(field) != expected
+        for field, expected in expected_bindings.items()
+    ):
+        _fail(
+            "authoritative_tombstone_mismatch",
+            "Resume only from the exact durable tombstone authority.",
+        )
+    return planned, True
 
 
 def _preflight_cleanup_targets(
@@ -2128,9 +2270,21 @@ def _execute_exact_cleanup_guarded(
         cleanup_run_id=cleanup_run_id,
         retention_class=str(work["retention_class"]),
     )
+    planned_tombstones = [
+        _planned_tombstone(
+            work,
+            target,
+            object_authority=object_authority,
+        )
+        for target in validated_targets
+    ]
     tombstones: list[dict[str, object]] = []
     failed: list[str] = []
-    for target in validated_targets:
+    for target, (planned_tombstone, already_tombstoned) in zip(
+        validated_targets,
+        planned_tombstones,
+        strict=True,
+    ):
         target_sha256 = str(target["sha256"])
         target_media_type = str(target["media_type"])
         key = str(target["object_key"])
@@ -2140,7 +2294,10 @@ def _execute_exact_cleanup_guarded(
             failed.append(key)
             continue
         if existing is None:
-            tombstones.append(_tombstone(work, target))
+            tombstones.append(planned_tombstone)
+            continue
+        if already_tombstoned:
+            failed.append(key)
             continue
         if not _matching_head(
             existing,
@@ -2156,7 +2313,7 @@ def _execute_exact_cleanup_guarded(
         except Exception:
             absent = False
         if absent:
-            tombstones.append(_tombstone(work, target))
+            tombstones.append(planned_tombstone)
         else:
             failed.append(key)
     try:

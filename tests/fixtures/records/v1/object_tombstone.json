@@ -11,6 +11,6 @@
   "retention_work_id": "retention_work_synthetic_001",
   "schema_version": 1,
   "source_id": "source_synthetic_001",
-  "tombstone_id": "tombstone_e1c034fb7345cb270b2f19d5b8043354dead21059441adc2d8118fd954dd2cb2",
-  "tombstone_object_key": "performing-fire/v1/tombstones/source_synthetic_001/asset_synthetic_001/tombstone_e1c034fb7345cb270b2f19d5b8043354dead21059441adc2d8118fd954dd2cb2/3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591"
+  "tombstone_id": "tombstone_38a945e71b60e8d97e8a6ef8736bd3eb9498c35c62876af1ff67a3faa8f61115",
+  "tombstone_object_key": "performing-fire/v1/tombstones/source_synthetic_001/asset_synthetic_001/tombstone_38a945e71b60e8d97e8a6ef8736bd3eb9498c35c62876af1ff67a3faa8f61115/3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591"
 }
