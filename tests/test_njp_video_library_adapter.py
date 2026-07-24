@@ -197,6 +197,26 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                     "https://njpvideo.ggcf.kr/catalogue/1?token=secret"
                 )
             },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue/../record"
+                )
+            },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue/%2e%2e/record"
+                )
+            },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue/%2Frecord"
+                )
+            },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue//record"
+                )
+            },
             {"title": "A title is not an identifier"},
         ):
             with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
@@ -296,6 +316,9 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             "https://njpvideo.ggcf.kr:444/invented-assets/1",
             "https://njpvideo.ggcf.kr/invented-assets/1?signature=private",
             "https://njpvideo.ggcf.kr/unreviewed-path/1",
+            "https://njpvideo.ggcf.kr/invented-assets/%2e%2e/private",
+            "https://njpvideo.ggcf.kr/invented-assets/%2Fprivate",
+            "https://njpvideo.ggcf.kr/invented-assets//private",
         )
         for url in unsafe:
             with self.subTest(url=url), self.assertRaises(ValueError):
@@ -312,6 +335,50 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                         ],
                     )
                 )
+
+    def test_candidates_require_the_same_admitted_page_and_records(
+        self,
+    ) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        asset = (
+            b'<a data-asset-for="catalogue-001" '
+            b'data-asset-kind="asset_kind_video" '
+            b'data-asset-mime="video/mp4" '
+            b'href="/invented-assets/1"></a>'
+        )
+        missing_terminal = (
+            b"<!doctype html><html><head></head><body>"
+            b'<article data-catalogue-id="catalogue-001" '
+            b'data-record-class="record_class_video_work" '
+            b'data-language="language_en"></article>'
+            + asset
+            + b"</body></html>"
+        )
+        missing_record_metadata = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<article data-catalogue-id="catalogue-001"></article>'
+            + asset
+            + b"</body></html>"
+        )
+        generic_html_id = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<article id="catalogue-001" '
+            b'data-record-class="record_class_video_work" '
+            b'data-language="language_en"></article>'
+            + asset
+            + b"</body></html>"
+        )
+        for body in (
+            missing_terminal,
+            missing_record_metadata,
+            generic_html_id,
+        ):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                adapter.asset_candidates(body)
 
         with self.assertRaises(ValueError):
             adapter.asset_candidates(

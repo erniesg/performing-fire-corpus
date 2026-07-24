@@ -14,6 +14,24 @@ _SAFE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 _MIME = re.compile(
     r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*"
 )
+_YEAR = re.compile(r"[0-9]{4}")
+_DURATION = re.compile(
+    r"P(?=.+)(?:[0-9]+D)?"
+    r"(?:T(?=.+)(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+S)?)?"
+)
+_LANGUAGES = (
+    "language_bilingual",
+    "language_en",
+    "language_ko",
+    "language_unknown",
+)
+_RECORD_CLASSES = (
+    "record_class_archive_image",
+    "record_class_broadcast",
+    "record_class_institutional_record",
+    "record_class_research_document",
+    "record_class_video_work",
+)
 _ASSET_KINDS = frozenset(
     {
         "asset_kind_caption",
@@ -132,12 +150,25 @@ def _canonical_record_url(value: object) -> str:
         or parsed.query
         or parsed.fragment
         or parsed.path in {"", "/"}
-        or parsed.path.startswith("//")
-        or "\\" in parsed.path
+        or not _path_is_unambiguous(parsed.path)
         or value != f"https://njpvideo.ggcf.kr{parsed.path}"
     ):
         raise ValueError("record canonical URL is outside the reviewed host")
     return value
+
+
+def _path_is_unambiguous(path: str) -> bool:
+    return (
+        path.startswith("/")
+        and not path.startswith("//")
+        and "//" not in path
+        and "\\" not in path
+        and "%" not in path
+        and all(
+            segment not in {".", ".."}
+            for segment in path.split("/")
+        )
+    )
 
 
 class NJPVideoLibraryAdapter:
@@ -169,22 +200,11 @@ class NJPVideoLibraryAdapter:
     metadata_field_contracts = {
         "duration": {"value_type": "duration_iso8601"},
         "language": {
-            "allowed_values": [
-                "language_bilingual",
-                "language_en",
-                "language_ko",
-                "language_unknown",
-            ],
+            "allowed_values": list(_LANGUAGES),
             "value_type": "enum",
         },
         "record_class": {
-            "allowed_values": [
-                "record_class_archive_image",
-                "record_class_broadcast",
-                "record_class_institutional_record",
-                "record_class_research_document",
-                "record_class_video_work",
-            ],
+            "allowed_values": list(_RECORD_CLASSES),
             "value_type": "enum",
         },
         "year": {"value_type": "year"},
@@ -254,10 +274,31 @@ class NJPVideoLibraryAdapter:
 
         records: list[dict[str, Any]] = []
         for item in page.records:
-            if not {
-                "data-language",
-                "data-record-class",
-            }.issubset(item):
+            identifiers = {
+                key
+                for key in (
+                    "data-canonical-url",
+                    "data-catalogue-id",
+                )
+                if key in item
+            }
+            if (
+                len(identifiers) != 1
+                or not {
+                    "data-language",
+                    "data-record-class",
+                }.issubset(item)
+                or item["data-language"] not in _LANGUAGES
+                or item["data-record-class"] not in _RECORD_CLASSES
+                or (
+                    "data-duration" in item
+                    and _DURATION.fullmatch(item["data-duration"]) is None
+                )
+                or (
+                    "data-year" in item
+                    and _YEAR.fullmatch(item["data-year"]) is None
+                )
+            ):
                 raise ValueError("metadata record shape changed")
             identity = self._identity_value(item)
             metadata = {
@@ -313,10 +354,14 @@ class NJPVideoLibraryAdapter:
             or parsed.password is not None
             or parsed.query
             or parsed.fragment
-            or parsed.path.startswith("//")
-            or "\\" in parsed.path
+            or not _path_is_unambiguous(parsed.path)
             or public_url != f"https://njpvideo.ggcf.kr{parsed.path}"
             or not self.reviewed_asset_path_prefixes
+            or any(
+                not _path_is_unambiguous(prefix)
+                or not prefix.endswith("/")
+                for prefix in self.reviewed_asset_path_prefixes
+            )
             or not any(
                 parsed.path.startswith(prefix)
                 for prefix in self.reviewed_asset_path_prefixes
@@ -330,6 +375,10 @@ class NJPVideoLibraryAdapter:
         body: bytes,
     ) -> tuple[VideoLibraryAssetCandidate, ...]:
         self._require_reviewed_shape()
+        admitted = self.parse_page(body, cursor=None)
+        admitted_record_ids = {
+            item["record_id"] for item in admitted["records"]
+        }
         page = _parsed(body)
         record_ids = {
             item.get("data-catalogue-id", "")
@@ -342,9 +391,13 @@ class NJPVideoLibraryAdapter:
             asset_kind = item.get("data-asset-kind", "")
             mime_type = item.get("data-asset-mime", "")
             locator = item.get("href", "")
+            relationship_record_id = self.stable_record_id(
+                {"id": record_id}
+            )
             if (
                 not _SAFE_ID.fullmatch(record_id)
                 or record_id not in record_ids
+                or relationship_record_id not in admitted_record_ids
                 or asset_kind not in _ASSET_KINDS
                 or not _MIME.fullmatch(mime_type)
             ):
@@ -352,9 +405,7 @@ class NJPVideoLibraryAdapter:
             candidates.append(
                 VideoLibraryAssetCandidate(
                     source_id=self.source_id,
-                    relationship_record_id=self.stable_record_id(
-                        {"id": record_id}
-                    ),
+                    relationship_record_id=relationship_record_id,
                     asset_kind=asset_kind,
                     public_url=self._validate_asset_url(locator),
                     claimed_mime_type=mime_type,
