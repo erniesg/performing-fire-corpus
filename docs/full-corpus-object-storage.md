@@ -44,7 +44,11 @@ after all of these facts agree:
    retention class, creation-run ID, retrieval decision, and sanitized
    evidence reference.
 
-A matching object may be reused without another create. A lost create response
+A matching object may be reused without another create. Every create attempt
+receives the durable corpus ledger as its receipt authority. A terminal rerun
+returns the already committed `created` receipt rather than manufacturing a
+conflicting `reused` receipt. A matching pre-existing object with no durable
+created receipt remains reused and has no same-proof deletion authority. A lost create response
 is treated as a verified but non-owned
 `reused_after_ambiguous_create` only when the immediate exact-key `HEAD`
 matches every immutable fact. It is never same-proof deletion authority. An
@@ -72,8 +76,11 @@ succeeds:
 Both durable copies must equal the expected verified receipt. A mismatched
 copy, missing object, or conflicting exact-key `HEAD` produces a durable hold.
 Reconciliation never creates another object and never lists storage.
-The repository ledger accepts strict `object_receipt` records, applies the
-existing approved-rights gate, and enforces one durable receipt per exact key.
+The repository ledger accepts strict `object_receipt` records, runs the full
+content-binding validator at insertion, applies the existing approved-rights
+gate, and enforces one durable receipt per exact key. Full-corpus receipts also
+satisfy the raw/derived object-store asset-state gates; a parallel legacy
+receipt is neither required nor permitted for the same key.
 
 ## Exact-content deduplication and provenance
 
@@ -90,28 +97,35 @@ An approved edge does not relax another source's block, retention class,
 consent, deletion obligation, or downstream-use restriction. Derivation
 manifests compute the effective decision from all input receipts and require
 every output to use a rights snapshot carrying that most restrictive decision.
+When equally restrictive inputs have distinct rights snapshots, the output
+uses the deterministic combined-snapshot hash; choosing only one input snapshot
+is not valid inheritance.
 
 ## Raw-to-derived manifests
 
 A version-1 derivation manifest binds:
 
 - the transformation, tool, tool version, and contract version;
-- deterministic JSON parameters and their canonical SHA-256;
+- deterministic JSON parameters from a reviewed field allowlist and their
+  canonical SHA-256;
 - verified input and output receipt IDs, exact object keys, and hashes;
 - input and output rights-snapshot hashes with `most_restrictive`
   inheritance;
-- the redaction state and a sanitized evidence reference.
+- the redaction state and a sanitized evidence reference;
+- a manifest hash binding all transformation, receipt, and rights facts.
 
 Queue messages between the trusted VM, R2, and a later outbound-paired trusted
 laptop carry these identifiers and object keys, never machine-local media
 paths. OCR, transcription, and video-understanding tools cannot silently
 replace or weaken the input authority.
 
-A complete derivation-lineage snapshot verifies each output receipt against
-its owning manifest, rejects disconnected or multiply owned descendants, and
-hash-binds the complete receipt/manifest graph. Retention targets are derived
-from that snapshot; callers cannot add an unrelated same-asset object or omit a
-known descendant.
+A complete derivation-lineage snapshot is rebuilt from every receipt and
+manifest in the durable corpus ledger. It verifies each key, content hash,
+rights snapshot, retrieval decision, and output receipt against its owning
+manifest, rejects disconnected or multiply owned descendants, and hash-binds
+the complete authoritative graph. Caller-supplied subsets cannot declare
+themselves complete. Retention targets are derived from that snapshot; callers
+cannot add an unrelated same-asset object or omit a known descendant.
 
 ## Retention, legal holds, and exact cleanup
 
@@ -126,7 +140,8 @@ States are:
 
 The only executable portable cleanup authority is
 `same_proof_disposable`. It requires every target receipt to identify the same
-creation run and a create disposition of `created`. It never authorizes deletion of a reused or pre-existing object.
+creation run, the same retention class, and a create disposition of `created`.
+It never authorizes deletion of a reused or pre-existing object.
 Ordinary corpus data remains `held_for_review`, even after retention expiry.
 
 Exact cleanup verifies the current object metadata before deletion, deletes
@@ -138,7 +153,11 @@ not broaden scope or include the provider response in evidence.
 Every retention work item binds both a complete lineage hash and a current retention/legal-hold authority
 hash. That authority has a bounded validity
 window and normalized whole-second UTC timestamps. Both records are
-revalidated immediately before deletion. A newly active hold, expired
+revalidated immediately before deletion. The durable ledger holds an immediate
+write guard across that validation and the exact-key operations, so a new
+receipt or manifest cannot race a supposedly complete cleanup snapshot. Each
+target is resolved again by exact key from that guarded ledger and must equal
+the work receipt. A newly active hold, expired
 authority, changed retention decision, or changed lineage stops cleanup and
 requires rebuilt work.
 

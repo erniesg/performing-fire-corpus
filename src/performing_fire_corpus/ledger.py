@@ -9,6 +9,7 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -28,6 +29,7 @@ RECORD_TYPES = (
     "lease",
     "object",
     "object_receipt",
+    "derivation_manifest",
     "evidence",
 )
 ID_FIELDS = {
@@ -38,6 +40,7 @@ ID_FIELDS = {
     "lease": "lease_id",
     "object": "object_id",
     "object_receipt": "receipt_id",
+    "derivation_manifest": "manifest_id",
     "evidence": "evidence_id",
 }
 ASSET_STATES = (
@@ -103,6 +106,7 @@ def _canonical(value: Any) -> str:
 def _schema_resource(record_type: str) -> Any:
     schema_name = {
         "object_receipt": "object-receipt",
+        "derivation_manifest": "derivation-manifest",
     }.get(record_type, record_type)
     packaged = files("performing_fire_corpus").joinpath(
         "schemas", "v1", f"{schema_name}.json"
@@ -127,6 +131,30 @@ def validate_record(record: Mapping[str, Any]) -> None:
         raise LedgerError(f"schema is unavailable for {record_type}")
     schema = json.loads(schema_resource.read_text(encoding="utf-8"))
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(dict(record))
+    if record_type == "object_receipt":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_object_receipt,
+        )
+
+        try:
+            validate_object_receipt(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "object receipt failed its content-bound runtime contract"
+            ) from error
+    if record_type == "derivation_manifest":
+        from performing_fire_corpus.corpus_objects import (
+            CorpusObjectError,
+            validate_derivation_manifest,
+        )
+
+        try:
+            validate_derivation_manifest(record)
+        except CorpusObjectError as error:
+            raise LedgerError(
+                "derivation manifest failed its content-bound runtime contract"
+            ) from error
 
 
 def _assert_sanitized(value: Any, *, field: str = "payload") -> None:
@@ -371,6 +399,68 @@ class Ledger:
                 return record
         return None
 
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> dict[str, Any] | None:
+        """Return one authoritative full-corpus receipt by stable ID."""
+
+        return self.get_record("object_receipt", receipt_id)
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        """Return all authoritative receipts for one source asset."""
+
+        records = [
+            json.loads(row["body"])
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='object_receipt'"
+            )
+        ]
+        return sorted(
+            [
+                record
+                for record in records
+                if record.get("source_id") == source_id
+                and record.get("asset_id") == asset_id
+            ],
+            key=lambda record: str(record["receipt_id"]),
+        )
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, Any]]:
+        """Return all authoritative manifests for one source asset."""
+
+        records = [
+            json.loads(row["body"])
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='derivation_manifest'"
+            )
+        ]
+        return sorted(
+            [
+                record
+                for record in records
+                if record.get("source_id") == source_id
+                and record.get("asset_id") == asset_id
+            ],
+            key=lambda record: str(record["manifest_id"]),
+        )
+
+    @contextmanager
+    def exact_cleanup_guard(self) -> Iterable["Ledger"]:
+        """Freeze authoritative receipt/manifest writes during exact cleanup."""
+
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield self
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
+
     def _require_approved_rights(self, asset_id: str) -> None:
         rows = self._connection.execute(
             "SELECT body FROM records WHERE record_type='rights'"
@@ -465,11 +555,21 @@ class Ledger:
 
     def _require_object(self, asset_id: str, *, prefix: str) -> None:
         rows = self._connection.execute(
-            "SELECT body FROM records WHERE record_type='object'"
+            """SELECT record_type, body FROM records
+               WHERE record_type IN ('object', 'object_receipt')"""
         ).fetchall()
         if not any(
             (record := json.loads(row["body"])).get("asset_id") == asset_id
-            and str(record.get("object_key", "")).startswith(prefix)
+            and (
+                (
+                    row["record_type"] == "object"
+                    and str(record.get("object_key", "")).startswith(prefix)
+                )
+                or (
+                    row["record_type"] == "object_receipt"
+                    and record.get("object_kind") == prefix.rstrip("/")
+                )
+            )
             for row in rows
         ):
             raise InvalidTransition(f"{asset_id} has no verified {prefix} object receipt")

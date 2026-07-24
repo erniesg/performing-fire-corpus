@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -32,7 +33,7 @@ from performing_fire_corpus.corpus_objects import (
     reconcile_receipt_commit,
     tombstone_object_key,
 )
-from performing_fire_corpus.ledger import Ledger
+from performing_fire_corpus.ledger import Ledger, LedgerError
 
 
 SHA = hashlib.sha256(b"synthetic raw object").hexdigest()
@@ -46,11 +47,13 @@ class FakeStorage:
         self.created: list[str] = []
         self.deleted: list[str] = []
         self.list_calls = 0
+        self.head_calls = 0
         self.create_failure: Exception | None = None
         self.delete_failure: Exception | None = None
         self.persist_before_create_failure = False
 
     def head_object(self, key: str) -> dict[str, object] | None:
+        self.head_calls += 1
         value = self.objects.get(key)
         return None if value is None else dict(value)
 
@@ -88,6 +91,53 @@ class FakeStorage:
         del prefix
         self.list_calls += 1
         raise AssertionError("broad listing is forbidden")
+
+
+class FakeCorpusAuthority:
+    def __init__(
+        self,
+        receipts: list[Mapping[str, object]],
+        manifests: list[Mapping[str, object]],
+    ) -> None:
+        self.receipts = [dict(value) for value in receipts]
+        self.manifests = [dict(value) for value in manifests]
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> dict[str, object] | None:
+        matches = [
+            value for value in self.receipts if value["object_key"] == object_key
+        ]
+        return None if not matches else dict(matches[0])
+
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> dict[str, object] | None:
+        matches = [
+            value for value in self.receipts if value["receipt_id"] == receipt_id
+        ]
+        return None if not matches else dict(matches[0])
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, object]]:
+        return [
+            dict(value)
+            for value in self.receipts
+            if value["source_id"] == source_id and value["asset_id"] == asset_id
+        ]
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> list[dict[str, object]]:
+        return [
+            dict(value)
+            for value in self.manifests
+            if value["source_id"] == source_id and value["asset_id"] == asset_id
+        ]
+
+    def exact_cleanup_guard(self) -> object:
+        return nullcontext(self)
 
 
 def receipt(
@@ -211,7 +261,12 @@ class ImmutableCreateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def call(self, storage: FakeStorage) -> dict[str, object]:
+    def call(
+        self,
+        storage: FakeStorage,
+        *,
+        receipt_authority: FakeCorpusAuthority | None = None,
+    ) -> dict[str, object]:
         return immutable_create_and_verify(
             storage,
             key=self.key,
@@ -227,6 +282,11 @@ class ImmutableCreateTests(unittest.TestCase):
             creation_run_id="run_synthetic_001",
             retrieval_decision="approved",
             evidence_ref="evidence:issue-37",
+            receipt_authority=(
+                FakeCorpusAuthority([], [])
+                if receipt_authority is None
+                else receipt_authority
+            ),
         )
 
     def test_create_requires_matching_exact_head_before_verified_receipt(self) -> None:
@@ -299,8 +359,42 @@ class ImmutableCreateTests(unittest.TestCase):
                 creation_run_id="run_synthetic_001",
                 retrieval_decision="approved",
                 evidence_ref="evidence:issue-37",
+                receipt_authority=FakeCorpusAuthority([], []),
             )
         self.assertEqual("object_key_mismatch", raised.exception.code)
+        self.assertEqual([], storage.created)
+
+    def test_terminal_rerun_reuses_the_authoritative_created_receipt(self) -> None:
+        storage = FakeStorage()
+        created = self.call(storage)
+        authority = FakeCorpusAuthority([created], [])
+        rerun = self.call(storage, receipt_authority=authority)
+        self.assertEqual(created, rerun)
+        self.assertEqual("created", rerun["create_disposition"])
+
+    def test_inapplicable_transformation_fails_before_storage_is_touched(self) -> None:
+        storage = FakeStorage()
+        with self.assertRaises(CorpusObjectError) as raised:
+            immutable_create_and_verify(
+                storage,
+                key=self.key,
+                path=self.path,
+                object_kind="raw",
+                source_id="source_synthetic_001",
+                asset_id="asset_synthetic_001",
+                byte_size=20,
+                media_type="video/mp4",
+                sha256=SHA,
+                rights_snapshot_sha256=RIGHTS_SHA,
+                retention_class="reviewed-retain-30d",
+                creation_run_id="run_synthetic_001",
+                retrieval_decision="approved",
+                evidence_ref="evidence:issue-37",
+                transformation_id="transform_not_applicable",
+                receipt_authority=FakeCorpusAuthority([], []),
+            )
+        self.assertEqual("transformation_not_applicable", raised.exception.code)
+        self.assertEqual(0, storage.head_calls)
         self.assertEqual([], storage.created)
 
 
@@ -415,6 +509,14 @@ class ProvenanceAndManifestTests(unittest.TestCase):
         }
         with self.assertRaises(CorpusObjectError):
             build_derivation_manifest(**unsafe)
+        for unsafe_parameters in (
+            {"api_key": "synthetic-but-forbidden"},
+            {"model_id": "/var/lib/private/model"},
+        ):
+            unsafe = copy.deepcopy(arguments)
+            unsafe["parameters"] = unsafe_parameters
+            with self.assertRaises(CorpusObjectError):
+                build_derivation_manifest(**unsafe)
 
     def test_manifest_rejects_weakened_or_unrelated_output_rights(self) -> None:
         raw_key = raw_object_key(
@@ -551,6 +653,83 @@ class ProvenanceAndManifestTests(unittest.TestCase):
             "metadata_only", manifest["effective_retrieval_decision"]
         )
 
+    def test_equal_restrictive_rights_are_combined_and_hash_lists_are_unique(
+        self,
+    ) -> None:
+        second_rights = hashlib.sha256(b"second restrictive rights").hexdigest()
+        combined_rights = hashlib.sha256(
+            json.dumps(
+                sorted([RIGHTS_SHA, second_rights]),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+        ).hexdigest()
+        raw_key = raw_object_key(
+            "performing-fire/",
+            "source_synthetic_001",
+            "asset_synthetic_001",
+            SHA,
+        )
+        same_hash_derived_key = derived_object_key(
+            "performing-fire/",
+            "source_synthetic_001",
+            "asset_synthetic_001",
+            "transform_prior_v1",
+            SHA,
+        )
+        output_key = derived_object_key(
+            "performing-fire/",
+            "source_synthetic_001",
+            "asset_synthetic_001",
+            "transform_transcript_v1",
+            DERIVED_SHA,
+        )
+        inputs = [
+            receipt(
+                object_key=raw_key,
+                retrieval_decision="metadata_only",
+            ),
+            receipt(
+                object_key=same_hash_derived_key,
+                object_kind="derived",
+                transformation_id="transform_prior_v1",
+                retrieval_decision="metadata_only",
+                rights_snapshot_sha256=second_rights,
+            ),
+        ]
+        output = receipt(
+            object_key=output_key,
+            sha256=DERIVED_SHA,
+            object_kind="derived",
+            transformation_id="transform_transcript_v1",
+            retrieval_decision="metadata_only",
+            rights_snapshot_sha256=combined_rights,
+        )
+        manifest = build_derivation_manifest(
+            manifest_id="manifest_combined_rights_001",
+            source_id="source_synthetic_001",
+            asset_id="asset_synthetic_001",
+            transformation_id="transform_transcript_v1",
+            tool_id="tool_synthetic_transcriber",
+            tool_version="1.2.3",
+            contract_version=1,
+            parameters={"language": "ko"},
+            inputs=inputs,
+            outputs=[output],
+            rights_inheritance="most_restrictive",
+            redaction_state="reviewed_synthetic",
+            evidence_ref="evidence:issue-37",
+        )
+        self.assertEqual(combined_rights, manifest["effective_rights_snapshot_sha256"])
+        self.assertEqual([SHA], manifest["input_sha256"])
+        Draft202012Validator(
+            json.loads(
+                (
+                    ROOT / "schemas" / "v1" / "derivation-manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+        ).validate(manifest)
+
 
 class RetentionTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -589,25 +768,32 @@ class RetentionTests(unittest.TestCase):
             redaction_state="reviewed_synthetic",
             evidence_ref="evidence:issue-37",
         )
-        self.lineage = self.make_lineage(
-            self.raw_receipt,
-            [self.derived_receipt],
-            [self.manifest],
+        self.object_authority = FakeCorpusAuthority(
+            [self.raw_receipt, self.derived_receipt], [self.manifest]
         )
-        self.root_only_lineage = self.make_lineage(self.raw_receipt, [], [])
+        self.root_only_object_authority = FakeCorpusAuthority(
+            [self.raw_receipt], []
+        )
+        self.lineage = self.make_lineage(self.object_authority)
+        self.root_only_lineage = self.make_lineage(
+            self.root_only_object_authority
+        )
         self.authority = self.make_authority()
 
     def make_lineage(
         self,
-        root: Mapping[str, object],
-        derived: list[Mapping[str, object]],
-        manifests: list[Mapping[str, object]],
+        authority: FakeCorpusAuthority,
+        *,
+        root_receipt_id: str | None = None,
     ) -> dict[str, object]:
         return build_derivation_lineage(
             lineage_id="lineage_synthetic_001",
-            root_receipt=root,
-            derived_receipts=derived,
-            manifests=manifests,
+            authority=authority,
+            root_receipt_id=(
+                str(self.raw_receipt["receipt_id"])
+                if root_receipt_id is None
+                else root_receipt_id
+            ),
             evidence_ref="evidence:issue-37",
         )
 
@@ -642,19 +828,29 @@ class RetentionTests(unittest.TestCase):
         root: Mapping[str, object] | None = None,
         derived: list[Mapping[str, object]] | None = None,
         lineage: Mapping[str, object] | None = None,
+        object_authority: FakeCorpusAuthority | None = None,
         authority: Mapping[str, object] | None = None,
         cleanup_authority: str = "same_proof_disposable",
         cleanup_run_id: str = "run_synthetic_001",
         reason_code: str = "proof_teardown",
         current_time: str = "2026-07-26T00:00:00Z",
     ) -> dict[str, object]:
+        selected_lineage = self.lineage if lineage is None else lineage
         selected_root = self.raw_receipt if root is None else root
         selected_derived = [self.derived_receipt] if derived is None else derived
-        selected_lineage = self.lineage if lineage is None else lineage
+        selected_authority = object_authority
+        if selected_authority is None:
+            selected_authority = FakeCorpusAuthority(
+                [selected_root, *selected_derived],
+                (
+                    []
+                    if selected_lineage["manifest_ids"] == []
+                    else [self.manifest]
+                ),
+            )
         return build_retention_work(
             work_id="retention_work_synthetic_001",
-            root_receipt=selected_root,
-            derived_receipts=selected_derived,
+            object_authority=selected_authority,
             lineage_snapshot=selected_lineage,
             retention_authority=self.authority if authority is None else authority,
             current_time=current_time,
@@ -671,11 +867,17 @@ class RetentionTests(unittest.TestCase):
         *,
         authority: Mapping[str, object] | None = None,
         lineage: Mapping[str, object] | None = None,
+        object_authority: FakeCorpusAuthority | None = None,
         current_time: str = "2026-07-26T00:00:00Z",
     ) -> dict[str, object]:
         return execute_exact_cleanup(
             storage,
             work,
+            object_authority=(
+                self.object_authority
+                if object_authority is None
+                else object_authority
+            ),
             current_retention_authority=(
                 self.authority if authority is None else authority
             ),
@@ -736,7 +938,10 @@ class RetentionTests(unittest.TestCase):
         }
         storage.delete_failure = ConnectionError("private provider failure")
         result = self.execute(
-            storage, work, lineage=self.root_only_lineage
+            storage,
+            work,
+            lineage=self.root_only_lineage,
+            object_authority=self.root_only_object_authority,
         )
         self.assertEqual("failed_cleanup", result["state"])
         self.assertEqual([self.raw_key], result["failed_object_keys"])
@@ -748,12 +953,17 @@ class RetentionTests(unittest.TestCase):
             object_key=self.raw_key,
             create_disposition="reused",
         )
-        reused_lineage = self.make_lineage(reused, [], [])
+        reused_authority = FakeCorpusAuthority([reused], [])
+        reused_lineage = self.make_lineage(
+            reused_authority,
+            root_receipt_id=str(reused["receipt_id"]),
+        )
         with self.assertRaises(CorpusObjectError) as reused_error:
             self.make_work(
                 root=reused,
                 derived=[],
                 lineage=reused_lineage,
+                object_authority=reused_authority,
             )
         self.assertEqual("same_proof_authority_mismatch", reused_error.exception.code)
 
@@ -761,12 +971,17 @@ class RetentionTests(unittest.TestCase):
             object_key=self.raw_key,
             create_disposition="reused_after_ambiguous_create",
         )
-        ambiguous_lineage = self.make_lineage(ambiguous, [], [])
+        ambiguous_authority = FakeCorpusAuthority([ambiguous], [])
+        ambiguous_lineage = self.make_lineage(
+            ambiguous_authority,
+            root_receipt_id=str(ambiguous["receipt_id"]),
+        )
         with self.assertRaises(CorpusObjectError) as ambiguous_error:
             self.make_work(
                 root=ambiguous,
                 derived=[],
                 lineage=ambiguous_lineage,
+                object_authority=ambiguous_authority,
             )
         self.assertEqual(
             "same_proof_authority_mismatch", ambiguous_error.exception.code
@@ -776,12 +991,17 @@ class RetentionTests(unittest.TestCase):
             object_key=self.raw_key,
             creation_run_id="run_other_001",
         )
-        cross_run_lineage = self.make_lineage(cross_run, [], [])
+        cross_run_authority = FakeCorpusAuthority([cross_run], [])
+        cross_run_lineage = self.make_lineage(
+            cross_run_authority,
+            root_receipt_id=str(cross_run["receipt_id"]),
+        )
         with self.assertRaises(CorpusObjectError) as cross_run_error:
             self.make_work(
                 root=cross_run,
                 derived=[],
                 lineage=cross_run_lineage,
+                object_authority=cross_run_authority,
             )
         self.assertEqual(
             "same_proof_authority_mismatch", cross_run_error.exception.code
@@ -808,7 +1028,10 @@ class RetentionTests(unittest.TestCase):
         }
         with self.assertRaises(CorpusObjectError) as raised:
             self.execute(
-                storage, work, lineage=self.root_only_lineage
+                storage,
+                work,
+                lineage=self.root_only_lineage,
+                object_authority=self.root_only_object_authority,
             )
         self.assertEqual("object_key_mismatch", raised.exception.code)
         self.assertEqual([], storage.deleted)
@@ -825,7 +1048,7 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual("legal_hold_conflict", hold.exception.code)
         self.assertEqual([], storage.deleted)
 
-        changed_lineage = self.make_lineage(self.raw_receipt, [], [])
+        changed_lineage = self.root_only_lineage
         with self.assertRaises(CorpusObjectError) as lineage:
             self.execute(storage, work, lineage=changed_lineage)
         self.assertEqual("derivation_lineage_stale", lineage.exception.code)
@@ -834,7 +1057,7 @@ class RetentionTests(unittest.TestCase):
     def test_retention_targets_are_exactly_manifest_derived(self) -> None:
         with self.assertRaises(CorpusObjectError) as omitted:
             self.make_work(derived=[])
-        self.assertEqual("retention_lineage_mismatch", omitted.exception.code)
+        self.assertEqual("lineage_receipt_missing", omitted.exception.code)
 
         unrelated_sha = hashlib.sha256(b"unrelated derivative").hexdigest()
         unrelated_key = derived_object_key(
@@ -852,7 +1075,118 @@ class RetentionTests(unittest.TestCase):
         )
         with self.assertRaises(CorpusObjectError) as extra:
             self.make_work(derived=[self.derived_receipt, unrelated])
-        self.assertEqual("retention_lineage_mismatch", extra.exception.code)
+        self.assertEqual("incomplete_derivation_lineage", extra.exception.code)
+
+    def test_authoritative_receipts_and_new_descendants_are_rechecked(
+        self,
+    ) -> None:
+        root_work = self.make_work(
+            derived=[],
+            lineage=self.root_only_lineage,
+            object_authority=self.root_only_object_authority,
+        )
+        storage = FakeStorage()
+        storage.objects[self.raw_key] = {
+            "byte_size": 20,
+            "media_type": "video/mp4",
+            "sha256": SHA,
+        }
+        with self.assertRaises(CorpusObjectError) as stale:
+            self.execute(
+                storage,
+                root_work,
+                lineage=self.root_only_lineage,
+                object_authority=self.object_authority,
+            )
+        self.assertEqual("derivation_lineage_stale", stale.exception.code)
+        self.assertEqual([], storage.deleted)
+
+        forged_root = receipt(
+            object_key=self.raw_key,
+            creation_run_id="run_forged_001",
+        )
+        forged_authority = FakeCorpusAuthority([forged_root], [])
+        forged_lineage = self.make_lineage(
+            forged_authority,
+            root_receipt_id=str(forged_root["receipt_id"]),
+        )
+        forged_work = self.make_work(
+            root=forged_root,
+            derived=[],
+            lineage=forged_lineage,
+            object_authority=forged_authority,
+            cleanup_run_id="run_forged_001",
+        )
+        with self.assertRaises(CorpusObjectError):
+            self.execute(
+                storage,
+                forged_work,
+                lineage=forged_lineage,
+                object_authority=self.root_only_object_authority,
+            )
+        self.assertEqual([], storage.deleted)
+
+    def test_descendants_cannot_inherit_a_different_retention_class(self) -> None:
+        mismatched = receipt(
+            object_key=self.derived_key,
+            sha256=DERIVED_SHA,
+            object_kind="derived",
+            transformation_id="transform_transcript_v1",
+            retention_class="reviewed-retain-365d",
+        )
+        mismatched_manifest = build_derivation_manifest(
+            manifest_id="manifest_synthetic_001",
+            source_id="source_synthetic_001",
+            asset_id="asset_synthetic_001",
+            transformation_id="transform_transcript_v1",
+            tool_id="tool_synthetic_transcriber",
+            tool_version="1.2.3",
+            contract_version=1,
+            parameters={"language": "ko"},
+            inputs=[self.raw_receipt],
+            outputs=[mismatched],
+            rights_inheritance="most_restrictive",
+            redaction_state="reviewed_synthetic",
+            evidence_ref="evidence:issue-37",
+        )
+        authority = FakeCorpusAuthority(
+            [self.raw_receipt, mismatched], [mismatched_manifest]
+        )
+        lineage = self.make_lineage(authority)
+        with self.assertRaises(CorpusObjectError) as raised:
+            self.make_work(
+                derived=[mismatched],
+                lineage=lineage,
+                object_authority=authority,
+            )
+        self.assertEqual("retention_lineage_mismatch", raised.exception.code)
+
+    def test_lineage_rechecks_manifest_rights_against_receipts(self) -> None:
+        tampered = copy.deepcopy(self.manifest)
+        tampered["input_rights_snapshot_sha256"] = [
+            hashlib.sha256(b"altered rights").hexdigest()
+        ]
+        payload = {
+            key: value
+            for key, value in tampered.items()
+            if key != "manifest_sha256"
+        }
+        tampered["manifest_sha256"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+        ).hexdigest()
+        authority = FakeCorpusAuthority(
+            [self.raw_receipt, self.derived_receipt], [tampered]
+        )
+        with self.assertRaises(CorpusObjectError) as raised:
+            self.make_lineage(authority)
+        self.assertEqual(
+            "lineage_manifest_receipt_mismatch", raised.exception.code
+        )
 
     def test_runtime_timestamps_are_normalized_to_schema_contract(self) -> None:
         authority = self.make_authority(
@@ -866,6 +1200,63 @@ class RetentionTests(unittest.TestCase):
             current_time="2026-07-26T08:00:00.444444+08:00",
         )
         self.assertEqual("2026-07-26T00:00:00Z", work["evaluated_at"])
+
+    def test_real_ledger_is_the_complete_guarded_cleanup_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture_root = ROOT / "tests" / "fixtures" / "records" / "v1"
+            records = {
+                name: json.loads(
+                    (fixture_root / f"{name}.json").read_text(encoding="utf-8")
+                )
+                for name in ("source", "asset", "rights")
+            }
+            records["source"]["source_id"] = "source_synthetic_001"
+            records["asset"]["source_id"] = "source_synthetic_001"
+            records["asset"]["asset_id"] = "asset_synthetic_001"
+            records["rights"]["asset_id"] = "asset_synthetic_001"
+            with Ledger(Path(temporary) / "ledger.sqlite3") as ledger:
+                for name in ("source", "asset", "rights"):
+                    ledger.upsert(records[name])
+                for value in (
+                    self.raw_receipt,
+                    self.derived_receipt,
+                    self.manifest,
+                ):
+                    ledger.upsert(value)
+                lineage = build_derivation_lineage(
+                    lineage_id="lineage_synthetic_ledger_001",
+                    authority=ledger,
+                    root_receipt_id=str(self.raw_receipt["receipt_id"]),
+                    evidence_ref="evidence:issue-37",
+                )
+                work = build_retention_work(
+                    work_id="retention_work_synthetic_ledger_001",
+                    object_authority=ledger,
+                    lineage_snapshot=lineage,
+                    retention_authority=self.authority,
+                    current_time="2026-07-26T00:00:00Z",
+                    cleanup_authority="same_proof_disposable",
+                    cleanup_run_id="run_synthetic_001",
+                    reason_code="proof_teardown",
+                    evidence_ref="evidence:issue-37",
+                )
+                storage = FakeStorage()
+                for item in (self.raw_receipt, self.derived_receipt):
+                    storage.objects[str(item["object_key"])] = {
+                        "byte_size": item["byte_size"],
+                        "media_type": item["media_type"],
+                        "sha256": item["sha256"],
+                    }
+                result = execute_exact_cleanup(
+                    storage,
+                    work,
+                    object_authority=ledger,
+                    current_retention_authority=self.authority,
+                    current_lineage_snapshot=lineage,
+                    current_time="2026-07-26T00:00:00Z",
+                )
+        self.assertEqual("complete", result["state"])
+        self.assertEqual({self.raw_key, self.derived_key}, set(storage.deleted))
 
 
 class ReceiptReconciliationTests(unittest.TestCase):
@@ -1014,6 +1405,43 @@ class ReceiptReconciliationTests(unittest.TestCase):
                         "object_receipt", str(self.expected["receipt_id"])
                     ),
                 )
+                for state in (
+                    "metadata_verified",
+                    "approved_for_ingest",
+                    "transfer_pending",
+                    "raw_in_object_store",
+                ):
+                    ledger.transition_asset(
+                        "asset_synthetic_001",
+                        state,
+                        operation_id=f"operation_{state}",
+                    )
+                self.assertEqual(
+                    "raw_in_object_store",
+                    ledger.asset_state("asset_synthetic_001"),
+                )
+
+    def test_real_ledger_rejects_schema_valid_but_unbound_receipt(self) -> None:
+        forged = {
+            **self.expected,
+            "creation_run_id": "run_forged_001",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            records = {}
+            fixture_root = ROOT / "tests" / "fixtures" / "records" / "v1"
+            for name in ("source", "asset", "rights"):
+                records[name] = json.loads(
+                    (fixture_root / f"{name}.json").read_text(encoding="utf-8")
+                )
+            records["source"]["source_id"] = "source_synthetic_001"
+            records["asset"]["source_id"] = "source_synthetic_001"
+            records["asset"]["asset_id"] = "asset_synthetic_001"
+            records["rights"]["asset_id"] = "asset_synthetic_001"
+            with Ledger(Path(temporary) / "ledger.sqlite3") as ledger:
+                for name in ("source", "asset", "rights"):
+                    ledger.upsert(records[name])
+                with self.assertRaises(LedgerError):
+                    ledger.upsert(forged)
 
 
 class SchemaTests(unittest.TestCase):
@@ -1071,11 +1499,13 @@ class SchemaTests(unittest.TestCase):
             redaction_state="reviewed_synthetic",
             evidence_ref="evidence:issue-37",
         )
+        object_authority = FakeCorpusAuthority(
+            [raw_receipt, derived_receipt], [manifest]
+        )
         lineage = build_derivation_lineage(
             lineage_id="lineage_synthetic_001",
-            root_receipt=raw_receipt,
-            derived_receipts=[derived_receipt],
-            manifests=[manifest],
+            authority=object_authority,
+            root_receipt_id=str(raw_receipt["receipt_id"]),
             evidence_ref="evidence:issue-37",
         )
         authority = build_retention_authority(
@@ -1092,8 +1522,7 @@ class SchemaTests(unittest.TestCase):
         )
         work = build_retention_work(
             work_id="retention_work_synthetic_001",
-            root_receipt=raw_receipt,
-            derived_receipts=[derived_receipt],
+            object_authority=object_authority,
             lineage_snapshot=lineage,
             retention_authority=authority,
             current_time="2026-07-26T00:00:00Z",
@@ -1106,6 +1535,7 @@ class SchemaTests(unittest.TestCase):
         cleanup = execute_exact_cleanup(
             storage,
             work,
+            object_authority=object_authority,
             current_retention_authority=authority,
             current_lineage_snapshot=lineage,
             current_time="2026-07-26T00:00:00Z",

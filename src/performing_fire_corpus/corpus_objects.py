@@ -46,7 +46,7 @@ _OBJECT_KEY = re.compile(
     r"[a-z0-9][a-z0-9._/-]{0,511}$"
 )
 _LOCAL_PATH = re.compile(
-    r"(?:^|[\s\"'])(?:file://|/Users/|/home/|/tmp/|[A-Za-z]:[\\/])"
+    r"(?:^|[\s\"'])(?:file://|/(?:[A-Za-z0-9._-]+/)+|[A-Za-z]:[\\/])"
 )
 _EMAIL = re.compile(
     r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@"
@@ -55,6 +55,8 @@ _EMAIL = re.compile(
 _URL = re.compile(r"\b(?:https?|s3|r2|file)://", re.IGNORECASE)
 _FORBIDDEN_METADATA_KEY_PARTS = (
     "account",
+    "access_key",
+    "api_key",
     "authorization",
     "cookie",
     "credential",
@@ -64,6 +66,7 @@ _FORBIDDEN_METADATA_KEY_PARTS = (
     "local_path",
     "name",
     "owner",
+    "password",
     "private",
     "prose",
     "provider",
@@ -73,6 +76,19 @@ _FORBIDDEN_METADATA_KEY_PARTS = (
     "title",
     "token",
     "url",
+)
+_ALLOWED_PARAMETER_KEYS = frozenset(
+    {
+        "confidence_threshold_milli",
+        "language",
+        "model_id",
+        "output_format",
+        "profile_id",
+        "sample_rate_hz",
+        "segment_seconds",
+        "task",
+        "temperature_milli",
+    }
 )
 _RETRIEVAL_ORDER = {
     "approved": 0,
@@ -108,6 +124,28 @@ class ExactObjectStorage(Protocol):
     ) -> bool: ...
 
     def delete_exact_object(self, key: str) -> bool: ...
+
+
+class CorpusAuthority(Protocol):
+    """Durable authority used for receipts and complete derivation snapshots."""
+
+    def get_corpus_receipt_by_key(
+        self, object_key: str
+    ) -> Mapping[str, object] | None: ...
+
+    def get_corpus_receipt(
+        self, receipt_id: str
+    ) -> Mapping[str, object] | None: ...
+
+    def list_corpus_receipts(
+        self, source_id: str, asset_id: str
+    ) -> Iterable[Mapping[str, object]]: ...
+
+    def list_derivation_manifests(
+        self, source_id: str, asset_id: str
+    ) -> Iterable[Mapping[str, object]]: ...
+
+    def exact_cleanup_guard(self) -> Any: ...
 
 
 def _fail(code: str, next_action: str) -> None:
@@ -370,6 +408,7 @@ def immutable_create_and_verify(
     creation_run_id: str,
     retrieval_decision: str,
     evidence_ref: str,
+    receipt_authority: CorpusAuthority,
     transformation_id: str | None = None,
 ) -> dict[str, object]:
     """Create once and return a receipt only after a matching exact-key HEAD.
@@ -403,6 +442,16 @@ def immutable_create_and_verify(
     evidence_ref = _require(evidence_ref, _EVIDENCE_REF, "evidence_ref")
     if not isinstance(key, str) or not _OBJECT_KEY.fullmatch(key):
         _fail("invalid_object_key", "Provide one exact immutable object key.")
+    if object_kind == "derived" and transformation_id is None:
+        _fail(
+            "transformation_required",
+            "Derived objects require one reviewed transformation identifier.",
+        )
+    if object_kind != "derived" and transformation_id is not None:
+        _fail(
+            "transformation_not_applicable",
+            "Raw and manifest objects cannot carry a transformation identifier.",
+        )
     if transformation_id is not None:
         transformation_id = _require(
             transformation_id, _TRANSFORMATION_ID, "transformation_id"
@@ -467,6 +516,31 @@ def immutable_create_and_verify(
                 "Hold the exact key for operator conflict review.",
             )
         disposition = "reused"
+        durable = receipt_authority.get_corpus_receipt_by_key(key)
+        if durable is not None:
+            durable = _validate_receipt(durable)
+            expected_created = _verified_receipt(
+                key=key,
+                object_kind=object_kind,
+                source_id=source_id,
+                asset_id=asset_id,
+                transformation_id=transformation_id,
+                byte_size=byte_size,
+                media_type=media_type,
+                sha256=sha256,
+                rights_snapshot_sha256=rights_snapshot_sha256,
+                retention_class=retention_class,
+                creation_run_id=creation_run_id,
+                retrieval_decision=retrieval_decision,
+                evidence_ref=evidence_ref,
+                create_disposition="created",
+            )
+            if durable != expected_created:
+                _fail(
+                    "durable_receipt_conflict",
+                    "Hold the exact key and its durable receipt for review.",
+                )
+            return durable
     else:
         disposition = "created"
         try:
@@ -732,6 +806,14 @@ def bind_object_receipt(value: Mapping[str, object]) -> dict[str, object]:
     return _validate_receipt(bound)
 
 
+def validate_object_receipt(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate a fully bound receipt at a durable authority boundary."""
+
+    return _validate_receipt(value)
+
+
 def reconcile_receipt_commit(
     storage: ExactObjectStorage,
     *,
@@ -835,6 +917,11 @@ def build_derivation_manifest(
         )
     redaction_state = _require(redaction_state, _SAFE_LABEL, "redaction_state")
     evidence_ref = _require(evidence_ref, _EVIDENCE_REF, "evidence_ref")
+    if set(parameters) - _ALLOWED_PARAMETER_KEYS:
+        _fail(
+            "unsafe_metadata",
+            "Use only reviewed transformation parameter fields.",
+        )
     _assert_safe_metadata(parameters, field="parameters")
     parameter_digest = hashlib.sha256(_canonical(parameters)).hexdigest()
     input_values = [_validate_receipt(value) for value in inputs]
@@ -860,21 +947,29 @@ def build_derivation_manifest(
         (str(value["retrieval_decision"]) for value in input_values),
         key=_RETRIEVAL_ORDER.__getitem__,
     )
-    restrictive_input_rights = {
+    restrictive_input_rights = sorted(
+        {
         str(value["rights_snapshot_sha256"])
         for value in input_values
         if value["retrieval_decision"] == effective_retrieval_decision
-    }
+        }
+    )
+    effective_rights_snapshot_sha256 = (
+        restrictive_input_rights[0]
+        if len(restrictive_input_rights) == 1
+        else hashlib.sha256(_canonical(restrictive_input_rights)).hexdigest()
+    )
     if any(
         value["retrieval_decision"] != effective_retrieval_decision
-        or str(value["rights_snapshot_sha256"]) not in restrictive_input_rights
+        or str(value["rights_snapshot_sha256"])
+        != effective_rights_snapshot_sha256
         for value in output_values
     ):
         _fail(
             "manifest_rights_mismatch",
             "Derived outputs must inherit a current input rights snapshot.",
         )
-    return {
+    manifest: dict[str, object] = {
         "schema_version": 1,
         "record_type": "derivation_manifest",
         "manifest_id": manifest_id,
@@ -888,14 +983,14 @@ def build_derivation_manifest(
         "parameters_sha256": parameter_digest,
         "input_receipt_ids": sorted(str(value["receipt_id"]) for value in input_values),
         "input_object_keys": sorted(str(value["object_key"]) for value in input_values),
-        "input_sha256": sorted(str(value["sha256"]) for value in input_values),
+        "input_sha256": sorted({str(value["sha256"]) for value in input_values}),
         "output_receipt_ids": sorted(
             str(value["receipt_id"]) for value in output_values
         ),
         "output_object_keys": sorted(
             str(value["object_key"]) for value in output_values
         ),
-        "output_sha256": sorted(str(value["sha256"]) for value in output_values),
+        "output_sha256": sorted({str(value["sha256"]) for value in output_values}),
         "input_rights_snapshot_sha256": sorted(
             {str(value["rights_snapshot_sha256"]) for value in input_values}
         ),
@@ -904,9 +999,26 @@ def build_derivation_manifest(
         ),
         "rights_inheritance": rights_inheritance,
         "effective_retrieval_decision": effective_retrieval_decision,
+        "effective_rights_snapshot_sha256": (
+            effective_rights_snapshot_sha256
+        ),
         "redaction_state": redaction_state,
         "evidence_ref": evidence_ref,
     }
+    manifest["manifest_sha256"] = _manifest_sha256(manifest)
+    return _validate_derivation_manifest(manifest)
+
+
+def _manifest_sha256(value: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        _canonical(
+            {
+                key: child
+                for key, child in value.items()
+                if key != "manifest_sha256"
+            }
+        )
+    ).hexdigest()
 
 
 def _string_list(
@@ -951,8 +1063,10 @@ def _validate_derivation_manifest(
         "output_rights_snapshot_sha256",
         "rights_inheritance",
         "effective_retrieval_decision",
+        "effective_rights_snapshot_sha256",
         "redaction_state",
         "evidence_ref",
+        "manifest_sha256",
     }
     if (
         value.get("schema_version") != 1
@@ -982,6 +1096,11 @@ def _validate_derivation_manifest(
     parameters = value.get("parameters")
     if not isinstance(parameters, Mapping):
         _fail("invalid_metadata", "Manifest parameters must be an object.")
+    if set(parameters) - _ALLOWED_PARAMETER_KEYS:
+        _fail(
+            "unsafe_metadata",
+            "Use only reviewed transformation parameter fields.",
+        )
     _assert_safe_metadata(parameters, field="parameters")
     if value.get("parameters_sha256") != hashlib.sha256(
         _canonical(parameters)
@@ -1020,10 +1139,27 @@ def _validate_derivation_manifest(
             "invalid_derivation_manifest",
             "Manifest retrieval decision is not reviewed.",
         )
+    _require_sha256(
+        value.get("effective_rights_snapshot_sha256"),
+        "effective_rights_snapshot_sha256",
+    )
     _require(value.get("redaction_state"), _SAFE_LABEL, "redaction_state")
     _require(value.get("evidence_ref"), _EVIDENCE_REF, "evidence_ref")
     _assert_safe_metadata(value)
+    if value.get("manifest_sha256") != _manifest_sha256(value):
+        _fail(
+            "invalid_derivation_manifest",
+            "Manifest hash must bind every derivation and rights fact.",
+        )
     return dict(value)
+
+
+def validate_derivation_manifest(
+    value: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate a fully bound derivation manifest."""
+
+    return _validate_derivation_manifest(value)
 
 
 def _lineage_sha256(value: Mapping[str, object]) -> str:
@@ -1122,23 +1258,48 @@ def _validate_derivation_lineage(
 def build_derivation_lineage(
     *,
     lineage_id: str,
-    root_receipt: Mapping[str, object],
-    derived_receipts: Iterable[Mapping[str, object]],
-    manifests: Iterable[Mapping[str, object]],
+    authority: CorpusAuthority,
+    root_receipt_id: str,
     evidence_ref: str,
 ) -> dict[str, object]:
-    """Build a complete, hash-bound descendant snapshot from manifests."""
+    """Build a complete snapshot from every authoritative receipt and manifest."""
 
     lineage_id = _require(lineage_id, _LINEAGE_ID, "lineage_id")
-    root = _validate_receipt(root_receipt)
+    root_receipt_id = _require(
+        root_receipt_id,
+        re.compile(r"^receipt_[a-z0-9][a-z0-9._-]{0,127}$"),
+        "receipt_id",
+    )
+    root_value = authority.get_corpus_receipt(root_receipt_id)
+    if root_value is None:
+        _fail(
+            "authoritative_root_missing",
+            "Resolve the root receipt from the durable corpus authority.",
+        )
+    root = _validate_receipt(root_value)
     if root["object_kind"] != "raw":
         _fail("invalid_lineage_root", "Lineage must begin at one raw receipt.")
-    derived = [_validate_receipt(value) for value in derived_receipts]
-    manifest_values = [_validate_derivation_manifest(value) for value in manifests]
+    receipts = [
+        _validate_receipt(value)
+        for value in authority.list_corpus_receipts(
+            str(root["source_id"]), str(root["asset_id"])
+        )
+    ]
+    derived = [
+        value for value in receipts if value["receipt_id"] != root_receipt_id
+    ]
+    manifest_values = [
+        _validate_derivation_manifest(value)
+        for value in authority.list_derivation_manifests(
+            str(root["source_id"]), str(root["asset_id"])
+        )
+    ]
     evidence_ref = _require(evidence_ref, _EVIDENCE_REF, "evidence_ref")
-    receipts = [root, *derived]
     receipt_index = {str(value["receipt_id"]): value for value in receipts}
-    if len(receipt_index) != len(receipts):
+    if (
+        len(receipt_index) != len(receipts)
+        or receipt_index.get(root_receipt_id) != root
+    ):
         _fail("duplicate_lineage_receipt", "Lineage receipts must be unique.")
     for value in derived:
         if (
@@ -1177,16 +1338,53 @@ def build_derivation_lineage(
         if (
             sorted(str(item["object_key"]) for item in inputs)
             != manifest["input_object_keys"]
-            or sorted(str(item["sha256"]) for item in inputs)
+            or sorted({str(item["sha256"]) for item in inputs})
             != manifest["input_sha256"]
             or sorted(str(item["object_key"]) for item in outputs)
             != manifest["output_object_keys"]
-            or sorted(str(item["sha256"]) for item in outputs)
+            or sorted({str(item["sha256"]) for item in outputs})
             != manifest["output_sha256"]
+            or sorted(
+                {str(item["rights_snapshot_sha256"]) for item in inputs}
+            )
+            != manifest["input_rights_snapshot_sha256"]
+            or sorted(
+                {str(item["rights_snapshot_sha256"]) for item in outputs}
+            )
+            != manifest["output_rights_snapshot_sha256"]
         ):
             _fail(
                 "lineage_manifest_receipt_mismatch",
                 "Manifest keys and hashes must match verified receipts.",
+            )
+        effective_decision = max(
+            (str(item["retrieval_decision"]) for item in inputs),
+            key=_RETRIEVAL_ORDER.__getitem__,
+        )
+        restrictive_hashes = sorted(
+            {
+                str(item["rights_snapshot_sha256"])
+                for item in inputs
+                if item["retrieval_decision"] == effective_decision
+            }
+        )
+        effective_rights = (
+            restrictive_hashes[0]
+            if len(restrictive_hashes) == 1
+            else hashlib.sha256(_canonical(restrictive_hashes)).hexdigest()
+        )
+        if (
+            manifest["effective_retrieval_decision"] != effective_decision
+            or manifest["effective_rights_snapshot_sha256"] != effective_rights
+            or any(
+                item["retrieval_decision"] != effective_decision
+                or item["rights_snapshot_sha256"] != effective_rights
+                for item in outputs
+            )
+        ):
+            _fail(
+                "lineage_manifest_rights_mismatch",
+                "Manifest rights must match every authoritative receipt.",
             )
         for output in outputs:
             output_id = str(output["receipt_id"])
@@ -1410,8 +1608,7 @@ def build_retention_authority(
 def build_retention_work(
     *,
     work_id: str,
-    root_receipt: Mapping[str, object],
-    derived_receipts: Iterable[Mapping[str, object]],
+    object_authority: CorpusAuthority,
     lineage_snapshot: Mapping[str, object],
     retention_authority: Mapping[str, object],
     current_time: str,
@@ -1423,11 +1620,36 @@ def build_retention_work(
     """Describe exact-key retention work without granting broad deletion."""
 
     work_id = _require(work_id, _RETENTION_WORK_ID, "retention_work_id")
-    root = _validate_receipt(root_receipt)
+    lineage = _validate_derivation_lineage(lineage_snapshot)
+    root_value = object_authority.get_corpus_receipt(
+        str(lineage["root_receipt_id"])
+    )
+    if root_value is None:
+        _fail(
+            "authoritative_root_missing",
+            "Resolve the root receipt from the durable corpus authority.",
+        )
+    root = _validate_receipt(root_value)
     if root.get("object_kind") != "raw":
         _fail("invalid_retention_root", "Retention work must start from raw data.")
-    derived = [_validate_receipt(value) for value in derived_receipts]
-    lineage = _validate_derivation_lineage(lineage_snapshot)
+    authoritative_lineage = build_derivation_lineage(
+        lineage_id=str(lineage["lineage_id"]),
+        authority=object_authority,
+        root_receipt_id=str(lineage["root_receipt_id"]),
+        evidence_ref=str(lineage["evidence_ref"]),
+    )
+    if authoritative_lineage != lineage:
+        _fail(
+            "retention_lineage_mismatch",
+            "Refresh retention work from the complete durable lineage.",
+        )
+    derived = [
+        _validate_receipt(value)
+        for value in object_authority.list_corpus_receipts(
+            str(root["source_id"]), str(root["asset_id"])
+        )
+        if value.get("receipt_id") != root["receipt_id"]
+    ]
     authority = _validate_retention_authority(retention_authority)
     if (
         lineage["source_id"] != root["source_id"]
@@ -1459,10 +1681,11 @@ def build_retention_work(
             value.get("object_kind") != "derived"
             or value["source_id"] != root["source_id"]
             or value["asset_id"] != root["asset_id"]
+            or value["retention_class"] != root["retention_class"]
         ):
             _fail(
                 "retention_lineage_mismatch",
-                "Every target must be a verified lineage descendant.",
+                "Every target must share the root retention authority.",
             )
     expiry = _parse_time(authority["expires_at"], "expires_at")
     decided = _parse_time(authority["decided_at"], "decided_at")
@@ -1583,10 +1806,11 @@ def _tombstone(
     }
 
 
-def execute_exact_cleanup(
+def _execute_exact_cleanup_guarded(
     storage: ExactObjectStorage,
     work: Mapping[str, object],
     *,
+    object_authority: CorpusAuthority,
     current_retention_authority: Mapping[str, object],
     current_lineage_snapshot: Mapping[str, object],
     current_time: str,
@@ -1646,6 +1870,17 @@ def execute_exact_cleanup(
     current = _parse_time(current_time, "current_time")
     authority = _validate_retention_authority(current_retention_authority)
     lineage = _validate_derivation_lineage(current_lineage_snapshot)
+    authoritative_lineage = build_derivation_lineage(
+        lineage_id=str(lineage["lineage_id"]),
+        authority=object_authority,
+        root_receipt_id=str(lineage["root_receipt_id"]),
+        evidence_ref=str(lineage["evidence_ref"]),
+    )
+    if authoritative_lineage != lineage:
+        _fail(
+            "derivation_lineage_stale",
+            "Rebuild cleanup work from the complete durable lineage.",
+        )
     if (
         authority["source_id"] != source_id
         or authority["asset_id"] != asset_id
@@ -1735,11 +1970,20 @@ def execute_exact_cleanup(
                 "Use verified object receipts as exact-key targets.",
             )
         target = _validate_receipt(target)
+        durable_target = object_authority.get_corpus_receipt_by_key(
+            str(target["object_key"])
+        )
+        if durable_target is None or _validate_receipt(durable_target) != target:
+            _fail(
+                "authoritative_receipt_mismatch",
+                "Resolve every cleanup target from the durable receipt ledger.",
+            )
         target_sha256 = str(target["sha256"])
         target_media_type = str(target["media_type"])
         if (
             target.get("creation_run_id") != cleanup_run_id
             or target.get("create_disposition") != "created"
+            or target.get("retention_class") != work["retention_class"]
         ):
             _fail(
                 "invalid_retention_work",
@@ -1827,3 +2071,32 @@ def execute_exact_cleanup(
         "failed_object_keys": failed,
         "evidence_ref": work["evidence_ref"],
     }
+
+
+def execute_exact_cleanup(
+    storage: ExactObjectStorage,
+    work: Mapping[str, object],
+    *,
+    object_authority: CorpusAuthority,
+    current_retention_authority: Mapping[str, object],
+    current_lineage_snapshot: Mapping[str, object],
+    current_time: str,
+) -> dict[str, object]:
+    """Hold the authoritative corpus snapshot stable across exact deletion."""
+
+    try:
+        guard = object_authority.exact_cleanup_guard()
+    except (AttributeError, TypeError):
+        _fail(
+            "authoritative_cleanup_guard_required",
+            "Use a durable authority that can freeze lineage during cleanup.",
+        )
+    with guard as guarded_authority:
+        return _execute_exact_cleanup_guarded(
+            storage,
+            work,
+            object_authority=guarded_authority,
+            current_retention_authority=current_retention_authority,
+            current_lineage_snapshot=current_lineage_snapshot,
+            current_time=current_time,
+        )

@@ -1,0 +1,45 @@
+{
+  "asset_id": "asset_synthetic_001",
+  "contract_version": 1,
+  "effective_retrieval_decision": "approved",
+  "effective_rights_snapshot_sha256": "36ac58637d43ee00f2e2260ac98b24c86f1eefbd8d3f0d1d492fba5439d39cf7",
+  "evidence_ref": "evidence:issue-37",
+  "input_object_keys": [
+    "performing-fire/v1/raw/source_synthetic_001/asset_synthetic_001/f6eea805c334d2081bc63097f5d8cb35ea8f5f0650cbaab47e13cd49ad282b91"
+  ],
+  "input_receipt_ids": [
+    "receipt_1fe84735fa80fe81d39143db622b203dc14be409503385208989bdf0de16c5b1"
+  ],
+  "input_rights_snapshot_sha256": [
+    "36ac58637d43ee00f2e2260ac98b24c86f1eefbd8d3f0d1d492fba5439d39cf7"
+  ],
+  "input_sha256": [
+    "f6eea805c334d2081bc63097f5d8cb35ea8f5f0650cbaab47e13cd49ad282b91"
+  ],
+  "manifest_id": "manifest_synthetic_001",
+  "manifest_sha256": "1bdf2e7b83276b31ce3f9623abf91c45f387d01ce3e1d7adac275e5b24a5e039",
+  "output_object_keys": [
+    "performing-fire/v1/derived/source_synthetic_001/asset_synthetic_001/transform_transcript_v1/3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591"
+  ],
+  "output_receipt_ids": [
+    "receipt_06d7cc71d5f8bdf72616170afd35ebcff6d1d1e842227b078784d91764cb5fef"
+  ],
+  "output_rights_snapshot_sha256": [
+    "36ac58637d43ee00f2e2260ac98b24c86f1eefbd8d3f0d1d492fba5439d39cf7"
+  ],
+  "output_sha256": [
+    "3b5d5030efa35e40b55b7c1c2ca5077f778de7149fca858bbca1a2b589068591"
+  ],
+  "parameters": {
+    "language": "ko"
+  },
+  "parameters_sha256": "925f7dfbfb1c1084f46309a355971bda6c0d6b49c20f40106e54c6306c788b2e",
+  "record_type": "derivation_manifest",
+  "redaction_state": "reviewed_synthetic",
+  "rights_inheritance": "most_restrictive",
+  "schema_version": 1,
+  "source_id": "source_synthetic_001",
+  "tool_id": "tool_synthetic_transcriber",
+  "tool_version": "1.2.3",
+  "transformation_id": "transform_transcript_v1"
+}

@@ -26,8 +26,10 @@
     "output_rights_snapshot_sha256",
     "rights_inheritance",
     "effective_retrieval_decision",
+    "effective_rights_snapshot_sha256",
     "redaction_state",
-    "evidence_ref"
+    "evidence_ref",
+    "manifest_sha256"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -61,7 +63,19 @@
       "minimum": 1
     },
     "parameters": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "confidence_threshold_milli": {"type": "integer"},
+        "language": {"type": "string"},
+        "model_id": {"type": "string"},
+        "output_format": {"type": "string"},
+        "profile_id": {"type": "string"},
+        "sample_rate_hz": {"type": "integer"},
+        "segment_seconds": {"type": "integer"},
+        "task": {"type": "string"},
+        "temperature_milli": {"type": "integer"}
+      }
     },
     "parameters_sha256": {
       "type": "string",
@@ -79,6 +93,10 @@
     "effective_retrieval_decision": {
       "enum": ["approved", "metadata_only", "blocked"]
     },
+    "effective_rights_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "redaction_state": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
@@ -86,6 +104,10 @@
     "evidence_ref": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "$defs": {
