@@ -340,34 +340,20 @@ class YouTubeQuotaStore:
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             current = self.snapshot(run_id=run_id)
+            # A request reserves durable quota before the harness can persist
+            # its next safe checkpoint. After a crash, keep those higher
+            # counters authoritative; restoring must never refund them.
             if (
                 authority_id != current.authority_id
                 or consumed_units > current.max_units
-                or current.consumed_units > consumed_units
+                or consumed_units > current.consumed_units
                 or any(
-                    current.method_counts[method]
-                    > method_counts[method]
+                    method_counts[method]
+                    > current.method_counts[method]
                     for method in current.method_counts
                 )
             ):
                 raise ValueError("YouTube runtime checkpoint is stale")
-            self._connection.execute(
-                """
-                UPDATE youtube_quota_run
-                SET consumed_units = ?,
-                    channels_list = ?,
-                    playlist_items_list = ?,
-                    videos_list = ?
-                WHERE run_id = ?
-                """,
-                (
-                    consumed_units,
-                    method_counts["channels.list"],
-                    method_counts["playlistItems.list"],
-                    method_counts["videos.list"],
-                    run_id,
-                ),
-            )
             self._connection.commit()
         except Exception:
             self._connection.rollback()
@@ -1081,10 +1067,10 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
             item = returned.get(video_id)
             metadata: dict[str, str] = {
                 "availability": "availability_unavailable",
-                "broadcast_state": "broadcast_state_not_live",
                 "resource_type": "resource_type_video",
             }
             if item is not None:
+                metadata["broadcast_state"] = "broadcast_state_not_live"
                 details = item.get("contentDetails")
                 status = item.get("status")
                 if not isinstance(details, Mapping) or not isinstance(status, Mapping):

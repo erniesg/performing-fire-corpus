@@ -820,20 +820,69 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             resumed_coordinator.quota.method_counts["channels.list"] = 0
 
-        stale_coordinator = youtube_coordinator(
+        reconciled_coordinator = youtube_coordinator(
             max_quota_units=3,
             quota_store=quota_store,
         )
-        with self.assertRaises(AdapterConformanceError):
-            stale_coordinator.resume_uploads(
-                stale_coordinator.issued_channel_resolution(),
-                REGISTRY,
-                checkpoint,
-                expected_bounds=checkpoint["bounds"],
-                expected_checkpoint_sha256=checkpoint[
-                    "checkpoint_sha256"
-                ],
-            )
+        reconciled_coordinator.resume_uploads(
+            reconciled_coordinator.issued_channel_resolution(),
+            REGISTRY,
+            checkpoint,
+            expected_bounds=checkpoint["bounds"],
+            expected_checkpoint_sha256=checkpoint[
+                "checkpoint_sha256"
+            ],
+        )
+        self.assertEqual(3, reconciled_coordinator.quota.consumed_units)
+        self.assertIsNone(reconciled_coordinator.next_uploads_request())
+        self.assertEqual(
+            ("blocked", "quota_exhausted"),
+            reconciled_coordinator.uploads_state(),
+        )
+
+    def test_in_flight_reservation_reconciles_without_refunding_quota(
+        self,
+    ) -> None:
+        quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
+        coordinator = youtube_coordinator(
+            max_quota_units=3,
+            quota_store=quota_store,
+        )
+        resolution = channel_resolution(coordinator)
+        self.assertIsNotNone(
+            coordinator.begin_uploads(resolution, REGISTRY)
+        )
+        coordinator.record_uploads_retry("temporary_unavailable")
+        checkpoint = coordinator.uploads_checkpoint()
+
+        self.assertIsNotNone(coordinator.next_uploads_request())
+        self.assertEqual(3, coordinator.quota.consumed_units)
+
+        restarted = youtube_coordinator(
+            max_quota_units=3,
+            quota_store=quota_store,
+        )
+        restarted.resume_uploads(
+            restarted.issued_channel_resolution(),
+            REGISTRY,
+            checkpoint,
+            expected_bounds=checkpoint["bounds"],
+            expected_checkpoint_sha256=checkpoint["checkpoint_sha256"],
+        )
+        self.assertEqual(3, restarted.quota.consumed_units)
+        self.assertEqual(
+            {
+                "channels.list": 1,
+                "playlistItems.list": 2,
+                "videos.list": 0,
+            },
+            dict(restarted.quota.method_counts),
+        )
+        self.assertIsNone(restarted.next_uploads_request())
+        self.assertEqual(
+            ("blocked", "quota_exhausted"),
+            restarted.uploads_state(),
+        )
 
     def test_forged_uploads_inventory_cannot_authorize_videos(self) -> None:
         coordinator = youtube_coordinator()
@@ -1111,6 +1160,16 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             by_id[adapter.stable_record_id({"id": "missing001"})][
                 "availability"
             ],
+        )
+        self.assertEqual(
+            "broadcast_state_not_live",
+            by_id[adapter.stable_record_id({"id": "public001"})][
+                "broadcast_state"
+            ],
+        )
+        self.assertNotIn(
+            "broadcast_state",
+            by_id[adapter.stable_record_id({"id": "missing001"})],
         )
 
     def test_changed_restriction_shapes_fail_closed(self) -> None:
