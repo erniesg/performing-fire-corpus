@@ -20,7 +20,8 @@ PREFIX/v1/tombstones/SOURCE_ID/ASSET_ID/TOMBSTONE_ID/SHA256
 ```
 
 The `v1/raw/`, `v1/derived/`, `v1/manifests/`, and `v1/tombstones/`
-namespaces accept only normalized stable identifiers and lowercase SHA-256
+namespaces accept canonical registry source slugs (for example,
+`njp-video-library`) and normalized stable asset identifiers with lowercase SHA-256
 digests. Titles, prose, personal details, account or provider identifiers,
 credentials, cookies, signed values, endpoints, and machine-local paths are
 not key components or durable metadata. Object keys never use a public URL or
@@ -114,12 +115,16 @@ A version-1 derivation manifest binds:
 - the redaction state and a sanitized evidence reference;
 - a manifest hash binding all transformation, receipt, and rights facts.
 
+Transformation parameters use per-field type, range, and normalized-label
+contracts; an allowlisted key cannot be used to smuggle free-form prose.
+
 Queue messages between the trusted VM, R2, and a later outbound-paired trusted
 laptop carry these identifiers and object keys, never machine-local media
 paths. OCR, transcription, and video-understanding tools cannot silently
 replace or weaken the input authority.
 
-A complete derivation-lineage snapshot is rebuilt from every receipt and
+A complete derivation-lineage snapshot is rebuilt from every raw, derived, and
+immutable-manifest receipt and
 manifest in the durable corpus ledger. It verifies each key, content hash,
 rights snapshot, retrieval decision, and output receipt against its owning
 manifest, rejects disconnected or multiply owned descendants, and hash-binds
@@ -146,7 +151,10 @@ Ordinary corpus data remains `held_for_review`, even after retention expiry.
 
 Exact cleanup verifies the current object metadata before deletion, deletes
 only the named key, confirms that exact key is absent, and emits a deterministic
-tombstone. An already absent exact key is an idempotent tombstone state. A
+tombstone. Every target, receipt, authority fact, and namespace is completely
+preflighted before the first storage `HEAD` or exact delete. Deleted and already
+absent objects converge on the same immutable `absent_exact_key` tombstone, so
+reruns cannot change a tombstone payload under the same identity. A
 provider error or conflicting object becomes `failed_cleanup`; the worker does
 not broaden scope or include the provider response in evidence.
 
@@ -157,7 +165,9 @@ revalidated immediately before deletion. The durable ledger holds an immediate
 write guard across that validation and the exact-key operations, so a new
 receipt or manifest cannot race a supposedly complete cleanup snapshot. Each
 target is resolved again by exact key from that guarded ledger and must equal
-the work receipt. A newly active hold, expired
+the work receipt. Successful absence tombstones are persisted under the same
+guard, and tombstoned receipts no longer satisfy object-present asset-state
+gates. A newly active hold, expired
 authority, changed retention decision, or changed lineage stops cleanup and
 requires rebuilt work.
 

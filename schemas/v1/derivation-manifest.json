@@ -40,7 +40,7 @@
     },
     "source_id": {
       "type": "string",
-      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
     },
     "asset_id": {
       "type": "string",
@@ -66,15 +66,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "confidence_threshold_milli": {"type": "integer"},
-        "language": {"type": "string"},
-        "model_id": {"type": "string"},
-        "output_format": {"type": "string"},
-        "profile_id": {"type": "string"},
-        "sample_rate_hz": {"type": "integer"},
-        "segment_seconds": {"type": "integer"},
-        "task": {"type": "string"},
-        "temperature_milli": {"type": "integer"}
+        "confidence_threshold_milli": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "language": {"type": "string", "pattern": "^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}$"},
+        "model_id": {"$ref": "#/$defs/parameter_label"},
+        "output_format": {"$ref": "#/$defs/parameter_label"},
+        "profile_id": {"$ref": "#/$defs/parameter_label"},
+        "sample_rate_hz": {"type": "integer", "minimum": 8000, "maximum": 192000},
+        "segment_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "task": {"$ref": "#/$defs/parameter_label"},
+        "temperature_milli": {"type": "integer", "minimum": 0, "maximum": 2000}
       }
     },
     "parameters_sha256": {
@@ -111,12 +111,17 @@
     }
   },
   "$defs": {
+    "parameter_label": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$"
+    },
     "receipt_ids": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": {
         "type": "string",
+        "maxLength": 512,
         "pattern": "^receipt_[a-z0-9][a-z0-9._-]{0,127}$"
       }
     },
@@ -126,6 +131,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
+        "maxLength": 512,
         "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
       }
     },

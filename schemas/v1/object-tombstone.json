@@ -37,7 +37,7 @@
     },
     "source_id": {
       "type": "string",
-      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
     },
     "asset_id": {
       "type": "string",
@@ -45,6 +45,7 @@
     },
     "deleted_object_key": {
       "type": "string",
+      "maxLength": 512,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
     },
     "deleted_object_sha256": {
@@ -53,10 +54,11 @@
     },
     "tombstone_object_key": {
       "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}/v1/tombstones/source_[a-z0-9._-]+/asset_[a-z0-9._-]+/tombstone_[a-z0-9._-]+/[0-9a-f]{64}$"
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}/v1/tombstones/(?:source_[a-z0-9._-]+|[a-z]+(?:-[a-z]+)*)/asset_[a-z0-9._-]+/tombstone_[a-z0-9._-]+/[0-9a-f]{64}$"
     },
     "deletion_state": {
-      "enum": ["deleted_exact_key", "already_absent"]
+      "const": "absent_exact_key"
     },
     "deleted_at": {
       "type": "string",

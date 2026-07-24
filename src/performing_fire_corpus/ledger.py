@@ -30,6 +30,7 @@ RECORD_TYPES = (
     "object",
     "object_receipt",
     "derivation_manifest",
+    "object_tombstone",
     "evidence",
 )
 ID_FIELDS = {
@@ -41,6 +42,7 @@ ID_FIELDS = {
     "object": "object_id",
     "object_receipt": "receipt_id",
     "derivation_manifest": "manifest_id",
+    "object_tombstone": "tombstone_id",
     "evidence": "evidence_id",
 }
 ASSET_STATES = (
@@ -107,6 +109,7 @@ def _schema_resource(record_type: str) -> Any:
     schema_name = {
         "object_receipt": "object-receipt",
         "derivation_manifest": "derivation-manifest",
+        "object_tombstone": "object-tombstone",
     }.get(record_type, record_type)
     packaged = files("performing_fire_corpus").joinpath(
         "schemas", "v1", f"{schema_name}.json"
@@ -328,6 +331,16 @@ class Ledger:
                     raise LedgerError(f"conflicting upsert for stable identifier {record_id}")
                 if record_type in {"object", "object_receipt"}:
                     self._require_approved_rights(str(value["asset_id"]))
+                    if record_type == "object_receipt":
+                        asset = self.get_record("asset", str(value["asset_id"]))
+                        if (
+                            asset is None
+                            or asset.get("source_id") != value.get("source_id")
+                        ):
+                            raise LedgerError(
+                                "object receipt source must match its "
+                                "authoritative asset"
+                            )
                     for row in self._connection.execute(
                         """SELECT record_type, record_id, body
                            FROM records
@@ -461,6 +474,30 @@ class Ledger:
                 self._connection.rollback()
                 raise
 
+    def record_cleanup_tombstones(
+        self, tombstones: Iterable[Mapping[str, object]]
+    ) -> None:
+        """Persist exact-key absence under the active cleanup transaction."""
+
+        now = utc_text()
+        for tombstone in tombstones:
+            validate_record(tombstone)
+            value = dict(tombstone)
+            _assert_sanitized(value)
+            tombstone_id = str(value["tombstone_id"])
+            existing = self.get_record("object_tombstone", tombstone_id)
+            if existing is not None and existing != value:
+                raise LedgerError(
+                    f"conflicting tombstone for stable identifier {tombstone_id}"
+                )
+            self._connection.execute(
+                """INSERT INTO records(record_type, record_id, body, updated_at)
+                   VALUES('object_tombstone', ?, ?, ?)
+                   ON CONFLICT(record_type, record_id)
+                   DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at""",
+                (tombstone_id, _canonical(value), now),
+            )
+
     def _require_approved_rights(self, asset_id: str) -> None:
         rows = self._connection.execute(
             "SELECT body FROM records WHERE record_type='rights'"
@@ -558,8 +595,15 @@ class Ledger:
             """SELECT record_type, body FROM records
                WHERE record_type IN ('object', 'object_receipt')"""
         ).fetchall()
+        tombstoned_keys = {
+            json.loads(row["body"])["deleted_object_key"]
+            for row in self._connection.execute(
+                "SELECT body FROM records WHERE record_type='object_tombstone'"
+            )
+        }
         if not any(
             (record := json.loads(row["body"])).get("asset_id") == asset_id
+            and record.get("object_key") not in tombstoned_keys
             and (
                 (
                     row["record_type"] == "object"

@@ -34,7 +34,7 @@
     },
     "source_id": {
       "type": "string",
-      "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
     },
     "asset_id": {
       "type": "string",
@@ -90,6 +90,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
+        "maxLength": 512,
         "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
       }
     },
@@ -130,7 +131,7 @@
           },
           "source_id": {
             "type": "string",
-            "pattern": "^source_[a-z0-9][a-z0-9._-]{0,127}$"
+            "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
           },
           "asset_id": {
             "type": "string",
@@ -142,6 +143,7 @@
           },
           "object_key": {
             "type": "string",
+            "maxLength": 512,
             "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
           },
           "sha256": {

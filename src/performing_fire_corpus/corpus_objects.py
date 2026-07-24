@@ -20,7 +20,9 @@ from performing_fire_corpus.storage import dedicated_staging_prefix
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_SOURCE_ID = re.compile(r"^source_[a-z0-9][a-z0-9._-]{0,127}$")
+_SOURCE_ID = re.compile(
+    r"^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
+)
 _ASSET_ID = re.compile(r"^asset_[a-z0-9][a-z0-9._-]{0,127}$")
 _TRANSFORMATION_ID = re.compile(r"^transform_[a-z0-9][a-z0-9._-]{0,127}$")
 _MANIFEST_ID = re.compile(r"^manifest_[a-z0-9][a-z0-9._-]{0,127}$")
@@ -90,6 +92,8 @@ _ALLOWED_PARAMETER_KEYS = frozenset(
         "temperature_milli",
     }
 )
+_PARAMETER_LABEL = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,63}$")
+_LANGUAGE = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}$")
 _RETRIEVAL_ORDER = {
     "approved": 0,
     "metadata_only": 1,
@@ -146,6 +150,10 @@ class CorpusAuthority(Protocol):
     ) -> Iterable[Mapping[str, object]]: ...
 
     def exact_cleanup_guard(self) -> Any: ...
+
+    def record_cleanup_tombstones(
+        self, tombstones: Iterable[Mapping[str, object]]
+    ) -> None: ...
 
 
 def _fail(code: str, next_action: str) -> None:
@@ -210,6 +218,53 @@ def _assert_safe_metadata(value: object, *, field: str = "metadata") -> None:
         _canonical(value)
         return
     _fail("unsafe_metadata", f"Use a JSON-compatible value for {field}.")
+
+
+def _validate_parameters(parameters: Mapping[str, object]) -> None:
+    if set(parameters) - _ALLOWED_PARAMETER_KEYS:
+        _fail(
+            "unsafe_metadata",
+            "Use only reviewed transformation parameter fields.",
+        )
+    for key, value in parameters.items():
+        if key == "language":
+            if not isinstance(value, str) or not _LANGUAGE.fullmatch(value):
+                _fail("unsafe_metadata", "Use one normalized language tag.")
+        elif key in {"model_id", "output_format", "profile_id", "task"}:
+            if not isinstance(value, str) or not _PARAMETER_LABEL.fullmatch(value):
+                _fail(
+                    "unsafe_metadata",
+                    f"Use one normalized safe label for {key}.",
+                )
+        elif key == "confidence_threshold_milli":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= 1000
+            ):
+                _fail("unsafe_metadata", "Use a confidence value from 0 to 1000.")
+        elif key == "temperature_milli":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= 2000
+            ):
+                _fail("unsafe_metadata", "Use a temperature from 0 to 2000.")
+        elif key == "sample_rate_hz":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 8000 <= value <= 192000
+            ):
+                _fail("unsafe_metadata", "Use a reviewed audio sample rate.")
+        elif key == "segment_seconds":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 1 <= value <= 86400
+            ):
+                _fail("unsafe_metadata", "Use a bounded segment duration.")
+    _assert_safe_metadata(parameters, field="parameters")
 
 
 def _namespace_key(
@@ -519,7 +574,7 @@ def immutable_create_and_verify(
         durable = receipt_authority.get_corpus_receipt_by_key(key)
         if durable is not None:
             durable = _validate_receipt(durable)
-            expected_created = _verified_receipt(
+            expected_durable = _verified_receipt(
                 key=key,
                 object_kind=object_kind,
                 source_id=source_id,
@@ -533,9 +588,9 @@ def immutable_create_and_verify(
                 creation_run_id=creation_run_id,
                 retrieval_decision=retrieval_decision,
                 evidence_ref=evidence_ref,
-                create_disposition="created",
+                create_disposition=str(durable["create_disposition"]),
             )
-            if durable != expected_created:
+            if durable != expected_durable:
                 _fail(
                     "durable_receipt_conflict",
                     "Hold the exact key and its durable receipt for review.",
@@ -917,12 +972,7 @@ def build_derivation_manifest(
         )
     redaction_state = _require(redaction_state, _SAFE_LABEL, "redaction_state")
     evidence_ref = _require(evidence_ref, _EVIDENCE_REF, "evidence_ref")
-    if set(parameters) - _ALLOWED_PARAMETER_KEYS:
-        _fail(
-            "unsafe_metadata",
-            "Use only reviewed transformation parameter fields.",
-        )
-    _assert_safe_metadata(parameters, field="parameters")
+    _validate_parameters(parameters)
     parameter_digest = hashlib.sha256(_canonical(parameters)).hexdigest()
     input_values = [_validate_receipt(value) for value in inputs]
     output_values = [_validate_receipt(value) for value in outputs]
@@ -1096,12 +1146,7 @@ def _validate_derivation_manifest(
     parameters = value.get("parameters")
     if not isinstance(parameters, Mapping):
         _fail("invalid_metadata", "Manifest parameters must be an object.")
-    if set(parameters) - _ALLOWED_PARAMETER_KEYS:
-        _fail(
-            "unsafe_metadata",
-            "Use only reviewed transformation parameter fields.",
-        )
-    _assert_safe_metadata(parameters, field="parameters")
+    _validate_parameters(parameters)
     if value.get("parameters_sha256") != hashlib.sha256(
         _canonical(parameters)
     ).hexdigest():
@@ -1285,8 +1330,14 @@ def build_derivation_lineage(
             str(root["source_id"]), str(root["asset_id"])
         )
     ]
-    derived = [
+    descendants = [
         value for value in receipts if value["receipt_id"] != root_receipt_id
+    ]
+    derived = [
+        value for value in descendants if value["object_kind"] == "derived"
+    ]
+    manifest_receipts = [
+        value for value in descendants if value["object_kind"] == "manifest"
     ]
     manifest_values = [
         _validate_derivation_manifest(value)
@@ -1301,9 +1352,9 @@ def build_derivation_lineage(
         or receipt_index.get(root_receipt_id) != root
     ):
         _fail("duplicate_lineage_receipt", "Lineage receipts must be unique.")
-    for value in derived:
+    for value in descendants:
         if (
-            value["object_kind"] != "derived"
+            value["object_kind"] not in {"derived", "manifest"}
             or value["source_id"] != root["source_id"]
             or value["asset_id"] != root["asset_id"]
         ):
@@ -1311,6 +1362,19 @@ def build_derivation_lineage(
                 "lineage_receipt_mismatch",
                 "Every descendant must belong to the same source and asset.",
             )
+    manifest_receipt_index: dict[str, dict[str, object]] = {}
+    for value in manifest_receipts:
+        key = str(value["object_key"])
+        marker = "v1/"
+        prefix = key[: key.index(marker)]
+        segments = key[len(prefix) :].split("/")
+        manifest_id = str(segments[4])
+        if manifest_id in manifest_receipt_index:
+            _fail(
+                "duplicate_manifest_receipt",
+                "Each immutable manifest may have one durable receipt.",
+            )
+        manifest_receipt_index[manifest_id] = value
     output_owners: dict[str, str] = {}
     manifest_index: dict[str, dict[str, object]] = {}
     for manifest in manifest_values:
@@ -1325,6 +1389,17 @@ def build_derivation_lineage(
             _fail(
                 "lineage_manifest_mismatch",
                 "Every manifest must belong to the same source and asset.",
+            )
+        stored_manifest = manifest_receipt_index.get(manifest_id)
+        if stored_manifest is not None and (
+            stored_manifest["retrieval_decision"]
+            != manifest["effective_retrieval_decision"]
+            or stored_manifest["rights_snapshot_sha256"]
+            != manifest["effective_rights_snapshot_sha256"]
+        ):
+            _fail(
+                "lineage_manifest_rights_mismatch",
+                "Stored manifest receipts must carry the effective rights.",
             )
         input_ids = [str(item) for item in manifest["input_receipt_ids"]]
         output_ids = [str(item) for item in manifest["output_receipt_ids"]]
@@ -1417,13 +1492,18 @@ def build_derivation_lineage(
                 reachable.update(
                     str(item) for item in manifest["output_receipt_ids"]
                 )
+                stored_manifest = manifest_receipt_index.get(manifest_id)
+                if stored_manifest is not None:
+                    reachable.add(str(stored_manifest["receipt_id"]))
                 used_manifests.add(manifest_id)
                 changed = True
-    descendant_ids = {str(value["receipt_id"]) for value in derived}
+    descendant_ids = {str(value["receipt_id"]) for value in descendants}
+    derived_ids = {str(value["receipt_id"]) for value in derived}
     if (
         reachable != {str(root["receipt_id"]), *descendant_ids}
-        or set(output_owners) != descendant_ids
+        or set(output_owners) != derived_ids
         or used_manifests != set(manifest_index)
+        or set(manifest_receipt_index) - set(manifest_index)
     ):
         _fail(
             "incomplete_derivation_lineage",
@@ -1678,7 +1758,7 @@ def build_retention_work(
         )
     for value in derived:
         if (
-            value.get("object_kind") != "derived"
+            value.get("object_kind") not in {"derived", "manifest"}
             or value["source_id"] != root["source_id"]
             or value["asset_id"] != root["asset_id"]
             or value["retention_class"] != root["retention_class"]
@@ -1769,7 +1849,6 @@ def _prefix_from_key(key: str) -> str:
 def _tombstone(
     work: Mapping[str, object],
     target: Mapping[str, object],
-    deletion_state: str,
 ) -> dict[str, object]:
     digest = hashlib.sha256(
         _canonical(
@@ -1799,11 +1878,91 @@ def _tombstone(
         "deleted_object_key": target["object_key"],
         "deleted_object_sha256": target["sha256"],
         "tombstone_object_key": key,
-        "deletion_state": deletion_state,
+        "deletion_state": "absent_exact_key",
         "deleted_at": work["evaluated_at"],
         "reason_code": work["reason_code"],
         "evidence_ref": work["evidence_ref"],
     }
+
+
+def _preflight_cleanup_targets(
+    targets: Iterable[Mapping[str, object]],
+    *,
+    object_authority: CorpusAuthority,
+    source_id: str,
+    asset_id: str,
+    cleanup_run_id: str,
+    retention_class: str,
+) -> list[dict[str, object]]:
+    """Validate every target and authority binding before storage I/O."""
+
+    validated: list[dict[str, object]] = []
+    for candidate in targets:
+        target = _validate_receipt(candidate)
+        durable_target = object_authority.get_corpus_receipt_by_key(
+            str(target["object_key"])
+        )
+        if durable_target is None or _validate_receipt(durable_target) != target:
+            _fail(
+                "authoritative_receipt_mismatch",
+                "Resolve every cleanup target from the durable receipt ledger.",
+            )
+        if (
+            target.get("creation_run_id") != cleanup_run_id
+            or target.get("create_disposition") != "created"
+            or target.get("retention_class") != retention_class
+        ):
+            _fail(
+                "invalid_retention_work",
+                "Every cleanup target must be created by this exact proof.",
+            )
+        if target["source_id"] != source_id or target["asset_id"] != asset_id:
+            _fail(
+                "invalid_retention_work",
+                "Every cleanup target must match the retained source and asset.",
+            )
+        key = str(target["object_key"])
+        marker = "v1/"
+        prefix = key[: key.index(marker)]
+        segments = key[len(prefix) :].split("/")
+        target_sha256 = str(target["sha256"])
+        object_kind = target.get("object_kind")
+        if object_kind == "raw":
+            expected_key = raw_object_key(
+                prefix, source_id, asset_id, target_sha256
+            )
+        elif object_kind == "derived" and len(segments) == 6:
+            transformation_id = _require(
+                segments[4], _TRANSFORMATION_ID, "transformation_id"
+            )
+            expected_key = derived_object_key(
+                prefix,
+                source_id,
+                asset_id,
+                transformation_id,
+                target_sha256,
+            )
+        elif object_kind == "manifest" and len(segments) == 6:
+            manifest_id = _require(segments[4], _MANIFEST_ID, "manifest_id")
+            expected_key = manifest_object_key(
+                prefix,
+                source_id,
+                asset_id,
+                manifest_id,
+                target_sha256,
+            )
+        else:
+            _fail(
+                "invalid_retention_work",
+                "Target kind and namespace must match.",
+            )
+        if key != expected_key:
+            _fail(
+                "invalid_retention_work",
+                "Target key must match the retained source and asset.",
+            )
+        validated.append(target)
+    return validated
 
 
 def _execute_exact_cleanup_guarded(
@@ -1961,89 +2120,27 @@ def _execute_exact_cleanup_guarded(
             "Cleanup targets must equal the complete current lineage.",
         )
 
+    validated_targets = _preflight_cleanup_targets(
+        targets,
+        object_authority=object_authority,
+        source_id=source_id,
+        asset_id=asset_id,
+        cleanup_run_id=cleanup_run_id,
+        retention_class=str(work["retention_class"]),
+    )
     tombstones: list[dict[str, object]] = []
     failed: list[str] = []
-    for target in targets:
-        if not isinstance(target, Mapping):
-            _fail(
-                "invalid_retention_work",
-                "Use verified object receipts as exact-key targets.",
-            )
-        target = _validate_receipt(target)
-        durable_target = object_authority.get_corpus_receipt_by_key(
-            str(target["object_key"])
-        )
-        if durable_target is None or _validate_receipt(durable_target) != target:
-            _fail(
-                "authoritative_receipt_mismatch",
-                "Resolve every cleanup target from the durable receipt ledger.",
-            )
+    for target in validated_targets:
         target_sha256 = str(target["sha256"])
         target_media_type = str(target["media_type"])
-        if (
-            target.get("creation_run_id") != cleanup_run_id
-            or target.get("create_disposition") != "created"
-            or target.get("retention_class") != work["retention_class"]
-        ):
-            _fail(
-                "invalid_retention_work",
-                "Every cleanup target must be created by this exact proof.",
-            )
-        if target["source_id"] != source_id or target["asset_id"] != asset_id:
-            _fail(
-                "invalid_retention_work",
-                "Every cleanup target must match the retained source and asset.",
-            )
         key = str(target["object_key"])
-        if not _OBJECT_KEY.fullmatch(key):
-            _fail("invalid_object_key", "Retention targets must be exact keys.")
-        marker = "v1/"
-        if marker not in key:
-            _fail("invalid_retention_work", "Use a versioned exact target key.")
-        prefix = key[: key.index(marker)]
-        segments = key[len(prefix) :].split("/")
-        object_kind = target.get("object_kind")
-        if object_kind == "raw":
-            expected_key = raw_object_key(
-                prefix, source_id, asset_id, target_sha256
-            )
-        elif object_kind == "derived" and len(segments) == 6:
-            transformation_id = _require(
-                segments[4], _TRANSFORMATION_ID, "transformation_id"
-            )
-            expected_key = derived_object_key(
-                prefix,
-                source_id,
-                asset_id,
-                transformation_id,
-                target_sha256,
-            )
-        elif object_kind == "manifest" and len(segments) == 6:
-            manifest_id = _require(segments[4], _MANIFEST_ID, "manifest_id")
-            expected_key = manifest_object_key(
-                prefix,
-                source_id,
-                asset_id,
-                manifest_id,
-                target_sha256,
-            )
-        else:
-            _fail(
-                "invalid_retention_work",
-                "Target kind and namespace must match.",
-            )
-        if key != expected_key:
-            _fail(
-                "invalid_retention_work",
-                "Target key must match the retained source and asset.",
-            )
         try:
             existing = storage.head_object(key)
         except Exception:
             failed.append(key)
             continue
         if existing is None:
-            tombstones.append(_tombstone(work, target, "already_absent"))
+            tombstones.append(_tombstone(work, target))
             continue
         if not _matching_head(
             existing,
@@ -2059,9 +2156,16 @@ def _execute_exact_cleanup_guarded(
         except Exception:
             absent = False
         if absent:
-            tombstones.append(_tombstone(work, target, "deleted_exact_key"))
+            tombstones.append(_tombstone(work, target))
         else:
             failed.append(key)
+    try:
+        object_authority.record_cleanup_tombstones(tombstones)
+    except Exception:
+        _fail(
+            "tombstone_commit_failed",
+            "Retry the same exact cleanup to reconcile durable absence.",
+        )
     return {
         "schema_version": 1,
         "record_type": "cleanup_result",

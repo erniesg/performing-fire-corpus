@@ -33,7 +33,7 @@ from performing_fire_corpus.corpus_objects import (
     reconcile_receipt_commit,
     tombstone_object_key,
 )
-from performing_fire_corpus.ledger import Ledger, LedgerError
+from performing_fire_corpus.ledger import InvalidTransition, Ledger, LedgerError
 
 
 SHA = hashlib.sha256(b"synthetic raw object").hexdigest()
@@ -101,6 +101,7 @@ class FakeCorpusAuthority:
     ) -> None:
         self.receipts = [dict(value) for value in receipts]
         self.manifests = [dict(value) for value in manifests]
+        self.tombstones: list[dict[str, object]] = []
 
     def get_corpus_receipt_by_key(
         self, object_key: str
@@ -138,6 +139,20 @@ class FakeCorpusAuthority:
 
     def exact_cleanup_guard(self) -> object:
         return nullcontext(self)
+
+    def record_cleanup_tombstones(
+        self, tombstones: list[Mapping[str, object]]
+    ) -> None:
+        for value in tombstones:
+            existing = [
+                item
+                for item in self.tombstones
+                if item["tombstone_id"] == value["tombstone_id"]
+            ]
+            if existing and existing[0] != value:
+                raise ValueError("conflicting synthetic tombstone")
+            if not existing:
+                self.tombstones.append(dict(value))
 
 
 def receipt(
@@ -244,6 +259,25 @@ class NamespaceTests(unittest.TestCase):
         for values in unsafe:
             with self.subTest(values=values), self.assertRaises(CorpusObjectError):
                 raw_object_key(*values)
+
+    def test_every_canonical_registry_source_builds_a_corpus_key(self) -> None:
+        registry = json.loads(
+            (ROOT / "config" / "source-registry.v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source_ids = [item["source_id"] for item in registry["sources"]]
+        self.assertIn("antiegg-fluxus", source_ids)
+        self.assertIn("njp-video-library", source_ids)
+        for source_id in source_ids:
+            with self.subTest(source_id=source_id):
+                key = raw_object_key(
+                    "performing-fire/",
+                    source_id,
+                    "asset_synthetic_001",
+                    SHA,
+                )
+                self.assertIn(f"/raw/{source_id}/", key)
 
 
 class ImmutableCreateTests(unittest.TestCase):
@@ -371,6 +405,18 @@ class ImmutableCreateTests(unittest.TestCase):
         rerun = self.call(storage, receipt_authority=authority)
         self.assertEqual(created, rerun)
         self.assertEqual("created", rerun["create_disposition"])
+
+        for disposition in ("reused", "reused_after_ambiguous_create"):
+            with self.subTest(disposition=disposition):
+                durable = receipt(
+                    object_key=self.key,
+                    create_disposition=disposition,
+                )
+                rerun = self.call(
+                    storage,
+                    receipt_authority=FakeCorpusAuthority([durable], []),
+                )
+                self.assertEqual(durable, rerun)
 
     def test_inapplicable_transformation_fails_before_storage_is_touched(self) -> None:
         storage = FakeStorage()
@@ -512,6 +558,8 @@ class ProvenanceAndManifestTests(unittest.TestCase):
         for unsafe_parameters in (
             {"api_key": "synthetic-but-forbidden"},
             {"model_id": "/var/lib/private/model"},
+            {"language": "private participant comment"},
+            {"temperature_milli": 2001},
         ):
             unsafe = copy.deepcopy(arguments)
             unsafe["parameters"] = unsafe_parameters
@@ -923,6 +971,8 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual("complete", second["state"])
         self.assertEqual(2, len(first["tombstones"]))
         self.assertEqual(2, len(second["tombstones"]))
+        self.assertEqual(first["tombstones"], second["tombstones"])
+        self.assertEqual(first["tombstones"], self.object_authority.tombstones)
         self.assertEqual(0, storage.list_calls)
 
     def test_failed_exact_cleanup_is_durable_and_does_not_broaden_scope(self) -> None:
@@ -1034,6 +1084,21 @@ class RetentionTests(unittest.TestCase):
                 object_authority=self.root_only_object_authority,
             )
         self.assertEqual("object_key_mismatch", raised.exception.code)
+        self.assertEqual([], storage.deleted)
+
+    def test_all_targets_preflight_before_the_first_storage_call(self) -> None:
+        work = self.make_work()
+        work["targets"][1]["creation_run_id"] = "run_tampered_001"
+        storage = FakeStorage()
+        for item in (self.raw_receipt, self.derived_receipt):
+            storage.objects[str(item["object_key"])] = {
+                "byte_size": item["byte_size"],
+                "media_type": item["media_type"],
+                "sha256": item["sha256"],
+            }
+        with self.assertRaises(CorpusObjectError):
+            self.execute(storage, work)
+        self.assertEqual(0, storage.head_calls)
         self.assertEqual([], storage.deleted)
 
     def test_current_legal_hold_and_lineage_are_revalidated_at_delete_time(self) -> None:
@@ -1188,6 +1253,44 @@ class RetentionTests(unittest.TestCase):
             "lineage_manifest_receipt_mismatch", raised.exception.code
         )
 
+    def test_manifest_object_receipts_are_complete_retention_descendants(
+        self,
+    ) -> None:
+        manifest_sha = hashlib.sha256(b"synthetic manifest object").hexdigest()
+        manifest_key = manifest_object_key(
+            "performing-fire/",
+            "source_synthetic_001",
+            "asset_synthetic_001",
+            "manifest_synthetic_001",
+            manifest_sha,
+        )
+        manifest_receipt = receipt(
+            object_key=manifest_key,
+            sha256=manifest_sha,
+            object_kind="manifest",
+        )
+        authority = FakeCorpusAuthority(
+            [self.raw_receipt, self.derived_receipt, manifest_receipt],
+            [self.manifest],
+        )
+        lineage = self.make_lineage(authority)
+        self.assertEqual(
+            {
+                self.derived_receipt["receipt_id"],
+                manifest_receipt["receipt_id"],
+            },
+            set(lineage["descendant_receipt_ids"]),
+        )
+        work = self.make_work(
+            derived=[self.derived_receipt, manifest_receipt],
+            lineage=lineage,
+            object_authority=authority,
+        )
+        self.assertEqual(
+            {self.raw_key, self.derived_key, manifest_key},
+            set(work["exact_object_keys"]),
+        )
+
     def test_runtime_timestamps_are_normalized_to_schema_contract(self) -> None:
         authority = self.make_authority(
             expires_at="2026-07-25T08:00:00.987654+08:00",
@@ -1255,6 +1358,22 @@ class RetentionTests(unittest.TestCase):
                     current_lineage_snapshot=lineage,
                     current_time="2026-07-26T00:00:00Z",
                 )
+                for state in (
+                    "metadata_verified",
+                    "approved_for_ingest",
+                    "transfer_pending",
+                ):
+                    ledger.transition_asset(
+                        "asset_synthetic_001",
+                        state,
+                        operation_id=f"cleanup_guard_{state}",
+                    )
+                with self.assertRaises(InvalidTransition):
+                    ledger.transition_asset(
+                        "asset_synthetic_001",
+                        "raw_in_object_store",
+                        operation_id="cleanup_guard_raw_absent",
+                    )
         self.assertEqual("complete", result["state"])
         self.assertEqual({self.raw_key, self.derived_key}, set(storage.deleted))
 
@@ -1442,6 +1561,19 @@ class ReceiptReconciliationTests(unittest.TestCase):
                     ledger.upsert(records[name])
                 with self.assertRaises(LedgerError):
                     ledger.upsert(forged)
+                wrong_source_key = raw_object_key(
+                    "performing-fire/",
+                    "source_synthetic_999",
+                    "asset_synthetic_001",
+                    SHA,
+                )
+                with self.assertRaises(LedgerError):
+                    ledger.upsert(
+                        receipt(
+                            object_key=wrong_source_key,
+                            source_id="source_synthetic_999",
+                        )
+                    )
 
 
 class SchemaTests(unittest.TestCase):
@@ -1612,6 +1744,16 @@ class SchemaTests(unittest.TestCase):
         uppercase["sha256"] = SHA.upper()
         with self.assertRaises(ValidationError):
             self.validator("raw-object").validate(uppercase)
+
+        overlong = copy.deepcopy(records["raw-object"])
+        overlong["object_key"] = (
+            "x" * 450
+            + "/v1/raw/source_synthetic_001/asset_synthetic_001/"
+            + SHA
+        )
+        self.assertGreater(len(overlong["object_key"]), 512)
+        with self.assertRaises(ValidationError):
+            self.validator("raw-object").validate(overlong)
 
 
 if __name__ == "__main__":
