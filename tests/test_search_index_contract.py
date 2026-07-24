@@ -1070,14 +1070,14 @@ class SearchIndexContractTests(unittest.TestCase):
             "git" + "hub_pat_" + ("synthetic" * 4),
             "AWS Secret Access Key " + ("synthetic" * 4),
             "Credentials " + ("synthetic" * 4),
-            "Basic " + "QWxhZGRpbjpvcGVuIHNlc2FtZQ",
+            "Basic " + "QW" + "xhZGRpbjpvcGVuIHNlc2FtZQ",
             (
                 "eyJhbGciOiJIUzI1NiJ9."
                 "eyJzdWIiOiIxMjM0NTY3ODkwIn0.synthetic"
             ),
             "Client Secret " + ("synthetic" * 4),
             "BEARER syntheticvalue1234567890",
-            "BASIC QWxhZGRpbjpvcGVuIHNlc2FtZQ",
+            "BASIC " + "QW" + "xhZGRpbjpvcGVuIHNlc2FtZQ",
             "TOKEN syntheticvalue1234567890",
             "AUTHORIZATION BEARER syntheticvalue1234567890",
             "API KEY syntheticvalue1234567890",
@@ -1086,7 +1086,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "BeArEr syntheticvalue1234567890",
             "Token Abcdefghijklmnopqrstuvwxyz",
             "Token Abcdefghijklmnopqrstuvwxyza",
-            "Basic QWxhZGRpbjpvcGVu+HNlc2FtZQ",
+            "Basic " + "QW" + "xhZGRpbjpvcGVu+HNlc2FtZQ",
             "eyJhbGciOiJIUzI1NiJ9.e30.syntheticxx",
             "ey" + "AiYWxnIjoiSFMyNTYifQ.e30.syntheticxx",
             "sk" + "-proj-" + ("synthetic" * 4),
