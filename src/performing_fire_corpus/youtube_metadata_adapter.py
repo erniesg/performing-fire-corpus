@@ -449,15 +449,15 @@ class YouTubeQuotaLedger:
         *,
         max_units: int,
         run_id: str,
-        store: YouTubeQuotaStore | None = None,
+        store: YouTubeQuotaStore,
     ) -> None:
         if not isinstance(max_units, int) or isinstance(max_units, bool) or max_units < 1:
             raise ValueError("quota budget must be positive")
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
             raise ValueError("quota run identifier is invalid")
-        self._store = store or YouTubeQuotaStore(
-            sqlite3.connect(":memory:")
-        )
+        if not isinstance(store, YouTubeQuotaStore):
+            raise ValueError("an explicit durable quota store is required")
+        self._store = store
         self._run_id = run_id
         self._store.ensure_run(run_id=run_id, max_units=max_units)
         self._authority_id = self.snapshot.authority_id
@@ -1110,7 +1110,10 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
                     availability = "availability_region_blocked"
                 rating = details.get("contentRating")
                 if rating is not None:
-                    if not isinstance(rating, Mapping):
+                    if (
+                        not isinstance(rating, Mapping)
+                        or not set(rating).issubset({"ytRating"})
+                    ):
                         raise ValueError(
                             "video content rating shape changed"
                         )

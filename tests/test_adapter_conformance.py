@@ -368,6 +368,10 @@ class AdapterDeclarationTests(unittest.TestCase):
                 OrdinalOpaqueCursorAdapter(),
                 "opaque-InventedPage_002",
             ),
+            (
+                OrdinalOpaqueCursorAdapter(),
+                "opaque-999~InventedPage_002",
+            ),
         )
         for adapter, next_cursor in cases:
             with self.subTest(next_cursor=next_cursor):
@@ -545,6 +549,37 @@ class OfflineConformanceTests(unittest.TestCase):
             completed["records"][0],
         )
         self.assertEqual(completed, resumed.manifest())
+
+    def test_pre_runtime_hook_checkpoint_remains_resumable(self) -> None:
+        harness = OfflineConformanceHarness(
+            SyntheticMetadataAdapter(),
+            REGISTRY,
+            max_retries=2,
+        )
+        expected_request = harness.next_request()
+        harness.record_retry("temporary_unavailable")
+        current = harness.checkpoint()
+        legacy = {
+            key: copy.deepcopy(current[key])
+            for key in ("bounds", "declaration_sha256", "state")
+        }
+        legacy["checkpoint_sha256"] = hashlib.sha256(
+            json.dumps(
+                legacy,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        resumed = OfflineConformanceHarness.resume(
+            SyntheticMetadataAdapter(),
+            REGISTRY,
+            legacy,
+            expected_bounds=legacy["bounds"],
+            expected_checkpoint_sha256=legacy["checkpoint_sha256"],
+        )
+        self.assertEqual(expected_request, resumed.next_request())
 
     def test_tampered_resume_checkpoint_fails_closed(self) -> None:
         harness = OfflineConformanceHarness(

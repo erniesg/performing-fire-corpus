@@ -684,6 +684,23 @@ def _cursor_is_valid(
     return _OPAQUE_CURSOR_TOKEN.fullmatch(suffix) is not None
 
 
+def _cursor_ordinal_matches(
+    declaration: Mapping[str, Any],
+    cursor: str,
+    next_ordinal: int,
+) -> bool:
+    contract = _declared_cursor_contract(declaration)
+    if (
+        contract is None
+        or contract["value_type"] != "cursor_opaque"
+        or contract.get("checkpoint_ordinal") is not True
+    ):
+        return True
+    suffix = cursor.removeprefix(contract["cursor_prefix"])
+    ordinal, separator, _ = suffix.partition("~")
+    return separator == "~" and ordinal == str(next_ordinal)
+
+
 def _checkpoint_state_is_sanitized(
     declaration: Mapping[str, Any],
     state: Mapping[str, Any],
@@ -960,7 +977,7 @@ class OfflineConformanceHarness:
         )
 
     def _restore(self, checkpoint: Mapping[str, Any]) -> None:
-        expected_keys = {
+        current_keys = {
             "adapter_lineage_sha256",
             "adapter_runtime_checkpoint",
             "bounds",
@@ -968,17 +985,34 @@ class OfflineConformanceHarness:
             "declaration_sha256",
             "state",
         }
-        if set(checkpoint) != expected_keys:
-            raise AdapterConformanceError("checkpoint is invalid")
-        unsigned = {
-            key: copy.deepcopy(checkpoint[key])
-            for key in (
+        legacy_keys = {
+            "bounds",
+            "checkpoint_sha256",
+            "declaration_sha256",
+            "state",
+        }
+        checkpoint_keys = set(checkpoint)
+        if checkpoint_keys == current_keys:
+            unsigned_keys = (
                 "adapter_lineage_sha256",
                 "adapter_runtime_checkpoint",
                 "bounds",
                 "declaration_sha256",
                 "state",
             )
+            checkpoint_lineage = checkpoint["adapter_lineage_sha256"]
+            runtime_checkpoint = checkpoint["adapter_runtime_checkpoint"]
+            legacy_checkpoint = False
+        elif checkpoint_keys == legacy_keys:
+            unsigned_keys = ("bounds", "declaration_sha256", "state")
+            checkpoint_lineage = None
+            runtime_checkpoint = None
+            legacy_checkpoint = True
+        else:
+            raise AdapterConformanceError("checkpoint is invalid")
+        unsigned = {
+            key: copy.deepcopy(checkpoint[key])
+            for key in unsigned_keys
         }
         if checkpoint["checkpoint_sha256"] != hashlib.sha256(
             _canonical(unsigned).encode("utf-8")
@@ -994,6 +1028,27 @@ class OfflineConformanceHarness:
             "adapter_lineage_sha256",
             None,
         )
+        runtime_checkpoint_builder = getattr(
+            self.adapter,
+            "runtime_checkpoint",
+            None,
+        )
+        restore_runtime = getattr(
+            self.adapter,
+            "restore_runtime_checkpoint",
+            None,
+        )
+        if legacy_checkpoint and any(
+            hook is not None
+            for hook in (
+                lineage_builder,
+                runtime_checkpoint_builder,
+                restore_runtime,
+            )
+        ):
+            raise AdapterConformanceError(
+                "legacy checkpoint omits adapter runtime binding"
+            )
         with deny_live_network(
             additional_entry_points=self._network_entry_points
         ):
@@ -1001,7 +1056,7 @@ class OfflineConformanceHarness:
                 None if lineage_builder is None else lineage_builder()
             )
         if (
-            current_lineage != checkpoint["adapter_lineage_sha256"]
+            current_lineage != checkpoint_lineage
             or (
                 current_lineage is not None
                 and (
@@ -1011,12 +1066,6 @@ class OfflineConformanceHarness:
             )
         ):
             raise AdapterConformanceError("checkpoint adapter lineage changed")
-        runtime_checkpoint = checkpoint["adapter_runtime_checkpoint"]
-        restore_runtime = getattr(
-            self.adapter,
-            "restore_runtime_checkpoint",
-            None,
-        )
         if restore_runtime is None:
             if runtime_checkpoint is not None:
                 raise AdapterConformanceError(
@@ -1274,6 +1323,11 @@ class OfflineConformanceHarness:
                 or not isinstance(next_ordinal, int)
                 or isinstance(next_ordinal, bool)
                 or next_ordinal != self._state["next_ordinal"] + 1
+                or not _cursor_ordinal_matches(
+                    self.declaration,
+                    next_cursor,
+                    next_ordinal,
+                )
                 or _cursor_identity(self.declaration, next_cursor)
                 in {
                     _cursor_identity(self.declaration, item)

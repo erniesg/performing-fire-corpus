@@ -722,6 +722,14 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
                 store=quota_store,
             )
 
+    def test_quota_ledger_requires_an_explicit_durable_store(self) -> None:
+        with self.assertRaisesRegex(ValueError, "durable quota store"):
+            YouTubeQuotaLedger(
+                max_units=3,
+                run_id=RUN_ID,
+                store=None,
+            )
+
     def test_quota_checkpoint_cannot_clone_into_fresh_authority(self) -> None:
         source_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
         ledger = YouTubeQuotaLedger(
@@ -1195,6 +1203,10 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             {"contentRating": "age", "duration": "PT1M"},
             {
                 "contentRating": {"ytRating": "invented"},
+                "duration": "PT1M",
+            },
+            {
+                "contentRating": {"unknownRating": "restricted"},
                 "duration": "PT1M",
             },
         )
