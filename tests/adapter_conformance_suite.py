@@ -25,6 +25,7 @@ class StandardAdapterConformanceMixin:
     ]
     additional_network_entry_points: Sequence[tuple[object, str]] = ()
     expected_mime_type = "application/json"
+    unexpected_mime_type = "text/html"
     next_cursor = "page-002"
     alternate_cursor = "page-003"
 
@@ -114,7 +115,7 @@ class StandardAdapterConformanceMixin:
                 {"final_url": "https://unreviewed.invalid/moved"},
                 "redirect_mismatch",
             ),
-            ({"mime_type": "text/html"}, "mime_mismatch"),
+            ({"mime_type": self.unexpected_mime_type}, "mime_mismatch"),
         )
         for response_options, reason in request_failures:
             harness = self._harness()
