@@ -101,6 +101,16 @@ def identity_variants(item: dict[str, str]) -> list[dict[str, str]]:
     return [item, changed]
 
 
+class InventedMainAdapter(NJPCenterMainAdapter):
+    def _require_reviewed_shape(self) -> None:
+        return None
+
+
+class InventedVideoArchiveAdapter(NJPCenterVideoArchiveAdapter):
+    def _require_reviewed_shape(self) -> None:
+        return None
+
+
 class _NJPConformance:
     registry = REGISTRY
     make_item = staticmethod(invented_item)
@@ -115,9 +125,7 @@ class MainAdapterConformance(
     StandardAdapterConformanceMixin,
     unittest.TestCase,
 ):
-    adapter_factory = staticmethod(
-        lambda: NJPCenterMainAdapter(_invented_fixture_contract=True)
-    )
+    adapter_factory = InventedMainAdapter
 
 
 class VideoArchiveAdapterConformance(
@@ -125,9 +133,7 @@ class VideoArchiveAdapterConformance(
     StandardAdapterConformanceMixin,
     unittest.TestCase,
 ):
-    adapter_factory = staticmethod(
-        lambda: NJPCenterVideoArchiveAdapter(_invented_fixture_contract=True)
-    )
+    adapter_factory = InventedVideoArchiveAdapter
 
 
 class NJPCenterAdapterTests(unittest.TestCase):
@@ -168,8 +174,8 @@ class NJPCenterAdapterTests(unittest.TestCase):
 
     def test_sources_remain_distinct_and_titles_do_not_define_identity(self) -> None:
         item = invented_item("record-001")
-        main = NJPCenterMainAdapter(_invented_fixture_contract=True)
-        archive = NJPCenterVideoArchiveAdapter(_invented_fixture_contract=True)
+        main = InventedMainAdapter()
+        archive = InventedVideoArchiveAdapter()
         self.assertNotEqual(main.source_id, archive.source_id)
         self.assertNotEqual(
             main.stable_record_id(item),
@@ -189,7 +195,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
         )
 
     def test_missing_year_is_an_explicit_unknown_observation(self) -> None:
-        adapter = NJPCenterVideoArchiveAdapter(_invented_fixture_contract=True)
+        adapter = InventedVideoArchiveAdapter()
         body = invented_page([invented_item("record-001")]).replace(
             b' data-year="2026"',
             b"",
@@ -208,7 +214,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
         self.assertNotIn("year", result["records"][0]["metadata"])
 
     def test_attachment_candidates_are_ineligible_and_exact_403_is_durable(self) -> None:
-        adapter = NJPCenterMainAdapter(_invented_fixture_contract=True)
+        adapter = InventedMainAdapter()
         body = invented_page(
             [invented_item("record-001")],
             attachments=[
@@ -243,7 +249,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
             adapter.record_attachment_status(unsafe, 403)
 
     def test_attachment_locators_fail_closed_on_credentials_or_other_hosts(self) -> None:
-        adapter = NJPCenterMainAdapter(_invented_fixture_contract=True)
+        adapter = InventedMainAdapter()
         for url in (
             "https://person:secret@njp.ggcf.kr/storage/upload/file.pdf",
             "https://njp.ggcf.kr:444/storage/upload/file.pdf",
@@ -264,7 +270,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
                 adapter.attachment_candidates(body)
 
     def test_missing_or_changed_record_shape_fails_closed(self) -> None:
-        adapter = NJPCenterVideoArchiveAdapter(_invented_fixture_contract=True)
+        adapter = InventedVideoArchiveAdapter()
         malformed = (
             b'<html><head><meta name="terminal" content="true"></head>'
             b'<body><article data-record-id="record-001"></article></body></html>'
@@ -280,7 +286,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
             adapter.parse_page(truncated, cursor=None)
 
     def test_attachment_must_reference_a_record_on_the_same_page(self) -> None:
-        adapter = NJPCenterMainAdapter(_invented_fixture_contract=True)
+        adapter = InventedMainAdapter()
         orphan = invented_page(
             [invented_item("record-001")],
             attachments=[
@@ -295,7 +301,7 @@ class NJPCenterAdapterTests(unittest.TestCase):
             adapter.attachment_candidates(orphan)
 
     def test_long_public_id_still_has_a_bounded_source_identity(self) -> None:
-        adapter = NJPCenterMainAdapter(_invented_fixture_contract=True)
+        adapter = InventedMainAdapter()
         body = invented_page([invented_item("a" * 128)])
         page = adapter.parse_page(body, cursor=None)
         self.assertEqual(64, len(page["records"][0]["source_identity"]))

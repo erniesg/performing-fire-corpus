@@ -149,14 +149,10 @@ class _BaseNJPCenterAdapter:
     blocker_states = _BLOCKERS
     public_url: str
 
-    def __init__(self, *, _invented_fixture_contract: bool = False) -> None:
-        self._invented_fixture_contract = _invented_fixture_contract
-
     def _require_reviewed_shape(self) -> None:
-        if not self._invented_fixture_contract:
-            raise SourceShapeUnreviewed(
-                "current source shape is unreviewed; metadata adapter is held"
-            )
+        raise SourceShapeUnreviewed(
+            "current source shape is unreviewed; metadata adapter is held"
+        )
 
     def build_request(self, cursor: str | None) -> MetadataRequest:
         self._require_reviewed_shape()
