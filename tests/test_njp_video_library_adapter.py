@@ -319,6 +319,8 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             "https://njpvideo.ggcf.kr/invented-assets/%2e%2e/private",
             "https://njpvideo.ggcf.kr/invented-assets/%2Fprivate",
             "https://njpvideo.ggcf.kr/invented-assets//private",
+            "/unreviewed/../invented-assets/private",
+            "//njpvideo.ggcf.kr/invented-assets/private",
         )
         for url in unsafe:
             with self.subTest(url=url), self.assertRaises(ValueError):
@@ -335,6 +337,34 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                         ],
                     )
                 )
+
+    def test_canonical_url_records_can_own_asset_candidates(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        canonical_url = (
+            "https://njpvideo.ggcf.kr/catalogue/invented-record"
+        )
+        body = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<article data-canonical-url="'
+            + canonical_url.encode()
+            + b'" data-record-class="record_class_video_work" '
+            b'data-language="language_bilingual"></article>'
+            b'<a data-asset-for-url="'
+            + canonical_url.encode()
+            + b'" data-asset-kind="asset_kind_thumbnail" '
+            b'data-asset-mime="image/jpeg" '
+            b'href="/invented-assets/thumbnail"></a>'
+            b"</body></html>"
+        )
+        candidate = adapter.asset_candidates(body)[0]
+        self.assertEqual(
+            adapter.stable_record_id(
+                {"canonical_url": canonical_url}
+            ),
+            candidate.relationship_record_id,
+        )
 
     def test_candidates_require_the_same_admitted_page_and_records(
         self,
@@ -379,6 +409,39 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
         ):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 adapter.asset_candidates(body)
+
+    def test_duplicate_controls_and_attributes_fail_closed(self) -> None:
+        adapter = InventedVideoLibraryAdapter()
+        duplicate_terminal = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="false">'
+            b'<meta name="terminal" content="true">'
+            b"</head><body></body></html>"
+        )
+        duplicate_identifier = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body>"
+            b'<article data-catalogue-id="catalogue-001" '
+            b'data-catalogue-id="catalogue-002" '
+            b'data-record-class="record_class_video_work" '
+            b'data-language="language_en"></article>'
+            b"</body></html>"
+        )
+        incoherent_terminal = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b'<meta name="next-cursor" content="page-002">'
+            b'<meta name="next-ordinal" content="1">'
+            b"</head><body></body></html>"
+        )
+        for body in (
+            duplicate_terminal,
+            duplicate_identifier,
+            incoherent_terminal,
+        ):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                adapter.parse_page(body, cursor=None)
 
         with self.assertRaises(ValueError):
             adapter.asset_candidates(

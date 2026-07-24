@@ -86,6 +86,9 @@ class _MetadataHTMLParser(HTMLParser):
         tag: str,
         attrs: list[tuple[str, str | None]],
     ) -> None:
+        attribute_names = [key for key, _ in attrs]
+        if len(attribute_names) != len(set(attribute_names)):
+            raise ValueError("metadata HTML has duplicate attributes")
         values = {
             key: value for key, value in attrs if value is not None
         }
@@ -106,10 +109,17 @@ class _MetadataHTMLParser(HTMLParser):
             name = values.get("name")
             content = values.get("content")
             if name and content is not None:
+                if name in self.meta:
+                    raise ValueError(
+                        "metadata HTML has duplicate control markers"
+                    )
                 self.meta[name] = content
         elif tag == "article":
             self.records.append(values)
-        elif tag == "a" and "data-asset-for" in values:
+        elif tag == "a" and (
+            "data-asset-for" in values
+            or "data-asset-for-url" in values
+        ):
             self.assets.append(values)
 
     def handle_endtag(self, tag: str) -> None:
@@ -334,16 +344,71 @@ class NJPVideoLibraryAdapter:
             )
         except ValueError as error:
             raise ValueError("metadata counters are invalid") from error
+        terminal = page.meta["terminal"] == "true"
+        next_cursor = page.meta.get("next-cursor")
+        if (
+            rejected_count < 0
+            or (
+                expected_total is not None
+                and (
+                    expected_total < 0
+                    or expected_total < len(records)
+                )
+            )
+            or (
+                terminal
+                and (
+                    next_cursor is not None
+                    or next_ordinal is not None
+                )
+            )
+            or (
+                not terminal
+                and (
+                    not isinstance(next_cursor, str)
+                    or re.fullmatch(
+                        r"page-[0-9]{1,18}",
+                        next_cursor,
+                    )
+                    is None
+                    or not isinstance(next_ordinal, int)
+                    or next_ordinal < 1
+                )
+            )
+        ):
+            raise ValueError("metadata page controls are inconsistent")
         return {
             "records": records,
-            "next_cursor": page.meta.get("next-cursor"),
+            "next_cursor": next_cursor,
             "next_ordinal": next_ordinal,
-            "terminal": page.meta["terminal"] == "true",
+            "terminal": terminal,
             "expected_total": expected_total,
             "rejected_count": rejected_count,
         }
 
     def _validate_asset_url(self, locator: str) -> str:
+        if not isinstance(locator, str) or not locator:
+            raise ValueError(
+                "asset locator is outside the reviewed boundary"
+            )
+        raw = urlsplit(locator)
+        if raw.scheme or raw.netloc:
+            if (
+                raw.scheme != "https"
+                or raw.netloc != "njpvideo.ggcf.kr"
+                or _canonical_record_url(locator) != locator
+            ):
+                raise ValueError(
+                    "asset locator is outside the reviewed boundary"
+                )
+        elif (
+            locator != raw.path
+            or not raw.path.startswith("/")
+            or not _path_is_unambiguous(raw.path)
+        ):
+            raise ValueError(
+                "asset locator is outside the reviewed boundary"
+            )
         public_url = urljoin(self.public_url, locator)
         parsed = urlsplit(public_url)
         if (
@@ -380,24 +445,38 @@ class NJPVideoLibraryAdapter:
             item["record_id"] for item in admitted["records"]
         }
         page = _parsed(body)
-        record_ids = {
-            item.get("data-catalogue-id", "")
-            for item in page.records
-            if "data-catalogue-id" in item
-        }
         candidates: list[VideoLibraryAssetCandidate] = []
         for item in page.assets:
-            record_id = item.get("data-asset-for", "")
             asset_kind = item.get("data-asset-kind", "")
             mime_type = item.get("data-asset-mime", "")
             locator = item.get("href", "")
-            relationship_record_id = self.stable_record_id(
-                {"id": record_id}
-            )
+            relationship_keys = {
+                key
+                for key in (
+                    "data-asset-for",
+                    "data-asset-for-url",
+                )
+                if key in item
+            }
+            if len(relationship_keys) != 1:
+                raise ValueError("asset candidate shape changed")
+            if "data-asset-for" in item:
+                record_id = item["data-asset-for"]
+                if not _SAFE_ID.fullmatch(record_id):
+                    raise ValueError("asset candidate shape changed")
+                relationship_record_id = self.stable_record_id(
+                    {"id": record_id}
+                )
+            else:
+                relationship_record_id = self.stable_record_id(
+                    {
+                        "canonical_url": item[
+                            "data-asset-for-url"
+                        ]
+                    }
+                )
             if (
-                not _SAFE_ID.fullmatch(record_id)
-                or record_id not in record_ids
-                or relationship_record_id not in admitted_record_ids
+                relationship_record_id not in admitted_record_ids
                 or asset_kind not in _ASSET_KINDS
                 or not _MIME.fullmatch(mime_type)
             ):
