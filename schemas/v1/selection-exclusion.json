@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/selection-exclusion.json",
+  "title": "Rich-corpus exclusion v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "selection_exclusion_id",
+    "selection_decision_id",
+    "candidate_id",
+    "source_id",
+    "asset_id",
+    "reason_code",
+    "rationale",
+    "review_trigger"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "selection_exclusion"},
+    "selection_exclusion_id": {"type": "string", "pattern": "^selection_exclusion_[0-9a-f]{24}$"},
+    "selection_decision_id": {"type": "string", "pattern": "^selection_decision_[0-9a-f]{24}$"},
+    "candidate_id": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "reason_code": {
+      "enum": [
+        "coverage_not_needed",
+        "duplicate_not_representative",
+        "inventory_blocked",
+        "inventory_out_of_scope",
+        "inventory_unavailable",
+        "retrieval_blocked",
+        "retrieval_unavailable",
+        "retrieval_unknown",
+        "rights_not_approved",
+        "rights_expired",
+        "source_governance_not_approved",
+        "source_governance_expired",
+        "retention_not_approved",
+        "retention_expired",
+        "privacy_not_approved",
+        "privacy_expired",
+        "transformation_not_approved",
+        "transformation_expired",
+        "proof_requires_review"
+      ]
+    },
+    "rationale": {"$ref": "#/$defs/safeText"},
+    "review_trigger": {"$ref": "#/$defs/safeText"}
+  },
+  "$defs": {
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    }
+  }
+}

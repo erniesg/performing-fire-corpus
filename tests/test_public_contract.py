@@ -162,6 +162,23 @@ class PublicRepositoryContractTests(unittest.TestCase):
             self.assertNotIn(unsupported_path, decision)
             self.assertNotIn(unsupported_path, run)
 
+    def test_rich_corpus_selection_keeps_inventory_and_authority_separate(
+        self,
+    ) -> None:
+        policy = (ROOT / "docs" / "rich-corpus-selection.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "source universe and the selected rich corpus are different",
+            "Authority before ranking",
+            "Popularity and ease of download",
+            "accepted selection inputs",
+            "pipeline proof is excluded from automatic selection",
+            "underrepresented",
+            "stable IDs",
+        ):
+            self.assertIn(value, policy)
+
     def test_full_corpus_object_contract_is_explicit_and_fake_only(self) -> None:
         contract = (
             ROOT / "docs" / "full-corpus-object-storage.md"
