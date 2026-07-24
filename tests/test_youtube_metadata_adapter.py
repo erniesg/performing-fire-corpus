@@ -529,6 +529,40 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             harness.next_request().url,
         )
 
+    def test_account_like_opaque_page_token_is_shape_only_and_resumable(
+        self,
+    ) -> None:
+        adapter = uploads_adapter()
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        request = harness.next_request()
+        result = harness.ingest(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=upload_page(
+                    [upload_item("item001", video_id="video001")],
+                    next_cursor="opaque-1~user_abcdef",
+                    next_ordinal=1,
+                    terminal=False,
+                    expected_total=2,
+                ),
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("ready", result["state"])
+        checkpoint = harness.checkpoint()
+        resumed = OfflineConformanceHarness.resume(
+            adapter,
+            REGISTRY,
+            checkpoint,
+            expected_bounds=checkpoint["bounds"],
+            expected_checkpoint_sha256=checkpoint["checkpoint_sha256"],
+        )
+        self.assertIn(
+            "pageToken=user_abcdef",
+            resumed.next_request().url,
+        )
+
     def test_opaque_ids_are_shape_checked_without_word_scanning(self) -> None:
         coordinator = youtube_coordinator()
         request = coordinator.begin_channel(REGISTRY)
@@ -944,13 +978,25 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             "userRateLimitExceeded",
         ):
             with self.subTest(reason=reason):
-                self.assertEqual(
-                    "rate_limited",
-                    coordinator.classify_error(
-                        status=403,
-                        reason=reason,
-                    ),
+                harness = OfflineConformanceHarness(
+                    uploads_adapter(),
+                    REGISTRY,
                 )
+                request = harness.next_request()
+                result = harness.ingest(
+                    MetadataResponse(
+                        status=403,
+                        mime_type="application/json",
+                        body=b'{"invented":"not retained"}',
+                        final_url=request.url,
+                        error_reason=coordinator.classify_error(
+                            status=403,
+                            reason=reason,
+                        ),
+                    )
+                )
+                self.assertEqual("rate_limited", result["stop_reason"])
+                self.assertNotIn("invented", json.dumps(result))
         self.assertEqual(
             "access_forbidden",
             coordinator.classify_error(

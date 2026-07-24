@@ -630,6 +630,40 @@ def _cursor_identity(
     return cursor
 
 
+def _uses_shape_only_opaque_cursor(
+    declaration: Mapping[str, Any],
+) -> bool:
+    return any(
+        contract.get("value_type") == "cursor_opaque"
+        for contract in declaration["query_parameter_contracts"].values()
+    )
+
+
+def _cursor_is_valid(
+    declaration: Mapping[str, Any],
+    cursor: Any,
+) -> bool:
+    return (
+        isinstance(cursor, str)
+        and _CURSOR.fullmatch(cursor) is not None
+        and (
+            _uses_shape_only_opaque_cursor(declaration)
+            or sanitize(cursor, environ={}) == cursor
+        )
+    )
+
+
+def _checkpoint_state_is_sanitized(
+    declaration: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> bool:
+    candidate = copy.deepcopy(dict(state))
+    if _uses_shape_only_opaque_cursor(declaration):
+        candidate["next_cursor"] = None
+        candidate["seen_cursors"] = []
+    return sanitize(candidate, environ={}) == candidate
+
+
 def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if not isinstance(value, str):
         return False
@@ -979,7 +1013,10 @@ class OfflineConformanceHarness:
             restored["state"] != "ready"
             or restored["stop_reason"] not in {None, "retry_pending"}
             or not isinstance(restored["records"], dict)
-            or sanitize(restored, environ={}) != restored
+            or not _checkpoint_state_is_sanitized(
+                self.declaration,
+                restored,
+            )
         ):
             raise AdapterConformanceError("checkpoint is not resumable")
         integer_fields = (
@@ -1002,9 +1039,7 @@ class OfflineConformanceHarness:
         if (
             not isinstance(seen, list)
             or any(
-                not isinstance(item, str)
-                or not _CURSOR.fullmatch(item)
-                or sanitize(item, environ={}) != item
+                not _cursor_is_valid(self.declaration, item)
                 for item in seen
             )
             or len(
@@ -1017,9 +1052,7 @@ class OfflineConformanceHarness:
             or (
                 cursor is not None
                 and (
-                    not isinstance(cursor, str)
-                    or not _CURSOR.fullmatch(cursor)
-                    or sanitize(cursor, environ={}) != cursor
+                    not _cursor_is_valid(self.declaration, cursor)
                     or cursor not in seen
                     or restored["next_ordinal"] < 1
                 )
@@ -1154,17 +1187,21 @@ class OfflineConformanceHarness:
             return self._stop("changed", "invalid_response")
         if response.final_url != request.url:
             return self._stop("changed", "redirect_mismatch")
-        status_reason = (
-            "quota_exhausted"
-            if response.status == 403
-            and response.error_reason == "quota_exhausted"
-            and "quota_exhausted" in self.declaration["blocker_states"]
-            else {
-                401: "login_required",
-                403: "access_forbidden",
-                429: "rate_limited",
-            }.get(response.status)
-        )
+        status_reason = None
+        if response.status == 403:
+            if (
+                response.error_reason
+                in {"quota_exhausted", "rate_limited"}
+                and response.error_reason
+                in self.declaration["blocker_states"]
+            ):
+                status_reason = response.error_reason
+            else:
+                status_reason = "access_forbidden"
+        elif response.status == 401:
+            status_reason = "login_required"
+        elif response.status == 429:
+            status_reason = "rate_limited"
         if status_reason is not None:
             return self._stop("blocked", status_reason)
         if response.status != 200:
@@ -1202,9 +1239,7 @@ class OfflineConformanceHarness:
                 return self._stop("changed", "shape_drift")
         else:
             if (
-                not isinstance(next_cursor, str)
-                or not _CURSOR.fullmatch(next_cursor)
-                or sanitize(next_cursor, environ={}) != next_cursor
+                not _cursor_is_valid(self.declaration, next_cursor)
                 or not isinstance(next_ordinal, int)
                 or isinstance(next_ordinal, bool)
                 or next_ordinal != self._state["next_ordinal"] + 1

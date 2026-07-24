@@ -36,7 +36,9 @@ The raw token is stored only inside an integrity-bound local checkpoint.
 Public manifests retain a SHA-256 digest, never the token. The local cursor
 also binds a monotonic page ordinal; repeated raw tokens and skipped ordinals
 fail closed. Checkpoint resume requires externally supplied expected bounds
-and digest.
+and digest. Because the provider defines the token as opaque, its local value
+is validated by the declared character/length shape rather than semantic word
+scanning; all non-cursor checkpoint state remains redaction-validated.
 
 `YouTubeMetadataCoordinator` requires an operator-supplied SQLite-backed
 `YouTubeQuotaStore` and owns one run-bound quota ledger. Every coordinator for
