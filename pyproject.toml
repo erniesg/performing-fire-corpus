@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["boto3>=1.37.32,<2", "jsonschema>=4.10,<5"]
 
+[project.optional-dependencies]
+dev = ["setuptools>=68,<76"]
+
 [project.scripts]
 performing-fire-corpus = "performing_fire_corpus.cli:main"
 

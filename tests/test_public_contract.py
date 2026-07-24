@@ -33,6 +33,12 @@ def public_files() -> list[Path]:
 
 
 class PublicRepositoryContractTests(unittest.TestCase):
+    def test_editable_dependency_bootstrap_keeps_evidence_checkout_clean(
+        self,
+    ) -> None:
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("*.egg-info/", ignored)
+
     def test_repository_contains_no_source_documents_or_media(self) -> None:
         forbidden = [
             path.relative_to(ROOT).as_posix()
