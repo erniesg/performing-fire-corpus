@@ -20,7 +20,8 @@ from .adapter_conformance import (
 
 
 _PUBLIC_ID = re.compile(r"^[A-Za-z0-9_-]{6,128}$")
-_PAGE_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{8,128}$")
+_VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,55}$")
+_PAGE_TOKEN = re.compile(r"^[A-Za-z0-9._~-]{6,128}$")
 _RUN_ID = re.compile(r"^youtube_metadata_run_[a-z0-9][a-z0-9._-]{0,96}$")
 _METHOD_COSTS = {
     "channels.list": 1,
@@ -60,6 +61,29 @@ def _digest(value: object) -> str:
 
 def _video_source_identity(video_id: str) -> str:
     return f"youtube-id-{hashlib.sha256(video_id.encode()).hexdigest()}"
+
+
+def _video_record_id(video_id: str) -> str:
+    if not _VIDEO_ID.fullmatch(video_id):
+        raise ValueError("video identifier is invalid")
+    return f"youtube-video-id-{video_id.encode('ascii').hex()}"
+
+
+def _video_id_from_record_id(record_id: str) -> str:
+    prefix = "youtube-video-id-"
+    if not isinstance(record_id, str) or not record_id.startswith(prefix):
+        raise ValueError("video record identifier is invalid")
+    encoded = record_id.removeprefix(prefix)
+    try:
+        video_id = bytes.fromhex(encoded).decode("ascii")
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("video record identifier is invalid") from error
+    if (
+        not _VIDEO_ID.fullmatch(video_id)
+        or _video_record_id(video_id) != record_id
+    ):
+        raise ValueError("video record identifier is invalid")
+    return video_id
 
 
 @dataclass(frozen=True, init=False)
@@ -108,7 +132,7 @@ class UploadsInventory:
             != expected_session_binding_sha256
             or not self.video_ids
             or tuple(sorted(set(self.video_ids))) != self.video_ids
-            or any(not _PUBLIC_ID.fullmatch(item) for item in self.video_ids)
+            or any(not _VIDEO_ID.fullmatch(item) for item in self.video_ids)
             or self.lineage_sha256 != _digest(payload)
         ):
             raise ValueError("uploads inventory lineage is invalid")
@@ -352,12 +376,13 @@ class YouTubeQuotaLedger:
         )
 
     def checkpoint(self) -> dict[str, Any]:
+        snapshot = self.snapshot
         unsigned = {
             "schema_version": 1,
-            "max_units": self.max_units,
-            "run_id": self.run_id,
-            "consumed_units": self.consumed_units,
-            "method_counts": dict(self.method_counts),
+            "max_units": snapshot.max_units,
+            "run_id": snapshot.run_id,
+            "consumed_units": snapshot.consumed_units,
+            "method_counts": dict(snapshot.method_counts),
         }
         return {
             **unsigned,
@@ -712,9 +737,9 @@ class YouTubeUploadsAdapter(_QuotaBoundAdapter):
             video_id = item["contentDetails"]["videoId"]
         except (KeyError, TypeError) as error:
             raise ValueError("upload item has no public video identifier") from error
-        if not isinstance(video_id, str) or not _PUBLIC_ID.fullmatch(video_id):
+        if not isinstance(video_id, str) or not _VIDEO_ID.fullmatch(video_id):
             raise ValueError("video identifier is invalid")
-        return f"youtube-video-{video_id}"
+        return _video_record_id(video_id)
 
     def parse_page(self, body: bytes, *, cursor: str | None) -> dict[str, Any]:
         value = _json_object(body, "youtube#playlistItemListResponse")
@@ -830,7 +855,7 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
             not video_ids
             or len(video_ids) > 50
             or tuple(sorted(set(video_ids))) != video_ids
-            or any(not _PUBLIC_ID.fullmatch(item) for item in video_ids)
+            or any(not _VIDEO_ID.fullmatch(item) for item in video_ids)
             or not set(video_ids).issubset(inventory.video_ids)
         ):
             raise ValueError(
@@ -885,7 +910,7 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
         video_id = item.get("id")
         if not isinstance(video_id, str) or video_id not in self.video_ids:
             raise ValueError("video response is outside the requested batch")
-        return f"youtube-video-{video_id}"
+        return _video_record_id(video_id)
 
     def parse_page(self, body: bytes, *, cursor: str | None) -> dict[str, Any]:
         if cursor is not None:
@@ -974,7 +999,7 @@ class YouTubeVideosAdapter(_QuotaBoundAdapter):
             records.append(
                 {
                     "record_id": (
-                        f"youtube-video-{video_id}"
+                        _video_record_id(video_id)
                         if item is None
                         else self.stable_record_id(item)
                     ),
@@ -1149,7 +1174,7 @@ class YouTubeMetadataCoordinator:
                 or set(record)
                 != {"metadata", "record_id", "source_identity_sha256"}
                 or not isinstance(record.get("record_id"), str)
-                or not record["record_id"].startswith("youtube-video-")
+                or not record["record_id"].startswith("youtube-video-id-")
                 or not isinstance(record.get("source_identity_sha256"), str)
                 or not re.fullmatch(
                     r"[0-9a-f]{64}",
@@ -1174,9 +1199,14 @@ class YouTubeMetadataCoordinator:
                     raise ValueError(
                         "uploads manifest publish time is invalid"
                     ) from error
-            video_id = record["record_id"].removeprefix("youtube-video-")
+            try:
+                video_id = _video_id_from_record_id(record["record_id"])
+            except ValueError as error:
+                raise ValueError(
+                    "uploads manifest video identifier is invalid"
+                ) from error
             if (
-                not _PUBLIC_ID.fullmatch(video_id)
+                not _VIDEO_ID.fullmatch(video_id)
                 or record["source_identity_sha256"]
                 != hashlib.sha256(
                     _video_source_identity(video_id).encode()
@@ -1223,7 +1253,7 @@ class YouTubeMetadataCoordinator:
         self,
         video_id: str,
     ) -> tuple[YouTubeAssetCandidate, ...]:
-        if not _PUBLIC_ID.fullmatch(video_id):
+        if not _VIDEO_ID.fullmatch(video_id):
             raise ValueError("video identifier is invalid")
         return tuple(
             YouTubeAssetCandidate(video_id=video_id, asset_kind=kind)

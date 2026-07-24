@@ -27,7 +27,7 @@ _QUERY_PARAMETER = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
 _CURSOR = re.compile(
     r"^(?:(?:page|offset)-[0-9]{1,18}"
-    r"|opaque-(?:[0-9]{1,18}~)?[A-Za-z0-9._~-]{8,128})$"
+    r"|opaque-(?:[0-9]{1,18}~)?[A-Za-z0-9._~-]{6,128})$"
 )
 _MIME_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9.+-]{0,63}/[a-z0-9][a-z0-9.+-]{0,63}$"
@@ -537,7 +537,16 @@ def _validate_request(
     if (
         len(keys) != len(set(keys))
         or not set(keys).issubset(declaration["allowed_query_parameters"])
-        or any(sanitize(value, environ={}) != value for _, value in query)
+        or any(
+            declaration["query_parameter_contracts"][key]["value_type"]
+            not in {
+                "cursor_opaque",
+                "opaque_identifier",
+                "opaque_identifier_list",
+            }
+            and sanitize(value, environ={}) != value
+            for key, value in query
+        )
     ):
         raise AdapterConformanceError("request query is outside the approved projection")
     query_values = dict(query)

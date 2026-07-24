@@ -71,9 +71,10 @@ public-looking video IDs cannot enter enrichment. Every harness checkpoint
 also binds the adapter-lineage digest, preventing resume under another channel
 or uploads inventory. Platform playlist and video IDs are validated as opaque
 Base64url-compatible identifiers, not scanned for accidental word fragments;
-normalized source identities use a fixed safe-prefixed digest so valid IDs
-beginning with `-` or `_` remain representable without exceeding shared
-identity bounds.
+stable record IDs use a reversible canonical ASCII-hex encoding, while
+normalized source identities use a fixed safe-prefixed digest. Valid IDs
+beginning with `-` or `_`, or containing account-like random fragments, remain
+representable without exceeding shared identity or redaction bounds.
 
 ## Completeness and asset boundary
 

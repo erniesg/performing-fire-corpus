@@ -33,7 +33,8 @@ Optional constant query values may be exact reviewed literals or a sorted,
 explicit metadata-part projection. Opaque platform identifiers use separate
 shape-only contracts: one reviewed playlist identifier or a sorted unique
 batch of at most 50 identifiers. Their random Base64url-compatible contents
-are never interpreted as semantic query instructions;
+are never interpreted as semantic query instructions or account-like text;
+the exact declared value and identifier shape remain mandatory;
 credential, signed, content, media, transcript, caption, prose, raw, or
 download-expanding names and values fail closed. Query-key matching is
 case-sensitive. Numeric `page-`/`offset-` cursors and the exact reviewed

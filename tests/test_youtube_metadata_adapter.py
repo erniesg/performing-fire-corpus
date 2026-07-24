@@ -419,6 +419,29 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
         self.assertIn("pageToken=PageToken002", next_request.url)
         self.assertNotIn("key=", next_request.url)
 
+    def test_six_character_page_token_remains_resumable(self) -> None:
+        harness = OfflineConformanceHarness(uploads_adapter(), REGISTRY)
+        request = harness.next_request()
+        result = harness.ingest(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=upload_page(
+                    [upload_item("item001", video_id="video001")],
+                    next_cursor="opaque-1~CAUQAA",
+                    next_ordinal=1,
+                    terminal=False,
+                    expected_total=2,
+                ),
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("ready", result["state"])
+        self.assertIn(
+            "pageToken=CAUQAA",
+            harness.next_request().url,
+        )
+
     def test_opaque_ids_are_shape_checked_without_word_scanning(self) -> None:
         coordinator = youtube_coordinator()
         resolution = coordinator.channel_adapter().resolve_channel(
@@ -455,6 +478,21 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             ("rawIdentifier001",),
             video_inventory.video_ids,
         )
+
+        account_like_coordinator = youtube_coordinator()
+        account_like_inventory = uploads_inventory(
+            account_like_coordinator,
+            ("user_abcdef",),
+        )
+        account_like_videos = account_like_coordinator.videos_adapter(
+            account_like_inventory,
+            ("user_abcdef",),
+        )
+        request = OfflineConformanceHarness(
+            account_like_videos,
+            REGISTRY,
+        ).next_request()
+        self.assertIn("id=user_abcdef", request.url)
 
     def test_base64url_prefix_video_ids_complete_inventory(self) -> None:
         coordinator = youtube_coordinator()
@@ -513,6 +551,33 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
                 expected_run_id=RUN_ID,
                 expected_sha256=checkpoint["checkpoint_sha256"],
             )
+
+    def test_quota_checkpoint_reads_one_atomic_snapshot(self) -> None:
+        quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
+        ledger = YouTubeQuotaLedger(
+            max_units=3,
+            run_id=RUN_ID,
+            store=quota_store,
+        )
+        ledger.reserve("channels.list")
+        original_snapshot = quota_store.snapshot
+        snapshot_calls = 0
+
+        def counted_snapshot(*, run_id: str) -> object:
+            nonlocal snapshot_calls
+            snapshot_calls += 1
+            return original_snapshot(run_id=run_id)
+
+        quota_store.snapshot = counted_snapshot
+        checkpoint = ledger.checkpoint()
+        self.assertEqual(1, snapshot_calls)
+        resumed = YouTubeQuotaLedger.resume(
+            checkpoint,
+            expected_max_units=3,
+            expected_run_id=RUN_ID,
+            expected_sha256=checkpoint["checkpoint_sha256"],
+        )
+        self.assertEqual(1, resumed.consumed_units)
 
     def test_every_request_reserves_quota_and_checkpoint_restores_it(self) -> None:
         quota_store = YouTubeQuotaStore(sqlite3.connect(":memory:"))
@@ -713,10 +778,30 @@ class YouTubeMetadataAdapterTests(unittest.TestCase):
             record["record_id"]: record["metadata"]
             for record in page["records"]
         }
-        self.assertEqual("availability_public", by_id["youtube-video-public001"]["availability"])
-        self.assertEqual("availability_region_blocked", by_id["youtube-video-region001"]["availability"])
-        self.assertEqual("availability_age_gated", by_id["youtube-video-age001"]["availability"])
-        self.assertEqual("availability_unavailable", by_id["youtube-video-missing001"]["availability"])
+        self.assertEqual(
+            "availability_public",
+            by_id[adapter.stable_record_id({"id": "public001"})][
+                "availability"
+            ],
+        )
+        self.assertEqual(
+            "availability_region_blocked",
+            by_id[adapter.stable_record_id({"id": "region001"})][
+                "availability"
+            ],
+        )
+        self.assertEqual(
+            "availability_age_gated",
+            by_id[adapter.stable_record_id({"id": "age001"})][
+                "availability"
+            ],
+        )
+        self.assertEqual(
+            "availability_unavailable",
+            by_id[adapter.stable_record_id({"id": "missing001"})][
+                "availability"
+            ],
+        )
 
     def test_live_lifecycle_is_explicit_and_foreign_ids_cannot_be_enriched(
         self,
