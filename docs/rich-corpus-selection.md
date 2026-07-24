@@ -30,7 +30,9 @@ accepted selection inputs, so they cannot override authority or coverage.
 An object used for pipeline proof is excluded from automatic selection. It may
 enter only when a separate `selection-review-override` is approved, current,
 and content-bound to the exact candidate digest. Changing any candidate or
-authority fact invalidates that override.
+authority fact invalidates that override. Evaluation and later manifest
+validation both resolve the current override record; a missing, changed, or
+revoked record cannot preserve an earlier inclusion.
 
 ## Versioned records
 

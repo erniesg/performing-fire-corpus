@@ -172,6 +172,10 @@ class SelectionCandidateResolver(Protocol):
         self, *, source_id: str, asset_id: str
     ) -> Mapping[str, Any]: ...
 
+    def resolve_selection_review_override(
+        self, *, candidate_id: str, candidate_sha256: str
+    ) -> Mapping[str, Any] | None: ...
+
 
 _RESOLVED_CANDIDATE_FIELDS = frozenset(
     {
@@ -346,6 +350,8 @@ def build_proof_selection_override(
 def _validated_review_overrides(
     candidates: Sequence[Mapping[str, Any]],
     overrides: Sequence[Mapping[str, Any]],
+    *,
+    authority_resolver: SelectionCandidateResolver,
 ) -> dict[str, dict[str, Any]]:
     candidate_index = {
         str(candidate["candidate_id"]): candidate for candidate in candidates
@@ -372,6 +378,24 @@ def _validated_review_overrides(
         ):
             raise SelectionPolicyError(
                 "selection review override is not bound to its proof candidate"
+            )
+        try:
+            current_value = authority_resolver.resolve_selection_review_override(
+                candidate_id=str(override["candidate_id"]),
+                candidate_sha256=str(override["candidate_sha256"]),
+            )
+            current = (
+                None
+                if current_value is None
+                else validate_selection_review_override(current_value)
+            )
+        except Exception as error:
+            raise SelectionPolicyError(
+                "current selection review authority could not be resolved"
+            ) from error
+        if current != override:
+            raise SelectionPolicyError(
+                "selection review override is missing, stale, or revoked"
             )
         by_candidate[str(override["candidate_id"])] = override
     return by_candidate
@@ -683,7 +707,9 @@ def validate_selection_manifest(
     ]
     _validate_selection_identities(candidates, targets)
     review_overrides = _validated_review_overrides(
-        candidates, record["review_overrides"]
+        candidates,
+        record["review_overrides"],
+        authority_resolver=authority_resolver,
     )
     if record["review_overrides"] != sorted(
         record["review_overrides"],
@@ -931,7 +957,9 @@ def evaluate_selection(
     )
     _validate_selection_identities(checked_candidates, checked_targets)
     checked_overrides = _validated_review_overrides(
-        checked_candidates, review_overrides
+        checked_candidates,
+        review_overrides,
+        authority_resolver=authority_resolver,
     )
     if any(
         item["inventory_snapshot_sha256"] != inventory_snapshot_sha256

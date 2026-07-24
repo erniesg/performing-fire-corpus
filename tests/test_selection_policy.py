@@ -49,7 +49,11 @@ class SyntheticCandidateResolver:
 
 
 class SyntheticCandidateRegistry:
-    def __init__(self, candidates: list[dict[str, object]]) -> None:
+    def __init__(
+        self,
+        candidates: list[dict[str, object]],
+        overrides: list[dict[str, object]] | None = None,
+    ) -> None:
         self.resolved = {}
         for value in candidates:
             resolved = {
@@ -66,11 +70,21 @@ class SyntheticCandidateRegistry:
                 }
             }
             self.resolved[(value["source_id"], value["asset_id"])] = resolved
+        self.overrides = {
+            value["candidate_id"]: copy.deepcopy(value)
+            for value in (overrides or [])
+        }
 
     def resolve_selection_candidate(
         self, *, source_id: str, asset_id: str
     ) -> dict[str, object]:
         return copy.deepcopy(self.resolved[(source_id, asset_id)])
+
+    def resolve_selection_review_override(
+        self, *, candidate_id: str, candidate_sha256: str
+    ) -> dict[str, object] | None:
+        value = self.overrides.get(candidate_id)
+        return None if value is None else copy.deepcopy(value)
 
 
 def candidate(
@@ -362,7 +376,9 @@ class SelectionPolicyTests(unittest.TestCase):
             review_trigger=(
                 "Re-evaluate when inventory, rights, or policy changes."
             ),
-            authority_resolver=SyntheticCandidateRegistry([proof]),
+            authority_resolver=SyntheticCandidateRegistry(
+                [proof], [override]
+            ),
             review_overrides=[override],
         )
         decision = manifest["decisions"][0]
@@ -391,8 +407,39 @@ class SelectionPolicyTests(unittest.TestCase):
                 review_trigger=(
                     "Re-evaluate when inventory, rights, or policy changes."
                 ),
-                authority_resolver=SyntheticCandidateRegistry([changed]),
+                authority_resolver=SyntheticCandidateRegistry(
+                    [changed], [override]
+                ),
                 review_overrides=[override],
+            )
+
+        revoked = copy.deepcopy(override)
+        revoked["state"] = "revoked"
+        revoked = rebind_record(
+            revoked,
+            prefix="selection_review_override",
+            id_field="selection_review_override_id",
+        )
+        revoked_resolver = SyntheticCandidateRegistry([proof], [revoked])
+        with self.assertRaises(SelectionPolicyError):
+            evaluate_selection(
+                [proof],
+                [target("video", dimension="medium", value="video")],
+                inventory_snapshot_sha256=INVENTORY_SHA,
+                policy_version="selection_policy_v1",
+                decision_authority="reviewed_project_policy",
+                decided_at=NOW,
+                expires_at=EXPIRES,
+                review_trigger=(
+                    "Re-evaluate when inventory, rights, or policy changes."
+                ),
+                authority_resolver=revoked_resolver,
+                review_overrides=[override],
+            )
+        with self.assertRaises(SelectionPolicyError):
+            validate_selection_manifest(
+                manifest,
+                authority_resolver=revoked_resolver,
             )
 
     def test_duplicate_clusters_preserve_records_and_select_one_representative(self) -> None:
