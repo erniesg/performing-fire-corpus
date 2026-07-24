@@ -1050,6 +1050,12 @@ class SearchIndexContractTests(unittest.TestCase):
             "AWS Access Key ID AKIAIOSFODNN7EXAMPLE",
             "GitHub token " + "gh" + "p_" + ("synthetic" * 4),
             "Credential abcdefghijklmnopqrstuvwxyz",
+            "Token " + ("synthetic" * 4),
+            "API Key " + ("synthetic" * 4),
+            "Authorization Basic " + ("synthetic" * 4),
+            "git" + "hub_pat_" + ("synthetic" * 4),
+            "AWS Secret Access Key " + ("synthetic" * 4),
+            "Credentials " + ("synthetic" * 4),
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
@@ -1076,6 +1082,8 @@ class SearchIndexContractTests(unittest.TestCase):
             "Signature performance",
             "Credentialed artist",
             "Token performance",
+            "Performance.sequence.collection",
+            "12345678.12345678.12345678",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value

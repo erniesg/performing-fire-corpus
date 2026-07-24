@@ -35,11 +35,15 @@ _UNSAFE_VALUE = re.compile(
 )
 _CREDENTIAL_VALUE = re.compile(
     r"(?:"
-    r"\b(?:authorization|bearer|credential|password) +"
-    r"[A-Za-z0-9._-]{16,}\b|"
+    r"\b(?:"
+    r"authorization +(?:(?:basic|bearer) +)?|"
+    r"bearer +|credentials? +|password +|token +|"
+    r"api +key +|(?:aws +)?secret +access +key +|"
+    r"github +token +|jwt +"
+    r")[A-Za-z0-9._-]{16,}\b|"
     r"\b(?:akia|asia)[A-Z0-9]{16}\b|"
     r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b|"
-    r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"
+    r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"
     r")",
     re.IGNORECASE,
 )
