@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/selection-decision.json",
+  "title": "Rich-corpus selection decision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "selection_decision_id",
+    "candidate_id",
+    "source_id",
+    "asset_id",
+    "decision",
+    "reason_code",
+    "rationale",
+    "authority_class",
+    "decided_at",
+    "expires_at",
+    "review_trigger",
+    "selection_policy_version",
+    "rights_snapshot_sha256",
+    "evidence_scope"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "selection_decision"},
+    "selection_decision_id": {"type": "string", "pattern": "^selection_decision_[0-9a-f]{24}$"},
+    "candidate_id": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "decision": {"enum": ["include", "exclude", "unresolved"]},
+    "reason_code": {
+      "enum": [
+        "selected_for_coverage",
+        "coverage_not_needed",
+        "duplicate_not_representative",
+        "inventory_blocked",
+        "inventory_out_of_scope",
+        "inventory_unavailable",
+        "retrieval_blocked",
+        "retrieval_unavailable",
+        "retrieval_unknown",
+        "rights_not_approved",
+        "rights_expired",
+        "retention_not_approved",
+        "privacy_not_approved",
+        "transformation_not_approved",
+        "proof_requires_review"
+      ]
+    },
+    "rationale": {"$ref": "#/$defs/safeText"},
+    "authority_class": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "review_trigger": {"$ref": "#/$defs/safeText"},
+    "selection_policy_version": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "rights_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_scope": {"$ref": "#/$defs/safeText"}
+  },
+  "$defs": {
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    }
+  }
+}

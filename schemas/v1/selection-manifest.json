@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/selection-manifest.json",
+  "title": "Rich-corpus selection manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "selection_manifest_id",
+    "inventory_snapshot_sha256",
+    "selection_policy_version",
+    "decision_authority",
+    "decided_at",
+    "expires_at",
+    "review_trigger",
+    "coverage_targets",
+    "decisions",
+    "exclusions",
+    "coverage",
+    "universe_counts",
+    "unresolved_metadata_candidate_ids"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "selection_manifest"},
+    "selection_manifest_id": {"type": "string", "pattern": "^selection_manifest_[0-9a-f]{24}$"},
+    "inventory_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selection_policy_version": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "decision_authority": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "review_trigger": {"$ref": "#/$defs/safeText"},
+    "coverage_targets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/coverageTarget"}
+    },
+    "decisions": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "coverage": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/coverageResult"}
+    },
+    "universe_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["known_candidates", "included", "excluded", "unresolved"],
+      "properties": {
+        "known_candidates": {"type": "integer", "minimum": 0},
+        "included": {"type": "integer", "minimum": 0},
+        "excluded": {"type": "integer", "minimum": 0},
+        "unresolved": {"type": "integer", "minimum": 0}
+      }
+    },
+    "unresolved_metadata_candidate_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"}
+    }
+  },
+  "$defs": {
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    },
+    "coverageTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "record_type", "coverage_target_id", "dimension", "value", "minimum_selected", "priority", "rationale"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "coverage_target"},
+        "coverage_target_id": {"type": "string", "pattern": "^coverage_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "dimension": {"enum": ["source", "period", "language", "medium", "topic", "performance_context"]},
+        "value": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+        "minimum_selected": {"type": "integer", "minimum": 1},
+        "priority": {"type": "integer", "minimum": 1},
+        "rationale": {"$ref": "#/$defs/safeText"}
+      }
+    },
+    "coverageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage_target_id", "dimension", "value", "minimum_selected", "observed_candidates", "eligible_candidates", "selected_candidates", "shortfall", "state"],
+      "properties": {
+        "coverage_target_id": {"type": "string", "pattern": "^coverage_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "dimension": {"enum": ["source", "period", "language", "medium", "topic", "performance_context"]},
+        "value": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+        "minimum_selected": {"type": "integer", "minimum": 1},
+        "observed_candidates": {"type": "integer", "minimum": 0},
+        "eligible_candidates": {"type": "integer", "minimum": 0},
+        "selected_candidates": {"type": "integer", "minimum": 0},
+        "shortfall": {"type": "integer", "minimum": 0},
+        "state": {"enum": ["met", "underrepresented"]}
+      }
+    }
+  }
+}

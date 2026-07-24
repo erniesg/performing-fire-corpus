@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/selection-candidate.json",
+  "title": "Rich-corpus selection candidate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "candidate_id",
+    "source_id",
+    "asset_id",
+    "inventory_observation_id",
+    "inventory_state",
+    "retrieval_state",
+    "dimensions",
+    "technical_quality",
+    "duplicate_cluster_id",
+    "rights_state",
+    "rights_snapshot_sha256",
+    "rights_expires_at",
+    "retention_state",
+    "privacy_state",
+    "transformation_state",
+    "pipeline_proof",
+    "evidence_scope"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "selection_candidate"},
+    "candidate_id": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "source_id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "inventory_observation_id": {"type": "string", "pattern": "^observation_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "inventory_state": {"enum": ["observed", "blocked", "unavailable", "out_of_scope"]},
+    "retrieval_state": {"enum": ["available", "blocked", "unavailable", "unknown"]},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "period", "languages", "mediums", "topics", "performance_contexts"],
+      "properties": {
+        "source": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+        "period": {"$ref": "#/$defs/label"},
+        "languages": {"$ref": "#/$defs/labels"},
+        "mediums": {"$ref": "#/$defs/labels"},
+        "topics": {"$ref": "#/$defs/labels"},
+        "performance_contexts": {"$ref": "#/$defs/labels"}
+      }
+    },
+    "technical_quality": {"enum": ["unknown", "low", "medium", "high"]},
+    "duplicate_cluster_id": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^duplicate_cluster_[a-z0-9][a-z0-9._-]{0,127}$"}
+      ]
+    },
+    "rights_state": {"$ref": "#/$defs/authorityState"},
+    "rights_snapshot_sha256": {"$ref": "#/$defs/hash"},
+    "rights_expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "retention_state": {"$ref": "#/$defs/authorityState"},
+    "privacy_state": {"$ref": "#/$defs/authorityState"},
+    "transformation_state": {"$ref": "#/$defs/authorityState"},
+    "pipeline_proof": {"type": "boolean"},
+    "evidence_scope": {"$ref": "#/$defs/safeText"}
+  },
+  "$defs": {
+    "authorityState": {"enum": ["approved", "pending", "blocked", "revoked"]},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "labels": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/label"}
+    },
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    }
+  }
+}
