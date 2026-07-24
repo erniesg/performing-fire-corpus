@@ -1137,6 +1137,8 @@ class SearchIndexContractTests(unittest.TestCase):
             "xapp" + "-1-" + ("synthetic" * 4),
             "sk" + "_test_" + ("synthetic" * 4),
             "AI" + "za" + ("synthetic" * 4),
+            "eyJhbGciOiJub25lIn0." + "e30.",
+            "eyJhbGciOiJIUzI1NiJ9.." + "syntheticxx",
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
