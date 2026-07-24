@@ -992,6 +992,20 @@ class SearchIndexContractTests(unittest.TestCase):
         )
 
     def test_raw_content_signed_urls_and_private_paths_are_rejected(self) -> None:
+        safe_text_schemas = []
+        for schema_name in (
+            "duplicate-cluster",
+            "index-document",
+            "index-snapshot",
+            "visibility-policy",
+        ):
+            schema = json.loads(
+                (ROOT / "schemas" / "v1" / f"{schema_name}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            safe_text_schemas.append(schema["$defs"]["safeText"])
+
         for unsafe_value in (
             "https://example.invalid/object?X-Amz-Signature=secret",
             "file://private/video.mp4",
@@ -1062,18 +1076,28 @@ class SearchIndexContractTests(unittest.TestCase):
                 "eyJzdWIiOiIxMjM0NTY3ODkwIn0.synthetic"
             ),
             "Client Secret " + ("synthetic" * 4),
+            "BEARER syntheticvalue1234567890",
+            "BASIC QWxhZGRpbjpvcGVuIHNlc2FtZQ",
+            "TOKEN syntheticvalue1234567890",
+            "AUTHORIZATION BEARER syntheticvalue1234567890",
+            "API KEY syntheticvalue1234567890",
+            "CLIENT SECRET syntheticvalue1234567890",
+            "CREDENTIALS syntheticvalue1234567890",
+            "BeArEr syntheticvalue1234567890",
+            "Token Abcdefghijklmnopqrstuvwxyz",
+            "Token Abcdefghijklmnopqrstuvwxyza",
+            "Basic QWxhZGRpbjpvcGVu+HNlc2FtZQ",
+            "eyJhbGciOiJIUzI1NiJ9.e30.syntheticxx",
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
             with self.assertRaises(SearchIndexError):
                 validate_index_document(unsafe)
-            schema = json.loads(
-                (ROOT / "schemas" / "v1" / "index-document.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            with self.assertRaises(ValidationError):
-                Draft202012Validator(schema).validate(unsafe)
+            for safe_text_schema in safe_text_schemas:
+                with self.assertRaises(ValidationError):
+                    Draft202012Validator(safe_text_schema).validate(
+                        unsafe_value
+                    )
 
         for safe_value in (
             "Synthetic catalogue title",
@@ -1092,11 +1116,14 @@ class SearchIndexContractTests(unittest.TestCase):
             "12345678.12345678.12345678",
             "Token internationalization",
             "Bearer interdisciplinary",
+            "Token counterinstitutionalization",
+            "Token hyperinstitutionalization",
         ):
             safe = document()
             safe["fields"][0]["value"] = safe_value
             self.assertEqual(safe, validate_index_document(safe))
-            Draft202012Validator(schema).validate(safe)
+            for safe_text_schema in safe_text_schemas:
+                Draft202012Validator(safe_text_schema).validate(safe_value)
 
         unsafe_policy = policy()
         unsafe_policy["review_trigger"] = "https://example.invalid/review"
