@@ -22,6 +22,24 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          if [ -f pyproject.toml ]; then
+            python3 -m pip install -e '.[dev]' || python3 -m pip install -e .
+          fi
+          for requirements_file in requirements*.txt; do
+            [ -f "$requirements_file" ] || continue
+            python3 -m pip install -r "$requirements_file"
+          done
+
       - name: Run and validate agent evidence
         id: evidence
         shell: bash
@@ -29,6 +47,7 @@ jobs:
           GITHUB_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           RUCKSACK_EXPECTED_REPOSITORY: ${{ github.repository }}
           RUCKSACK_EXPECTED_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
           if [ -L .agent ] || [ -L .agent/evidence ]; then
