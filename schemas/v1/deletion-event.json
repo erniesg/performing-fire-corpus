@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/deletion-event.json",
+  "title": "Exact index deletion and reindex event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "deletion_event_id", "index_document_id", "field_id", "reason_code", "authority_snapshot_sha256", "occurred_at", "reindex_action"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "deletion_event"},
+    "deletion_event_id": {"type": "string", "pattern": "^deletion_event_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "index_document_id": {"type": "string", "pattern": "^index_document_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "field_id": {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "reason_code": {"enum": ["rights_revoked", "consent_withdrawn", "source_corrected", "retention_expired", "transformation_replaced"]},
+    "authority_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "occurred_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "reindex_action": {"enum": ["remove_exact_field", "replace_exact_field"]}
+  }
+}

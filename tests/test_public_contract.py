@@ -179,6 +179,22 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, policy)
 
+    def test_search_index_contract_is_field_level_and_fail_closed(self) -> None:
+        contract = (
+            ROOT / "docs" / "provenance-aware-search-index.md"
+        ).read_text(encoding="utf-8")
+        for value in (
+            "complete known metadata universe",
+            "Field-level boundary",
+            "Query-time authority",
+            "Unknown never defaults visible",
+            "full source prose",
+            "trusted authority boundary",
+            "exact-field removal",
+            "not a deployed search service",
+        ):
+            self.assertIn(value, contract)
+
     def test_full_corpus_object_contract_is_explicit_and_fake_only(self) -> None:
         contract = (
             ROOT / "docs" / "full-corpus-object-storage.md"
