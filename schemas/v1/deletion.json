@@ -1,0 +1,115 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/deletion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "consent_id": {
+      "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "content_action": {
+      "enum": [
+        "delete",
+        "review_legal_hold"
+      ]
+    },
+    "deletion_due_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deletion_id": {
+      "pattern": "^deletion_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "deletion_owner_role": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "deletion_sla_hours": {
+      "maximum": 720,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "derived_action": {
+      "enum": [
+        "delete",
+        "review_legal_hold"
+      ]
+    },
+    "index_action": {
+      "const": "remove"
+    },
+    "next_safe_action": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "deletion"
+    },
+    "requested_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^project-native-[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "not_requested",
+        "pending",
+        "under_legal_hold_review"
+      ]
+    },
+    "trigger_state": {
+      "enum": [
+        "consent_expired",
+        "consent_revoked",
+        "none",
+        "retention_expired",
+        "subject_requested"
+      ]
+    }
+  },
+  "required": [
+    "consent_id",
+    "content_action",
+    "deletion_due_at",
+    "deletion_id",
+    "deletion_owner_role",
+    "deletion_sla_hours",
+    "derived_action",
+    "index_action",
+    "next_safe_action",
+    "record_type",
+    "requested_at",
+    "schema_version",
+    "source_id",
+    "status",
+    "trigger_state"
+  ],
+  "title": "Project-native deletion record v1",
+  "type": "object"
+}

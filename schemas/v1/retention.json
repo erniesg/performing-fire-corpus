@@ -1,0 +1,85 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/retention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority_class": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "consent_id": {
+      "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "derived_data_treatment": {
+      "enum": [
+        "delete_on_withdrawal",
+        "review_on_withdrawal"
+      ]
+    },
+    "expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "legal_hold_basis": {
+      "anyOf": [
+        {
+          "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "legal_hold_state": {
+      "enum": [
+        "active",
+        "none"
+      ]
+    },
+    "next_safe_action": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "retention"
+    },
+    "retention_id": {
+      "pattern": "^retention_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_id": {
+      "pattern": "^project-native-[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "delete_due",
+        "retain_until"
+      ]
+    }
+  },
+  "required": [
+    "authority_class",
+    "consent_id",
+    "derived_data_treatment",
+    "expires_at",
+    "legal_hold_basis",
+    "legal_hold_state",
+    "next_safe_action",
+    "record_type",
+    "retention_id",
+    "schema_version",
+    "source_id",
+    "state"
+  ],
+  "title": "Project-native retention record v1",
+  "type": "object"
+}

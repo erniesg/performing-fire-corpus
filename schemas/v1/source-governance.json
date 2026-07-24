@@ -1,0 +1,346 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/source-governance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "factState": {
+      "enum": [
+        "allowed",
+        "available",
+        "conflicting",
+        "denied",
+        "not_required",
+        "permitted",
+        "prohibited",
+        "required",
+        "stale",
+        "unavailable",
+        "unknown"
+      ]
+    },
+    "operationState": {
+      "enum": [
+        "approved",
+        "blocked",
+        "pending",
+        "revoked"
+      ]
+    },
+    "safeText": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|file://))[^\\r\\n]+$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "anyOf": [
+        {
+          "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "blockers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "conflicting_evidence",
+              "evidence_expired",
+              "http_401",
+              "http_403",
+              "login_required",
+              "platform_prohibited",
+              "rate_exhausted",
+              "robots_denied",
+              "subscription_required",
+              "unclear_rights"
+            ]
+          },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_safe_action": {
+            "$ref": "#/$defs/safeText"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "endpoint_id",
+          "next_safe_action",
+          "observed_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "decisions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_operation": {
+            "enum": [
+              "acquisition_eligibility",
+              "caption_retention",
+              "deletion",
+              "derivative_eligibility",
+              "derived_processing",
+              "indexing",
+              "media_acquisition",
+              "metadata_inventory",
+              "prose_retention",
+              "public_retrieval",
+              "retention",
+              "search_visibility"
+            ]
+          },
+          "authority_class": {
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "basis_code": {
+            "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "next_safe_action": {
+            "$ref": "#/$defs/safeText"
+          },
+          "review_trigger": {
+            "$ref": "#/$defs/safeText"
+          },
+          "state": {
+            "$ref": "#/$defs/operationState"
+          }
+        },
+        "required": [
+          "affected_operation",
+          "authority_class",
+          "basis_code",
+          "decided_at",
+          "expires_at",
+          "next_safe_action",
+          "review_trigger",
+          "state"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "endpoint_id": {
+      "anyOf": [
+        {
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evaluated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "pattern": "Z$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fact_states": {
+      "additionalProperties": false,
+      "properties": {
+        "access_control": {
+          "$ref": "#/$defs/factState"
+        },
+        "api_availability": {
+          "$ref": "#/$defs/factState"
+        },
+        "authentication": {
+          "$ref": "#/$defs/factState"
+        },
+        "copyright_lawful_basis": {
+          "$ref": "#/$defs/factState"
+        },
+        "platform_terms": {
+          "$ref": "#/$defs/factState"
+        },
+        "robots": {
+          "$ref": "#/$defs/factState"
+        }
+      },
+      "required": [
+        "access_control",
+        "api_availability",
+        "authentication",
+        "copyright_lawful_basis",
+        "platform_terms",
+        "robots"
+      ],
+      "type": "object"
+    },
+    "observations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "enum": [
+              "access_control",
+              "api_availability",
+              "authentication",
+              "copyright_lawful_basis",
+              "platform_terms",
+              "robots"
+            ]
+          },
+          "evidence_id": {
+            "pattern": "^evidence_[a-z0-9][a-z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "next_safe_action": {
+            "$ref": "#/$defs/safeText"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "pattern": "Z$",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/factState"
+          }
+        },
+        "required": [
+          "dimension",
+          "evidence_id",
+          "expires_at",
+          "next_safe_action",
+          "observed_at",
+          "state"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "operation_states": {
+      "additionalProperties": false,
+      "properties": {
+        "acquisition_eligibility": {
+          "$ref": "#/$defs/operationState"
+        },
+        "caption_retention": {
+          "$ref": "#/$defs/operationState"
+        },
+        "deletion": {
+          "$ref": "#/$defs/operationState"
+        },
+        "derivative_eligibility": {
+          "$ref": "#/$defs/operationState"
+        },
+        "derived_processing": {
+          "$ref": "#/$defs/operationState"
+        },
+        "indexing": {
+          "$ref": "#/$defs/operationState"
+        },
+        "media_acquisition": {
+          "$ref": "#/$defs/operationState"
+        },
+        "metadata_inventory": {
+          "$ref": "#/$defs/operationState"
+        },
+        "prose_retention": {
+          "$ref": "#/$defs/operationState"
+        },
+        "public_retrieval": {
+          "$ref": "#/$defs/operationState"
+        },
+        "retention": {
+          "$ref": "#/$defs/operationState"
+        },
+        "search_visibility": {
+          "$ref": "#/$defs/operationState"
+        }
+      },
+      "required": [
+        "acquisition_eligibility",
+        "caption_retention",
+        "deletion",
+        "derivative_eligibility",
+        "derived_processing",
+        "indexing",
+        "media_acquisition",
+        "metadata_inventory",
+        "prose_retention",
+        "public_retrieval",
+        "retention",
+        "search_visibility"
+      ],
+      "type": "object"
+    },
+    "record_type": {
+      "const": "source_governance"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_governance_id": {
+      "pattern": "^source_governance_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "source_id": {
+      "pattern": "^[a-z]+(?:-[a-z]+)*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "blockers",
+    "decisions",
+    "endpoint_id",
+    "evaluated_at",
+    "fact_states",
+    "observations",
+    "operation_states",
+    "record_type",
+    "schema_version",
+    "source_governance_id",
+    "source_id"
+  ],
+  "title": "Source governance record v1",
+  "type": "object"
+}
