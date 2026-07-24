@@ -10,10 +10,11 @@
     "record_type": {"const": "duplicate_cluster"},
     "duplicate_cluster_id": {"type": "string", "pattern": "^duplicate_cluster_[a-z0-9][a-z0-9._-]{0,127}$"},
     "canonicalization_version": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
-    "evidence_summary": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://))[^\\r\\n]+$"},
+    "evidence_summary": {"$ref": "#/$defs/safeText"},
     "members": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/member"}}
   },
   "$defs": {
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:https?://|file://|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"},
     "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
     "member": {
       "type": "object",

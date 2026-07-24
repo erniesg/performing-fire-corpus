@@ -4,7 +4,7 @@
   "title": "Index field provenance edge v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "record_type", "provenance_edge_id", "index_document_id", "field_id", "field_name", "field_value_sha256", "source_id", "asset_id", "origin_class", "origin_record_id", "origin_record_sha256", "transformation_id", "evidence_at", "evidence_expires_at"],
+  "required": ["schema_version", "record_type", "provenance_edge_id", "index_document_id", "field_id", "field_name", "field_value_sha256", "source_id", "asset_id", "origin_class", "origin_record_id", "origin_record_sha256", "transformation_id", "input_provenance_edge_ids", "evidence_at", "evidence_expires_at"],
   "properties": {
     "schema_version": {"const": 1},
     "record_type": {"const": "provenance_edge"},
@@ -19,6 +19,7 @@
     "origin_record_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*_[a-z0-9][a-z0-9._-]{0,127}$"},
     "origin_record_sha256": {"$ref": "#/$defs/hash"},
     "transformation_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^transformation_[a-z0-9][a-z0-9._-]{0,127}$"}]},
+    "input_provenance_edge_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^provenance_edge_[a-z0-9][a-z0-9._-]{0,159}$"}},
     "evidence_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "evidence_expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"}
   },

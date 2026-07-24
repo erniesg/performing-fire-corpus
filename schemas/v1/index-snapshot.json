@@ -4,7 +4,7 @@
   "title": "Reproducible rights-aware index snapshot v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "record_type", "index_snapshot_id", "snapshot_sha256", "built_at", "documents", "provenance_edges", "visibility_policies", "duplicate_clusters", "deletion_events"],
+  "required": ["schema_version", "record_type", "index_snapshot_id", "snapshot_sha256", "built_at", "documents", "provenance_edges", "visibility_policies", "duplicate_clusters", "deletion_events", "event_lineage_edges"],
   "properties": {
     "schema_version": {"const": 1},
     "record_type": {"const": "index_snapshot"},
@@ -15,14 +15,15 @@
     "provenance_edges": {"type": "array", "items": {"$ref": "#/$defs/provenanceEdge"}},
     "visibility_policies": {"type": "array", "items": {"$ref": "#/$defs/visibilityPolicy"}},
     "duplicate_clusters": {"type": "array", "items": {"$ref": "#/$defs/duplicateCluster"}},
-    "deletion_events": {"type": "array", "items": {"$ref": "#/$defs/deletionEvent"}}
+    "deletion_events": {"type": "array", "items": {"$ref": "#/$defs/deletionEvent"}},
+    "event_lineage_edges": {"type": "array", "items": {"$ref": "#/$defs/provenanceEdge"}}
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "time": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
     "labels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:https?://|file://|/home/|/Users/|/tmp/|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"},
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:https?://|file://|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"},
     "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
     "field": {
       "type": "object",
@@ -62,7 +63,7 @@
     "provenanceEdge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "record_type", "provenance_edge_id", "index_document_id", "field_id", "field_name", "field_value_sha256", "source_id", "asset_id", "origin_class", "origin_record_id", "origin_record_sha256", "transformation_id", "evidence_at", "evidence_expires_at"],
+      "required": ["schema_version", "record_type", "provenance_edge_id", "index_document_id", "field_id", "field_name", "field_value_sha256", "source_id", "asset_id", "origin_class", "origin_record_id", "origin_record_sha256", "transformation_id", "input_provenance_edge_ids", "evidence_at", "evidence_expires_at"],
       "properties": {
         "schema_version": {"const": 1},
         "record_type": {"const": "provenance_edge"},
@@ -77,6 +78,7 @@
         "origin_record_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*_[a-z0-9][a-z0-9._-]{0,127}$"},
         "origin_record_sha256": {"$ref": "#/$defs/hash"},
         "transformation_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^transformation_[a-z0-9][a-z0-9._-]{0,127}$"}]},
+        "input_provenance_edge_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^provenance_edge_[a-z0-9][a-z0-9._-]{0,159}$"}},
         "evidence_at": {"$ref": "#/$defs/time"},
         "evidence_expires_at": {"$ref": "#/$defs/time"}
       }
@@ -131,7 +133,7 @@
     "deletionEvent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "record_type", "deletion_event_id", "index_document_id", "field_id", "reason_code", "authority_snapshot_sha256", "occurred_at", "reindex_action"],
+      "required": ["schema_version", "record_type", "deletion_event_id", "index_document_id", "field_id", "reason_code", "authority_snapshot_sha256", "occurred_at", "reindex_action", "replacement_document_sha256", "replacement_provenance_edge_sha256", "replacement_visibility_policy_sha256"],
       "properties": {
         "schema_version": {"const": 1},
         "record_type": {"const": "deletion_event"},
@@ -141,7 +143,10 @@
         "reason_code": {"enum": ["rights_revoked", "consent_withdrawn", "source_corrected", "retention_expired", "transformation_replaced"]},
         "authority_snapshot_sha256": {"$ref": "#/$defs/hash"},
         "occurred_at": {"$ref": "#/$defs/time"},
-        "reindex_action": {"enum": ["remove_exact_field", "replace_exact_field"]}
+        "reindex_action": {"enum": ["remove_exact_field", "replace_exact_field"]},
+        "replacement_document_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+        "replacement_provenance_edge_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+        "replacement_visibility_policy_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]}
       }
     }
   }

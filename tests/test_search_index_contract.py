@@ -30,6 +30,20 @@ EXPIRES = "2026-08-24T00:00:00.125000Z"
 SHA = "a" * 64
 
 
+def record_hash(value: dict[str, object]) -> str:
+    return hashlib.sha256(
+        (
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 class SyntheticIndexAuthority:
     def __init__(
         self,
@@ -101,6 +115,7 @@ def edge(field_id: str = "field_title") -> dict[str, object]:
         "origin_record_id": "observation_001",
         "origin_record_sha256": SHA,
         "transformation_id": None,
+        "input_provenance_edge_ids": [],
         "evidence_at": NOW,
         "evidence_expires_at": EXPIRES,
     }
@@ -219,6 +234,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "visibility_policies": [],
             "duplicate_clusters": [],
             "deletion_events": [],
+            "event_lineage_edges": [],
         }
         for field_name in (
             "documents",
@@ -226,6 +242,7 @@ class SearchIndexContractTests(unittest.TestCase):
             "visibility_policies",
             "duplicate_clusters",
             "deletion_events",
+            "event_lineage_edges",
         ):
             malformed = copy.deepcopy(base)
             malformed[field_name] = [{}]
@@ -259,7 +276,11 @@ class SearchIndexContractTests(unittest.TestCase):
                 duplicate_clusters=[],
                 deletion_events=[],
                 built_at=NOW,
-                authority_resolver=SyntheticIndexAuthority([]),
+                authority_resolver=SyntheticIndexAuthority(
+                    [policy()],
+                    edges=[edge()],
+                    documents=[tampered],
+                ),
             )
 
     def test_query_fails_closed_for_stale_or_blocked_field_authority(self) -> None:
@@ -321,6 +342,55 @@ class SearchIndexContractTests(unittest.TestCase):
             ),
         )
 
+        stale_document = copy.deepcopy(indexed)
+        stale_document["period"] = "1970s"
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                snapshot_id="index_snapshot_stale_document",
+                documents=[indexed],
+                provenance_edges=[edge()],
+                visibility_policies=[approved],
+                duplicate_clusters=[],
+                deletion_events=[],
+                built_at=NOW,
+                authority_resolver=SyntheticIndexAuthority(
+                    [approved],
+                    edges=[edge()],
+                    documents=[stale_document],
+                ),
+            )
+
+        future_edge = edge()
+        future_edge["evidence_at"] = "2026-07-30T00:00:00Z"
+        future_snapshot = build_index_snapshot(
+            snapshot_id="index_snapshot_future_evidence",
+            documents=[indexed],
+            provenance_edges=[future_edge],
+            visibility_policies=[approved],
+            duplicate_clusters=[],
+            deletion_events=[],
+            built_at="2026-07-30T00:00:01Z",
+            authority_resolver=SyntheticIndexAuthority(
+                [approved],
+                edges=[future_edge],
+                documents=[indexed],
+            ),
+        )
+        self.assertEqual(
+            [],
+            query_index(
+                future_snapshot,
+                operation="search_visibility",
+                audience="researcher",
+                current_time="2026-07-25T00:00:00Z",
+                authority_resolver=SyntheticIndexAuthority(
+                    [approved],
+                    edges=[future_edge],
+                    documents=[indexed],
+                ),
+            ),
+        )
+
         for blocked_policy in (
             policy(rights_state="blocked"),
             policy(evidence_expires_at="2026-07-24T12:00:00Z"),
@@ -365,6 +435,33 @@ class SearchIndexContractTests(unittest.TestCase):
             ),
         )
 
+    def test_project_native_private_fields_require_consent(self) -> None:
+        private_document = document()
+        private_document["source_id"] = "project-native-visitor-inputs"
+        private_document["duplicate_cluster_id"] = None
+        private_document["fields"][0]["origin_class"] = "project_native"
+        private_document["fields"][0]["visibility_class"] = "project_private"
+        private_edge = edge()
+        private_edge["source_id"] = "project-native-visitor-inputs"
+        private_edge["origin_class"] = "project_native"
+        public_policy = policy()
+        public_policy["allowed_audiences"] = ["public"]
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                snapshot_id="index_snapshot_private_without_consent",
+                documents=[private_document],
+                provenance_edges=[private_edge],
+                visibility_policies=[public_policy],
+                duplicate_clusters=[],
+                deletion_events=[],
+                built_at=NOW,
+                authority_resolver=SyntheticIndexAuthority(
+                    [public_policy],
+                    edges=[private_edge],
+                    documents=[private_document],
+                ),
+            )
+
     def test_duplicate_cluster_never_collapses_source_records(self) -> None:
         bad = cluster()
         bad["members"][1]["index_document_id"] = bad["members"][0][
@@ -403,12 +500,87 @@ class SearchIndexContractTests(unittest.TestCase):
             duplicate_clusters=[cluster()],
             deletion_events=[],
             built_at=NOW,
-            authority_resolver=SyntheticIndexAuthority([]),
+            authority_resolver=SyntheticIndexAuthority(
+                [first_policy, second_policy],
+                edges=[first_edge, second_edge],
+                documents=[first_document, second_document],
+            ),
         )
         self.assertEqual(
             ["index_document_asset_001", "index_document_asset_002"],
             [item["index_document_id"] for item in snapshot["documents"]],
         )
+        third_document = copy.deepcopy(second_document)
+        third_document["index_document_id"] = "index_document_asset_003"
+        third_document["asset_id"] = "asset_003"
+        third_document["fields"][0][
+            "provenance_edge_id"
+        ] = "provenance_edge_field_title_003"
+        third_edge = copy.deepcopy(second_edge)
+        third_edge["provenance_edge_id"] = (
+            "provenance_edge_field_title_003"
+        )
+        third_edge["index_document_id"] = "index_document_asset_003"
+        third_edge["asset_id"] = "asset_003"
+        third_policy = copy.deepcopy(second_policy)
+        third_policy["visibility_policy_id"] = (
+            "visibility_policy_field_title_003"
+        )
+        third_policy["index_document_id"] = "index_document_asset_003"
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                snapshot_id="index_snapshot_incomplete_cluster",
+                documents=[
+                    first_document,
+                    second_document,
+                    third_document,
+                ],
+                provenance_edges=[first_edge, second_edge, third_edge],
+                visibility_policies=[
+                    first_policy,
+                    second_policy,
+                    third_policy,
+                ],
+                duplicate_clusters=[cluster()],
+                deletion_events=[],
+                built_at=NOW,
+                authority_resolver=SyntheticIndexAuthority(
+                    [first_policy, second_policy, third_policy],
+                    edges=[first_edge, second_edge, third_edge],
+                    documents=[
+                        first_document,
+                        second_document,
+                        third_document,
+                    ],
+                ),
+            )
+        duplicate_source_asset = copy.deepcopy(second_document)
+        duplicate_source_asset["duplicate_cluster_id"] = None
+        duplicate_source_asset["source_id"] = first_document["source_id"]
+        duplicate_source_asset["asset_id"] = first_document["asset_id"]
+        first_without_cluster = copy.deepcopy(first_document)
+        first_without_cluster["duplicate_cluster_id"] = None
+        duplicate_edge = copy.deepcopy(second_edge)
+        duplicate_edge["source_id"] = first_document["source_id"]
+        duplicate_edge["asset_id"] = first_document["asset_id"]
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                snapshot_id="index_snapshot_duplicate_source_asset",
+                documents=[first_without_cluster, duplicate_source_asset],
+                provenance_edges=[first_edge, duplicate_edge],
+                visibility_policies=[first_policy, second_policy],
+                duplicate_clusters=[],
+                deletion_events=[],
+                built_at=NOW,
+                authority_resolver=SyntheticIndexAuthority(
+                    [first_policy, second_policy],
+                    edges=[first_edge, duplicate_edge],
+                    documents=[
+                        first_without_cluster,
+                        duplicate_source_asset,
+                    ],
+                ),
+            )
 
     def test_exact_deletion_event_removes_only_named_field(self) -> None:
         second = field("field_period")
@@ -428,6 +600,9 @@ class SearchIndexContractTests(unittest.TestCase):
             "authority_snapshot_sha256": "c" * 64,
             "occurred_at": "2026-07-25T00:00:00Z",
             "reindex_action": "remove_exact_field",
+            "replacement_document_sha256": None,
+            "replacement_provenance_edge_sha256": None,
+            "replacement_visibility_policy_sha256": None,
         }
         self.assertEqual(deletion, validate_deletion_event(deletion))
         snapshot = build_index_snapshot(
@@ -441,11 +616,23 @@ class SearchIndexContractTests(unittest.TestCase):
             authority_resolver=SyntheticIndexAuthority(
                 [policy(field_id="field_period"), policy()],
                 [deletion],
+                edges=[edge(), edge("field_period")],
+                documents=[value],
             ),
         )
         self.assertEqual(
             ["field_period"],
             [item["field_id"] for item in snapshot["documents"][0]["fields"]],
+        )
+        self.assertEqual(
+            [
+                "provenance_edge_field_period",
+                "provenance_edge_field_title",
+            ],
+            [
+                item["provenance_edge_id"]
+                for item in snapshot["event_lineage_edges"]
+            ],
         )
         with self.assertRaises(SearchIndexError):
             build_index_snapshot(
@@ -460,20 +647,110 @@ class SearchIndexContractTests(unittest.TestCase):
                 deletion_events=[deletion],
                 built_at="2026-07-25T00:00:01Z",
                 authority_resolver=SyntheticIndexAuthority(
-                    [policy(field_id="field_period"), policy()]
+                    [policy(field_id="field_period"), policy()],
+                    edges=[edge(), edge("field_period")],
+                    documents=[value],
                 ),
             )
+
+    def test_replacement_requires_complete_dependent_reindex_events(self) -> None:
+        value = document()
+        value["duplicate_cluster_id"] = None
+        derived_field = field("field_period")
+        derived_field["name"] = "period"
+        derived_field["value"] = "1980s"
+        derived_field["origin_class"] = "derived_observation"
+        value["fields"].append(derived_field)
+        value["fields"].sort(key=lambda item: item["field_id"])
+        root_edge = edge()
+        derived_edge = edge("field_period")
+        derived_edge["origin_class"] = "derived_observation"
+        derived_edge["transformation_id"] = "transformation_period_001"
+        derived_edge["input_provenance_edge_ids"] = [
+            "provenance_edge_field_title"
+        ]
+        policies = [policy(field_id="field_period"), policy()]
+        root_replacement = {
+            "schema_version": 1,
+            "record_type": "deletion_event",
+            "deletion_event_id": "deletion_event_replace_title",
+            "index_document_id": "index_document_asset_001",
+            "field_id": "field_title",
+            "reason_code": "source_corrected",
+            "authority_snapshot_sha256": "c" * 64,
+            "occurred_at": "2026-07-25T00:00:00Z",
+            "reindex_action": "replace_exact_field",
+            "replacement_document_sha256": record_hash(value),
+            "replacement_provenance_edge_sha256": record_hash(root_edge),
+            "replacement_visibility_policy_sha256": record_hash(policy()),
+        }
+        derived_replacement = copy.deepcopy(root_replacement)
+        derived_replacement["deletion_event_id"] = (
+            "deletion_event_replace_period"
+        )
+        derived_replacement["field_id"] = "field_period"
+        derived_replacement["reason_code"] = "transformation_replaced"
+        derived_replacement["replacement_provenance_edge_sha256"] = (
+            record_hash(derived_edge)
+        )
+        derived_replacement["replacement_visibility_policy_sha256"] = (
+            record_hash(policy(field_id="field_period"))
+        )
+        base_arguments = {
+            "snapshot_id": "index_snapshot_replacement",
+            "documents": [value],
+            "provenance_edges": [root_edge, derived_edge],
+            "visibility_policies": policies,
+            "duplicate_clusters": [],
+            "built_at": "2026-07-25T00:00:01Z",
+        }
+        with self.assertRaises(SearchIndexError):
+            build_index_snapshot(
+                **base_arguments,
+                deletion_events=[root_replacement],
+                authority_resolver=SyntheticIndexAuthority(
+                    policies,
+                    [root_replacement],
+                    edges=[root_edge, derived_edge],
+                    documents=[value],
+                ),
+            )
+        replaced = build_index_snapshot(
+            **base_arguments,
+            deletion_events=[root_replacement, derived_replacement],
+            authority_resolver=SyntheticIndexAuthority(
+                policies,
+                [root_replacement, derived_replacement],
+                edges=[root_edge, derived_edge],
+                documents=[value],
+            ),
+        )
+        self.assertEqual(2, len(replaced["deletion_events"]))
+        self.assertEqual(2, len(replaced["event_lineage_edges"]))
+        self.assertEqual(2, len(replaced["documents"][0]["fields"]))
 
     def test_raw_content_signed_urls_and_private_paths_are_rejected(self) -> None:
         for unsafe_value in (
             "https://example.invalid/object?X-Amz-Signature=secret",
             "file://private/video.mp4",
             "Full source prose that is intentionally not index metadata.",
+            "/var/lib/private/catalogue.json",
+            "\\\\server\\private\\catalogue.json",
+            "../private/catalogue.json",
         ):
             unsafe = document()
             unsafe["fields"][0]["value"] = unsafe_value
             with self.assertRaises(SearchIndexError):
                 validate_index_document(unsafe)
+
+        unsafe_policy = policy()
+        unsafe_policy["review_trigger"] = "https://example.invalid/review"
+        with self.assertRaises(SearchIndexError):
+            validate_visibility_policy(unsafe_policy)
+        unsafe_cluster = cluster()
+        unsafe_cluster["evidence_summary"] = "https://example.invalid/evidence"
+        with self.assertRaises(SearchIndexError):
+            validate_duplicate_cluster(unsafe_cluster)
 
 
 if __name__ == "__main__":

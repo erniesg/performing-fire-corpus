@@ -47,14 +47,22 @@ references a record that the snapshot did not preserve.
 A `deletion-event` targets one exact document field for rights revocation,
 consent withdrawal, source correction, retention expiry, or transformation
 replacement. Snapshot construction resolves the current event through the
-trusted authority boundary, requires the exact field to exist, and supports
-only exact-field removal. Replacement requires separately reviewed replacement
-input; it cannot be inferred or broadened to a document, source, prefix, or
-object-store deletion.
+trusted authority boundary and requires the exact field to exist. An
+exact-field replacement retains only the current resolver-verified document,
+field, provenance edge, and policy. It cannot be inferred or broadened to a
+document, source, prefix, or object-store deletion.
 
-The snapshot removes the matching field, provenance edge, and visibility
-policy while leaving unrelated fields intact. Affected duplicate evidence must
-be rebuilt rather than silently retaining a deleted provenance edge.
+Provenance edges list their complete transformation inputs. Removing or
+replacing an input requires an exact current event for every transitive
+derived or generated dependent; otherwise snapshot construction stops.
+When events exist, the snapshot also binds the complete pre-event provenance
+lineage so a later validator can reproduce the exact affected frontier and
+verify that the final edge set matches every recorded action.
+
+An exact-field removal deletes the matching field, provenance edge, and
+visibility policy while leaving unrelated fields intact. Affected duplicate
+evidence must be rebuilt rather than silently retaining a deleted provenance
+edge.
 
 ## Versioned contracts
 

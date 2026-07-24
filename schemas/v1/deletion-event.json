@@ -4,7 +4,7 @@
   "title": "Exact index deletion and reindex event v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "record_type", "deletion_event_id", "index_document_id", "field_id", "reason_code", "authority_snapshot_sha256", "occurred_at", "reindex_action"],
+  "required": ["schema_version", "record_type", "deletion_event_id", "index_document_id", "field_id", "reason_code", "authority_snapshot_sha256", "occurred_at", "reindex_action", "replacement_document_sha256", "replacement_provenance_edge_sha256", "replacement_visibility_policy_sha256"],
   "properties": {
     "schema_version": {"const": 1},
     "record_type": {"const": "deletion_event"},
@@ -14,6 +14,9 @@
     "reason_code": {"enum": ["rights_revoked", "consent_withdrawn", "source_corrected", "retention_expired", "transformation_replaced"]},
     "authority_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "occurred_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
-    "reindex_action": {"enum": ["remove_exact_field", "replace_exact_field"]}
+    "reindex_action": {"enum": ["remove_exact_field", "replace_exact_field"]},
+    "replacement_document_sha256": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{64}$"}]},
+    "replacement_provenance_edge_sha256": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{64}$"}]},
+    "replacement_visibility_policy_sha256": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{64}$"}]}
   }
 }

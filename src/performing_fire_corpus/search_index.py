@@ -19,9 +19,12 @@ from performing_fire_corpus.redaction import sanitize
 
 UTC = timezone.utc
 _UNSAFE_VALUE = re.compile(
-    r"(?:https?://|file://|/Users/|/home/|/tmp/|"
+    r"(?:https?://|file://|"
     r"x-amz-|signature=|credential=|full source prose)",
     re.IGNORECASE,
+)
+_ABSOLUTE_OR_TRAVERSAL = re.compile(
+    r"^(?:/|\\\\|[A-Za-z]:[\\/])|(?:^|[\\/])\.\.(?:[\\/]|$)"
 )
 
 
@@ -105,11 +108,25 @@ def _field_value_sha256(value: str) -> str:
 
 def validate_provenance_edge(value: Mapping[str, Any]) -> dict[str, Any]:
     record = _validate("provenance-edge", value)
-    if (
-        record["origin_class"] == "derived_observation"
-        and record["transformation_id"] is None
+    inputs = record["input_provenance_edge_ids"]
+    if inputs != sorted(set(inputs)) or record["provenance_edge_id"] in inputs:
+        raise SearchIndexError("provenance inputs must be unique and canonical")
+    transformed = record["origin_class"] in {
+        "derived_observation",
+        "generated_score",
+    }
+    if transformed and (
+        record["transformation_id"] is None or not inputs
     ):
-        raise SearchIndexError("derived provenance requires a transformation")
+        raise SearchIndexError(
+            "derived or generated provenance requires complete inputs"
+        )
+    if not transformed and (
+        record["transformation_id"] is not None or inputs
+    ):
+        raise SearchIndexError(
+            "source and project-native provenance cannot invent a transform"
+        )
     if _parse_time(record["evidence_at"], "evidence_at") >= _parse_time(
         record["evidence_expires_at"], "evidence_expires_at"
     ):
@@ -127,12 +144,60 @@ def validate_index_document(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise SearchIndexError("index fields must have unique canonical identities")
     for item in record["fields"]:
-        if _UNSAFE_VALUE.search(str(item["value"])):
+        text = str(item["value"])
+        if _UNSAFE_VALUE.search(text) or _ABSOLUTE_OR_TRAVERSAL.search(text):
             raise SearchIndexError("raw content or locator is forbidden in the index")
     for name in ("languages", "mediums"):
         if record[name] != sorted(set(record[name])):
             raise SearchIndexError(f"{name} must be unique and sorted")
     return record
+
+
+def _requires_consent(
+    document: Mapping[str, Any], field: Mapping[str, Any]
+) -> bool:
+    return (
+        str(document["source_id"]).startswith("project-native-")
+        or field["origin_class"] == "project_native"
+        or field["visibility_class"] == "project_private"
+    )
+
+
+def _policy_authorizes_field(
+    document: Mapping[str, Any],
+    field: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    evaluated: datetime,
+) -> bool:
+    consent_required = _requires_consent(document, field)
+    return (
+        policy["index_document_id"] == document["index_document_id"]
+        and policy["field_id"] == field["field_id"]
+        and policy["rights_snapshot_sha256"]
+        == field["rights_snapshot_sha256"]
+        and policy["consent_snapshot_sha256"]
+        == field["consent_snapshot_sha256"]
+        and policy["rights_state"] == "approved"
+        and policy["retention_state"] == "retain"
+        and (
+            (
+                field["consent_snapshot_sha256"] is not None
+                and policy["consent_state"] == "approved"
+            )
+            if consent_required
+            else policy["consent_state"] in {"approved", "not_required"}
+        )
+        and not (
+            consent_required and "public" in policy["allowed_audiences"]
+        )
+        and _parse_time(policy["decided_at"], "decided_at") <= evaluated
+        and evaluated < _parse_time(policy["expires_at"], "expires_at")
+        and evaluated
+        < _parse_time(
+            policy["evidence_expires_at"], "evidence_expires_at"
+        )
+    )
 
 
 def validate_visibility_policy(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -182,12 +247,31 @@ def validate_duplicate_cluster(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def validate_deletion_event(value: Mapping[str, Any]) -> dict[str, Any]:
-    return _validate("deletion-event", value)
+    record = _validate("deletion-event", value)
+    replacement_fields = (
+        "replacement_document_sha256",
+        "replacement_provenance_edge_sha256",
+        "replacement_visibility_policy_sha256",
+    )
+    if record["reindex_action"] == "replace_exact_field":
+        if any(record[field] is None for field in replacement_fields):
+            raise SearchIndexError(
+                "replacement event requires exact current record hashes"
+            )
+    elif any(record[field] is not None for field in replacement_fields):
+        raise SearchIndexError(
+            "removal event cannot carry replacement authority"
+        )
+    return record
 
 
 def _snapshot_hash(value: Mapping[str, Any]) -> str:
     payload = {key: child for key, child in value.items() if key != "snapshot_sha256"}
     return hashlib.sha256(_canonical(payload)).hexdigest()
+
+
+def _record_hash(value: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -203,19 +287,35 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
         validate_duplicate_cluster(item) for item in record["duplicate_clusters"]
     ]
     events = [validate_deletion_event(item) for item in record["deletion_events"]]
+    event_lineage_edges = [
+        validate_provenance_edge(item)
+        for item in record["event_lineage_edges"]
+    ]
     document_index = {item["index_document_id"]: item for item in documents}
+    source_assets = [
+        (item["source_id"], item["asset_id"]) for item in documents
+    ]
     edge_index = {item["provenance_edge_id"]: item for item in edges}
-    policy_keys = {(item["index_document_id"], item["field_id"]) for item in policies}
+    policy_index = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in policies
+    }
+    policy_keys = set(policy_index)
     policy_ids = [item["visibility_policy_id"] for item in policies]
     cluster_ids = [item["duplicate_cluster_id"] for item in clusters]
     event_ids = [item["deletion_event_id"] for item in events]
+    event_lineage_ids = [
+        item["provenance_edge_id"] for item in event_lineage_edges
+    ]
     if (
         len(document_index) != len(documents)
+        or len(source_assets) != len(set(source_assets))
         or len(edge_index) != len(edges)
         or len(policy_keys) != len(policies)
         or len(policy_ids) != len(set(policy_ids))
         or len(cluster_ids) != len(set(cluster_ids))
         or len(event_ids) != len(set(event_ids))
+        or len(event_lineage_ids) != len(set(event_lineage_ids))
     ):
         raise SearchIndexError("snapshot record identities must be unique")
     required_edge_ids: set[str] = set()
@@ -241,15 +341,7 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                 raise SearchIndexError(
                     "every indexed field requires exact provenance and policy"
                 )
-            policy = next(
-                value
-                for value in policies
-                if (
-                    value["index_document_id"],
-                    value["field_id"],
-                )
-                == key
-            )
+            policy = policy_index[key]
             if (
                 policy["rights_snapshot_sha256"]
                 != item["rights_snapshot_sha256"]
@@ -267,6 +359,14 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                 raise SearchIndexError(
                     "field policy is not bound to provenance authority"
                 )
+            if _requires_consent(document, item) and (
+                item["consent_snapshot_sha256"] is None
+                or policy["consent_state"] != "approved"
+                or "public" in policy["allowed_audiences"]
+            ):
+                raise SearchIndexError(
+                    "project-native or private fields require consent and non-public visibility"
+                )
     if required_edge_ids != set(edge_index) or required_policy_keys != policy_keys:
         raise SearchIndexError(
             "snapshot contains orphaned provenance or visibility authority"
@@ -279,6 +379,19 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise SearchIndexError("document duplicate cluster is not authoritative")
     for cluster in clusters:
+        expected_document_ids = {
+            item["index_document_id"]
+            for item in documents
+            if item["duplicate_cluster_id"]
+            == cluster["duplicate_cluster_id"]
+        }
+        member_document_ids = {
+            item["index_document_id"] for item in cluster["members"]
+        }
+        if member_document_ids != expected_document_ids:
+            raise SearchIndexError(
+                "duplicate cluster membership must be bidirectionally complete"
+            )
         for member in cluster["members"]:
             document = document_index.get(member["index_document_id"])
             if (
@@ -293,19 +406,144 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
                     != member["index_document_id"]
                     for edge_id in member["provenance_edge_ids"]
                 )
+                or set(member["provenance_edge_ids"])
+                != {
+                    item["provenance_edge_id"]
+                    for item in document["fields"]
+                }
             ):
                 raise SearchIndexError(
                     "duplicate cluster member is not preserved in the snapshot"
                 )
+    for edge in edges:
+        if any(
+            input_id not in edge_index
+            for input_id in edge["input_provenance_edge_ids"]
+        ):
+            raise SearchIndexError("provenance lineage is incomplete")
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(edge_id: str) -> None:
+        if edge_id in visiting:
+            raise SearchIndexError("provenance lineage contains a cycle")
+        if edge_id in visited:
+            return
+        visiting.add(edge_id)
+        for input_id in edge_index[edge_id]["input_provenance_edge_ids"]:
+            visit(str(input_id))
+        visiting.remove(edge_id)
+        visited.add(edge_id)
+
+    for edge_id in edge_index:
+        visit(edge_id)
     for event in events:
         key = (event["index_document_id"], event["field_id"])
-        if key in required_policy_keys or any(
+        present = key in required_policy_keys or any(
             edge["index_document_id"] == key[0]
             and edge["field_id"] == key[1]
             for edge in edges
+        )
+        if (
+            event["reindex_action"] == "remove_exact_field"
+            and present
+        ) or (
+            event["reindex_action"] == "replace_exact_field"
+            and not present
         ):
             raise SearchIndexError(
-                "deleted exact field remains in the index snapshot"
+                "index event outcome does not match its exact action"
+            )
+        if event["reindex_action"] == "replace_exact_field":
+            document = document_index.get(key[0])
+            edge = next(
+                (
+                    item
+                    for item in edges
+                    if (
+                        item["index_document_id"],
+                        item["field_id"],
+                    )
+                    == key
+                ),
+                None,
+            )
+            policy = policy_index.get(key)
+            if (
+                document is None
+                or edge is None
+                or policy is None
+                or event["replacement_document_sha256"]
+                != _record_hash(document)
+                or event["replacement_provenance_edge_sha256"]
+                != _record_hash(edge)
+                or event["replacement_visibility_policy_sha256"]
+                != _record_hash(policy)
+            ):
+                raise SearchIndexError(
+                    "replacement event binding is inconsistent"
+                )
+    if bool(events) != bool(event_lineage_edges):
+        raise SearchIndexError(
+            "index events require their complete pre-event lineage"
+        )
+    if event_lineage_edges:
+        lineage_by_id = {
+            item["provenance_edge_id"]: item
+            for item in event_lineage_edges
+        }
+        lineage_by_key = {
+            (item["index_document_id"], item["field_id"]): item
+            for item in event_lineage_edges
+        }
+        event_by_key = {
+            (item["index_document_id"], item["field_id"]): item
+            for item in events
+        }
+        if len(event_by_key) != len(events):
+            raise SearchIndexError("index event exact targets must be unique")
+        reverse: dict[str, set[str]] = {
+            edge_id: set() for edge_id in lineage_by_id
+        }
+        for edge in event_lineage_edges:
+            for input_id in edge["input_provenance_edge_ids"]:
+                if input_id not in reverse:
+                    raise SearchIndexError(
+                        "event provenance lineage is incomplete"
+                    )
+                reverse[str(input_id)].add(
+                    str(edge["provenance_edge_id"])
+                )
+        removed_ids: set[str] = set()
+        for key, event in event_by_key.items():
+            target = lineage_by_key.get(key)
+            if target is None:
+                raise SearchIndexError(
+                    "index event target is absent from event lineage"
+                )
+            if event["reindex_action"] == "remove_exact_field":
+                removed_ids.add(str(target["provenance_edge_id"]))
+            pending = list(reverse[str(target["provenance_edge_id"])])
+            seen: set[str] = set()
+            while pending:
+                dependent_id = pending.pop()
+                if dependent_id in seen:
+                    continue
+                seen.add(dependent_id)
+                dependent = lineage_by_id[dependent_id]
+                dependent_key = (
+                    dependent["index_document_id"],
+                    dependent["field_id"],
+                )
+                if dependent_key not in event_by_key:
+                    raise SearchIndexError(
+                        "dependent event lineage is incomplete"
+                    )
+                pending.extend(reverse[dependent_id])
+        expected_final_edge_ids = set(lineage_by_id) - removed_ids
+        if set(edge_index) != expected_final_edge_ids:
+            raise SearchIndexError(
+                "final provenance does not match exact event outcomes"
             )
     canonical = {
         "documents": "index_document_id",
@@ -313,6 +551,7 @@ def validate_index_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
         "visibility_policies": "visibility_policy_id",
         "duplicate_clusters": "duplicate_cluster_id",
         "deletion_events": "deletion_event_id",
+        "event_lineage_edges": "provenance_edge_id",
     }
     if any(
         record[field]
@@ -335,7 +574,62 @@ def build_index_snapshot(
     authority_resolver: IndexAuthorityResolver,
 ) -> dict[str, Any]:
     checked_documents = [validate_index_document(item) for item in documents]
+    checked_edges = [
+        validate_provenance_edge(item) for item in provenance_edges
+    ]
+    checked_policies = [
+        validate_visibility_policy(item) for item in visibility_policies
+    ]
     checked_events = [validate_deletion_event(item) for item in deletion_events]
+    for document in checked_documents:
+        try:
+            current = authority_resolver.resolve_index_document(
+                index_document_id=str(document["index_document_id"])
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_index_document(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != document:
+            raise SearchIndexError(
+                "index document is missing, stale, or corrected"
+            )
+    for edge in checked_edges:
+        try:
+            current = authority_resolver.resolve_provenance_edge(
+                provenance_edge_id=str(edge["provenance_edge_id"])
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_provenance_edge(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != edge:
+            raise SearchIndexError(
+                "provenance edge is missing, stale, or corrected"
+            )
+    for policy in checked_policies:
+        try:
+            current = authority_resolver.resolve_visibility_policy(
+                index_document_id=str(policy["index_document_id"]),
+                field_id=str(policy["field_id"]),
+            )
+            checked_current = (
+                None
+                if current is None
+                else validate_visibility_policy(current)
+            )
+        except Exception:
+            checked_current = None
+        if checked_current != policy:
+            raise SearchIndexError(
+                "visibility policy is missing, stale, or revoked"
+            )
     for event in checked_events:
         try:
             current = authority_resolver.resolve_deletion_event(
@@ -352,24 +646,102 @@ def build_index_snapshot(
             raise SearchIndexError(
                 "deletion event is missing, stale, or revoked"
             )
-        if (
-            event["reindex_action"] != "remove_exact_field"
-            or _parse_time(event["occurred_at"], "occurred_at")
-            > _parse_time(built_at, "built_at")
+        if _parse_time(event["occurred_at"], "occurred_at") > _parse_time(
+            built_at, "built_at"
         ):
             raise SearchIndexError(
-                "snapshot build supports only current exact-field removal"
+                "index event is not yet effective"
+            )
+        if (
+            event["reindex_action"] == "replace_exact_field"
+            and event["reason_code"]
+            not in {"source_corrected", "transformation_replaced"}
+        ):
+            raise SearchIndexError(
+                "replacement requires correction or transformation authority"
             )
     original_fields = {
         (item["index_document_id"], field["field_id"])
         for item in checked_documents
         for field in item["fields"]
     }
-    deleted = {
-        (item["index_document_id"], item["field_id"]) for item in checked_events
+    event_by_key = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in checked_events
     }
-    if any(key not in original_fields for key in deleted):
-        raise SearchIndexError("deletion event targets an absent exact field")
+    if len(event_by_key) != len(checked_events) or any(
+        key not in original_fields for key in event_by_key
+    ):
+        raise SearchIndexError(
+            "index events must target unique present exact fields"
+        )
+    edge_by_key = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in checked_edges
+    }
+    document_by_id = {
+        item["index_document_id"]: item for item in checked_documents
+    }
+    policy_by_key = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in checked_policies
+    }
+    for key, event in event_by_key.items():
+        if event["reindex_action"] == "replace_exact_field":
+            document = document_by_id.get(key[0])
+            edge = edge_by_key.get(key)
+            policy = policy_by_key.get(key)
+            if (
+                document is None
+                or edge is None
+                or policy is None
+                or event["replacement_document_sha256"]
+                != _record_hash(document)
+                or event["replacement_provenance_edge_sha256"]
+                != _record_hash(edge)
+                or event["replacement_visibility_policy_sha256"]
+                != _record_hash(policy)
+            ):
+                raise SearchIndexError(
+                    "replacement event does not bind current replacement records"
+                )
+    edge_key_by_id = {
+        item["provenance_edge_id"]: key for key, item in edge_by_key.items()
+    }
+    dependents: dict[str, set[str]] = {
+        edge_id: set() for edge_id in edge_key_by_id
+    }
+    for edge in checked_edges:
+        for input_id in edge["input_provenance_edge_ids"]:
+            if input_id not in dependents:
+                raise SearchIndexError(
+                    "snapshot build provenance lineage is incomplete"
+                )
+            dependents[str(input_id)].add(str(edge["provenance_edge_id"]))
+    for key in event_by_key:
+        seed = edge_by_key.get(key)
+        if seed is None:
+            raise SearchIndexError(
+                "index event target lacks exact provenance"
+            )
+        pending = list(dependents[str(seed["provenance_edge_id"])])
+        seen: set[str] = set()
+        while pending:
+            dependent_id = pending.pop()
+            if dependent_id in seen:
+                continue
+            seen.add(dependent_id)
+            dependent_key = edge_key_by_id[dependent_id]
+            if dependent_key not in event_by_key:
+                raise SearchIndexError(
+                    "dependent derived fields require exact reindex events"
+                )
+            pending.extend(dependents[dependent_id])
+    deleted = {
+        key
+        for key, event in event_by_key.items()
+        if event["reindex_action"] == "remove_exact_field"
+    }
     retained_documents = []
     for document in checked_documents:
         kept = copy.deepcopy(document)
@@ -380,15 +752,55 @@ def build_index_snapshot(
         ]
         retained_documents.append(kept)
     retained_edges = [
-        validate_provenance_edge(item)
-        for item in provenance_edges
+        item
+        for item in checked_edges
         if (item["index_document_id"], item["field_id"]) not in deleted
     ]
     retained_policies = [
-        validate_visibility_policy(item)
-        for item in visibility_policies
+        item
+        for item in checked_policies
         if (item["index_document_id"], item["field_id"]) not in deleted
     ]
+    built_time = _parse_time(built_at, "built_at")
+    retained_document_index = {
+        item["index_document_id"]: item for item in retained_documents
+    }
+    retained_edge_index = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in retained_edges
+    }
+    retained_policy_index = {
+        (item["index_document_id"], item["field_id"]): item
+        for item in retained_policies
+    }
+    for key, edge in retained_edge_index.items():
+        document = retained_document_index.get(key[0])
+        field = next(
+            (
+                item
+                for item in document["fields"]
+                if item["field_id"] == key[1]
+            ),
+            None,
+        ) if document is not None else None
+        policy = retained_policy_index.get(key)
+        if (
+            document is None
+            or field is None
+            or policy is None
+            or not _policy_authorizes_field(
+                document, field, policy, evaluated=built_time
+            )
+            or _parse_time(edge["evidence_at"], "evidence_at")
+            > built_time
+            or built_time
+            >= _parse_time(
+                edge["evidence_expires_at"], "evidence_expires_at"
+            )
+        ):
+            raise SearchIndexError(
+                "retained index field lacks current effective authority"
+            )
     record: dict[str, Any] = {
         "schema_version": 1,
         "record_type": "index_snapshot",
@@ -411,6 +823,10 @@ def build_index_snapshot(
         "deletion_events": sorted(
             checked_events, key=lambda item: item["deletion_event_id"]
         ),
+        "event_lineage_edges": sorted(
+            checked_edges if checked_events else [],
+            key=lambda item: item["provenance_edge_id"],
+        ),
     }
     record["snapshot_sha256"] = _snapshot_hash(record)
     return validate_index_snapshot(record)
@@ -432,6 +848,8 @@ def query_index(
 ) -> list[dict[str, Any]]:
     record = validate_index_snapshot(snapshot)
     evaluated = _parse_time(current_time, "current_time")
+    if _parse_time(record["built_at"], "built_at") > evaluated:
+        return []
     policies = {
         (item["index_document_id"], item["field_id"]): item
         for item in record["visibility_policies"]
@@ -503,12 +921,9 @@ def query_index(
             if (
                 policy is not None
                 and current_edge == embedded_edge
-                and policy["index_document_id"] == document["index_document_id"]
-                and policy["field_id"] == item["field_id"]
-                and policy["rights_snapshot_sha256"]
-                == item["rights_snapshot_sha256"]
-                and policy["consent_snapshot_sha256"]
-                == item["consent_snapshot_sha256"]
+                and _policy_authorizes_field(
+                    document, item, policy, evaluated=evaluated
+                )
                 and _parse_time(
                     policy["evidence_expires_at"],
                     "evidence_expires_at",
@@ -517,18 +932,12 @@ def query_index(
                     current_edge["evidence_expires_at"],
                     "evidence_expires_at",
                 )
-                and policy["rights_state"] == "approved"
-                and policy["consent_state"] in {"approved", "not_required"}
-                and policy["retention_state"] == "retain"
-                and _parse_time(policy["decided_at"], "decided_at")
+                and _parse_time(
+                    current_edge["evidence_at"], "evidence_at"
+                )
                 <= evaluated
                 and operation in policy["allowed_operations"]
                 and audience in policy["allowed_audiences"]
-                and evaluated < _parse_time(policy["expires_at"], "expires_at")
-                and evaluated
-                < _parse_time(
-                    policy["evidence_expires_at"], "evidence_expires_at"
-                )
             ):
                 visible.append(
                     {

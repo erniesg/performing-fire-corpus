@@ -25,6 +25,6 @@
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://))[^\\r\\n]+$"}
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))(?!.*(?:https?://|file://|[A-Za-z]:[\\\\/]|[Xx]-[Aa]mz-|[Ss]ignature=|[Cc]redential=))[^\\r\\n]+$"}
   }
 }
