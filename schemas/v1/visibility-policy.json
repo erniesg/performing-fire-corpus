@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/visibility-policy.json",
+  "title": "Index field visibility policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "visibility_policy_id", "index_document_id", "field_id", "rights_snapshot_sha256", "rights_state", "consent_snapshot_sha256", "consent_state", "retention_state", "allowed_operations", "allowed_audiences", "decided_at", "expires_at", "evidence_expires_at", "review_trigger"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "visibility_policy"},
+    "visibility_policy_id": {"type": "string", "pattern": "^visibility_policy_[a-z0-9][a-z0-9._-]{0,159}$"},
+    "index_document_id": {"type": "string", "pattern": "^index_document_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "field_id": {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "rights_snapshot_sha256": {"$ref": "#/$defs/hash"},
+    "rights_state": {"enum": ["approved", "pending", "blocked", "revoked"]},
+    "consent_snapshot_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+    "consent_state": {"enum": ["approved", "not_required", "pending", "expired", "revoked"]},
+    "retention_state": {"enum": ["retain", "delete_due", "legal_hold"]},
+    "allowed_operations": {"type": "array", "uniqueItems": true, "items": {"enum": ["indexing", "search_visibility", "score_generation"]}},
+    "allowed_audiences": {"type": "array", "uniqueItems": true, "items": {"enum": ["operator", "researcher", "public"]}},
+    "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "evidence_expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "review_trigger": {"$ref": "#/$defs/safeText"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}

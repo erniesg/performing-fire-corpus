@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/index-document.json",
+  "title": "Rights-aware index document v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "index_document_id", "source_id", "asset_id", "selection_state", "duplicate_cluster_id", "languages", "period", "mediums", "fields"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "index_document"},
+    "index_document_id": {"type": "string", "pattern": "^index_document_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "source_id": {"$ref": "#/$defs/sourceId"},
+    "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "selection_state": {"enum": ["inventory_only", "selected_rich_corpus", "excluded", "unresolved"]},
+    "duplicate_cluster_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^duplicate_cluster_[a-z0-9][a-z0-9._-]{0,127}$"}]},
+    "languages": {"$ref": "#/$defs/labels"},
+    "period": {"$ref": "#/$defs/label"},
+    "mediums": {"$ref": "#/$defs/labels"},
+    "fields": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/field"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"source_id": {"pattern": "^project-native-"}}},
+      "then": {"properties": {"fields": {"items": {"properties": {"retention_class": {"const": "project_native_expiring"}}}}}}
+    }
+  ],
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "labels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 256, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"},
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field_id", "name", "value", "origin_class", "provenance_edge_id", "rights_snapshot_sha256", "consent_snapshot_sha256", "retention_class", "visibility_class", "review_trigger"],
+      "properties": {
+        "field_id": {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "value": {"$ref": "#/$defs/safeText"},
+        "origin_class": {"enum": ["factual_source_metadata", "derived_observation", "generated_score", "project_native"]},
+        "provenance_edge_id": {"type": "string", "pattern": "^provenance_edge_[a-z0-9][a-z0-9._-]{0,159}$"},
+        "rights_snapshot_sha256": {"$ref": "#/$defs/hash"},
+        "consent_snapshot_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]},
+        "retention_class": {"enum": ["inventory_metadata", "selected_raw", "selected_derived", "project_native_expiring"]},
+        "visibility_class": {"enum": ["reviewed_metadata", "restricted_corpus", "project_private"]},
+        "review_trigger": {"$ref": "#/$defs/safeText"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {"properties": {"origin_class": {"const": "project_native"}}},
+              {"properties": {"visibility_class": {"const": "project_private"}}}
+            ]
+          },
+          "then": {"properties": {"retention_class": {"const": "project_native_expiring"}}}
+        }
+      ]
+    }
+  }
+}
