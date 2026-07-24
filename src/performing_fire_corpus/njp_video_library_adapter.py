@@ -116,16 +116,28 @@ class _MetadataHTMLParser(HTMLParser):
         attribute_names = [key for key, _ in attrs]
         if len(attribute_names) != len(set(attribute_names)):
             raise ValueError("metadata HTML has duplicate attributes")
+        if any(
+            value is None
+            and (
+                key in _RECORD_MARKERS
+                or key.startswith("data-asset-")
+            )
+            for key, value in attrs
+        ):
+            raise ValueError("source marker has no value")
         values = {
             key: value for key, value in attrs if value is not None
         }
         if (
-            any(key in _RECORD_MARKERS for key in values)
+            any(key in _RECORD_MARKERS for key in attribute_names)
             and tag != "article"
         ):
             raise ValueError("record markers moved to an unknown element")
         if (
-            any(key.startswith("data-asset-") for key in values)
+            any(
+                key.startswith("data-asset-")
+                for key in attribute_names
+            )
             and tag != "a"
         ):
             raise ValueError("asset markers moved to an unknown element")
@@ -245,6 +257,11 @@ def _path_is_unambiguous(path: str) -> bool:
         and "//" not in path
         and "\\" not in path
         and "%" not in path
+        and all(
+            character.isprintable()
+            and not character.isspace()
+            for character in path
+        )
         and all(
             segment not in {".", ".."}
             for segment in path.split("/")
@@ -543,6 +560,12 @@ class NJPVideoLibraryAdapter:
     ) -> tuple[VideoLibraryAssetCandidate, ...]:
         self._require_reviewed_shape()
         admitted = self.parse_page(body, cursor=cursor)
+        current_page = 1 if cursor is None else _page_number(cursor)
+        if (
+            not admitted["terminal"]
+            and admitted["next_ordinal"] != current_page
+        ):
+            raise ValueError("asset page ordinal is not admitted")
         admitted_record_ids = {
             item["record_id"] for item in admitted["records"]
         }

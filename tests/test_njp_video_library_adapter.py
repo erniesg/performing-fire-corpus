@@ -217,6 +217,16 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
                     "https://njpvideo.ggcf.kr/catalogue//record"
                 )
             },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue/raw space"
+                )
+            },
+            {
+                "canonical_url": (
+                    "https://njpvideo.ggcf.kr/catalogue/raw\x00control"
+                )
+            },
             {"title": "A title is not an identifier"},
         ):
             with self.subTest(unsafe=unsafe), self.assertRaises(ValueError):
@@ -321,6 +331,8 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             "https://njpvideo.ggcf.kr/invented-assets//private",
             "/unreviewed/../invented-assets/private",
             "//njpvideo.ggcf.kr/invented-assets/private",
+            "/invented-assets/raw space",
+            "/invented-assets/raw\x00control",
         )
         for url in unsafe:
             with self.subTest(url=url), self.assertRaises(ValueError):
@@ -393,6 +405,15 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             adapter.stable_record_id({"id": "catalogue-002"}),
             candidates[0].relationship_record_id,
         )
+        malformed_ordinal = body.replace(
+            b'<meta name="next-ordinal" content="2">',
+            b'<meta name="next-ordinal" content="999">',
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(
+                malformed_ordinal,
+                cursor="page-002",
+            )
 
     def test_candidates_require_the_same_admitted_page_and_records(
         self,
@@ -452,6 +473,14 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             adapter.asset_candidates(partial_asset)
+
+        valueless_asset_marker = (
+            b"<!doctype html><html><head>"
+            b'<meta name="terminal" content="true">'
+            b"</head><body><a data-asset-for></a></body></html>"
+        )
+        with self.assertRaises(ValueError):
+            adapter.asset_candidates(valueless_asset_marker)
 
     def test_duplicate_controls_and_attributes_fail_closed(self) -> None:
         adapter = InventedVideoLibraryAdapter()
