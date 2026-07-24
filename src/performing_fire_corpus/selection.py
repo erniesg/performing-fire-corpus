@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
@@ -98,11 +98,7 @@ def _parse_time(value: str, field: str) -> datetime:
 
 
 def _utc_text(value: datetime) -> str:
-    return (
-        value.astimezone(UTC)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z")
-    )
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _candidate_authority_expiry(candidate: Mapping[str, Any]) -> datetime:
@@ -169,12 +165,75 @@ def _candidate_sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
 
 
-def bind_selection_candidate(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Bind exact inventory and authority facts into one candidate."""
+class SelectionCandidateResolver(Protocol):
+    """Trusted compiler for current inventory and reviewed authority records."""
 
-    if "candidate_sha256" in value:
-        raise SelectionPolicyError("candidate binding accepts facts without a hash")
-    record = copy.deepcopy(dict(value))
+    def resolve_selection_candidate(
+        self, *, source_id: str, asset_id: str
+    ) -> Mapping[str, Any]: ...
+
+
+_RESOLVED_CANDIDATE_FIELDS = frozenset(
+    {
+        "inventory_observation_id",
+        "inventory_observation_sha256",
+        "inventory_snapshot_sha256",
+        "inventory_state",
+        "retrieval_state",
+        "dimensions",
+        "technical_quality",
+        "duplicate_cluster_id",
+        "source_governance_state",
+        "source_governance_snapshot_sha256",
+        "source_governance_expires_at",
+        "rights_state",
+        "rights_snapshot_sha256",
+        "rights_expires_at",
+        "retention_state",
+        "retention_snapshot_sha256",
+        "retention_expires_at",
+        "privacy_state",
+        "privacy_snapshot_sha256",
+        "privacy_expires_at",
+        "transformation_state",
+        "transformation_snapshot_sha256",
+        "transformation_expires_at",
+        "pipeline_proof",
+        "evidence_scope",
+    }
+)
+
+
+def bind_selection_candidate(
+    *,
+    candidate_id: str,
+    source_id: str,
+    asset_id: str,
+    authority_resolver: SelectionCandidateResolver,
+) -> dict[str, Any]:
+    """Compile a candidate only through the reviewed-record resolver boundary."""
+
+    try:
+        resolved = authority_resolver.resolve_selection_candidate(
+            source_id=source_id,
+            asset_id=asset_id,
+        )
+    except Exception as error:
+        raise SelectionPolicyError(
+            "candidate authority resolver could not compile current records"
+        ) from error
+    if not isinstance(resolved, Mapping) or set(resolved) != _RESOLVED_CANDIDATE_FIELDS:
+        raise SelectionPolicyError(
+            "candidate authority resolver returned an incomplete or unsafe shape"
+        )
+    record = {
+        "schema_version": 1,
+        "record_type": "selection_candidate",
+        "candidate_id": candidate_id,
+        "source_id": source_id,
+        "asset_id": asset_id,
+        **copy.deepcopy(dict(resolved)),
+    }
     record["candidate_sha256"] = _candidate_sha256(record)
     return validate_selection_candidate(record)
 
@@ -223,6 +282,101 @@ def validate_selection_exclusion(value: Mapping[str, Any]) -> dict[str, Any]:
     return record
 
 
+def validate_selection_review_override(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate one hash-bound reviewed exception for a proof candidate."""
+
+    record = _validate_schema("selection-review-override", value)
+    _validate_window(record["decided_at"], record["expires_at"])
+    expected = _bound_id(
+        "selection_review_override",
+        record,
+        "selection_review_override_id",
+    )
+    if record["selection_review_override_id"] != expected:
+        raise SelectionPolicyError(
+            "selection review override binding is invalid"
+        )
+    return record
+
+
+def build_proof_selection_override(
+    candidate: Mapping[str, Any],
+    *,
+    authority_class: str,
+    decided_at: str,
+    expires_at: str,
+    rationale: str,
+    review_trigger: str,
+    evidence_scope: str,
+) -> dict[str, Any]:
+    """Build the separately reviewed authority required for a proof asset."""
+
+    checked = validate_selection_candidate(candidate)
+    if not checked["pipeline_proof"]:
+        raise SelectionPolicyError(
+            "proof selection overrides apply only to proof candidates"
+        )
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_type": "selection_review_override",
+        "selection_review_override_id": "selection_review_override_pending",
+        "candidate_id": checked["candidate_id"],
+        "candidate_sha256": checked["candidate_sha256"],
+        "source_id": checked["source_id"],
+        "asset_id": checked["asset_id"],
+        "override_kind": "pipeline_proof_selection",
+        "state": "approved",
+        "authority_class": authority_class,
+        "decided_at": decided_at,
+        "expires_at": expires_at,
+        "rationale": rationale,
+        "review_trigger": review_trigger,
+        "evidence_scope": evidence_scope,
+    }
+    record["selection_review_override_id"] = _bound_id(
+        "selection_review_override",
+        record,
+        "selection_review_override_id",
+    )
+    return validate_selection_review_override(record)
+
+
+def _validated_review_overrides(
+    candidates: Sequence[Mapping[str, Any]],
+    overrides: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    candidate_index = {
+        str(candidate["candidate_id"]): candidate for candidate in candidates
+    }
+    checked = [validate_selection_review_override(item) for item in overrides]
+    override_ids = [str(item["selection_review_override_id"]) for item in checked]
+    candidate_ids = [str(item["candidate_id"]) for item in checked]
+    if (
+        len(override_ids) != len(set(override_ids))
+        or len(candidate_ids) != len(set(candidate_ids))
+    ):
+        raise SelectionPolicyError(
+            "selection review overrides must have unique identities"
+        )
+    by_candidate: dict[str, dict[str, Any]] = {}
+    for override in checked:
+        candidate = candidate_index.get(str(override["candidate_id"]))
+        if (
+            candidate is None
+            or not candidate["pipeline_proof"]
+            or override["candidate_sha256"] != candidate["candidate_sha256"]
+            or override["source_id"] != candidate["source_id"]
+            or override["asset_id"] != candidate["asset_id"]
+        ):
+            raise SelectionPolicyError(
+                "selection review override is not bound to its proof candidate"
+            )
+        by_candidate[str(override["candidate_id"])] = override
+    return by_candidate
+
+
 def _matches(candidate: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
     field = _DIMENSION_FIELDS[target["dimension"]]
     observed = candidate["dimensions"][field]
@@ -232,7 +386,10 @@ def _matches(candidate: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
 
 
 def _reason_for(
-    candidate: Mapping[str, Any], *, evaluated_at: str
+    candidate: Mapping[str, Any],
+    *,
+    evaluated_at: str,
+    review_overrides: Mapping[str, Mapping[str, Any]],
 ) -> str | None:
     if candidate["inventory_state"] != "observed":
         return f"inventory_{candidate['inventory_state']}"
@@ -259,7 +416,16 @@ def _reason_for(
         if _parse_time(str(candidate[field]), field) <= evaluated:
             return reason
     if candidate["pipeline_proof"]:
-        return "proof_requires_review"
+        override = review_overrides.get(str(candidate["candidate_id"]))
+        if (
+            override is None
+            or override["state"] != "approved"
+            or _parse_time(str(override["decided_at"]), "decided_at")
+            > evaluated
+            or _parse_time(str(override["expires_at"]), "expires_at")
+            <= evaluated
+        ):
+            return "proof_requires_review"
     if _unknown_dimensions(candidate):
         return "metadata_unresolved"
     return None
@@ -324,6 +490,7 @@ def _build_decision(
     decided_at: str,
     expires_at: str,
     review_trigger: str,
+    selection_review_override_id: str | None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "schema_version": 1,
@@ -340,6 +507,7 @@ def _build_decision(
         "decided_at": decided_at,
         "expires_at": expires_at,
         "review_trigger": review_trigger,
+        "selection_review_override_id": selection_review_override_id,
         "selection_policy_version": policy_version,
         "rights_snapshot_sha256": candidate["rights_snapshot_sha256"],
         "evidence_scope": candidate["evidence_scope"],
@@ -389,11 +557,16 @@ def _selection_outcome(
     targets: Sequence[Mapping[str, Any]],
     *,
     decided_at: str,
+    review_overrides: Mapping[str, Mapping[str, Any]],
 ) -> tuple[dict[str, str], set[str]]:
     reasons: dict[str, str] = {}
     eligible: list[Mapping[str, Any]] = []
     for item in candidates:
-        reason = _reason_for(item, evaluated_at=decided_at)
+        reason = _reason_for(
+            item,
+            evaluated_at=decided_at,
+            review_overrides=review_overrides,
+        )
         if reason is None:
             eligible.append(item)
         else:
@@ -425,10 +598,7 @@ def _selection_outcome(
             ranked.append(
                 (
                     (
-                        -sum(
-                            max(1, 100 - int(target["priority"]))
-                            for target in contributions
-                        ),
+                        min(int(target["priority"]) for target in contributions),
                         -len(contributions),
                         -_QUALITY_RANK[str(item["technical_quality"])],
                         str(item["candidate_id"]),
@@ -456,12 +626,36 @@ def _selection_outcome(
     return reasons, selected
 
 
-def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate one complete, reproducible selection snapshot."""
+def _validate_selection_identities(
+    candidates: Sequence[Mapping[str, Any]],
+    targets: Sequence[Mapping[str, Any]],
+) -> None:
+    candidate_ids = [str(item["candidate_id"]) for item in candidates]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise SelectionPolicyError("candidate IDs must be unique")
+    asset_keys = [
+        (str(item["source_id"]), str(item["asset_id"])) for item in candidates
+    ]
+    if len(asset_keys) != len(set(asset_keys)):
+        raise SelectionPolicyError(
+            "source and asset candidate keys must be unique"
+        )
+    target_ids = [str(item["coverage_target_id"]) for item in targets]
+    if len(target_ids) != len(set(target_ids)):
+        raise SelectionPolicyError("coverage target IDs must be unique")
+
+
+def validate_selection_manifest(
+    value: Mapping[str, Any],
+    *,
+    authority_resolver: SelectionCandidateResolver,
+) -> dict[str, Any]:
+    """Validate one snapshot against current reviewed-record authority."""
 
     record = _validate_schema("selection-manifest", value)
     _require_policy_version(record["selection_policy_version"])
     _validate_window(record["decided_at"], record["expires_at"])
+    _validate_window(record["decided_at"], record["policy_expires_at"])
     decisions = [
         validate_selection_decision(item) for item in record["decisions"]
     ]
@@ -471,9 +665,33 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     candidates = [
         validate_selection_candidate(item) for item in record["candidates"]
     ]
+    rebuilt_candidates = [
+        bind_selection_candidate(
+            candidate_id=str(item["candidate_id"]),
+            source_id=str(item["source_id"]),
+            asset_id=str(item["asset_id"]),
+            authority_resolver=authority_resolver,
+        )
+        for item in candidates
+    ]
+    if candidates != rebuilt_candidates:
+        raise SelectionPolicyError(
+            "manifest candidates do not match current authority resolution"
+        )
     targets = [
         validate_coverage_target(item) for item in record["coverage_targets"]
     ]
+    _validate_selection_identities(candidates, targets)
+    review_overrides = _validated_review_overrides(
+        candidates, record["review_overrides"]
+    )
+    if record["review_overrides"] != sorted(
+        record["review_overrides"],
+        key=lambda item: str(item["selection_review_override_id"]),
+    ):
+        raise SelectionPolicyError(
+            "manifest review overrides are not canonical"
+        )
     if targets != sorted(
         targets, key=lambda item: (item["priority"], item["coverage_target_id"])
     ):
@@ -492,6 +710,7 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         candidates,
         targets,
         decided_at=record["decided_at"],
+        review_overrides=review_overrides,
     )
     for decision in decisions:
         candidate = candidate_index[decision["candidate_id"]]
@@ -506,6 +725,28 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
             else "unresolved"
             if expected_reason == "metadata_unresolved"
             else "exclude"
+        )
+        expected_decision_expiry = (
+            min(
+                _parse_time(
+                    record["policy_expires_at"], "policy_expires_at"
+                ),
+                _candidate_authority_expiry(candidate),
+                _parse_time(
+                    str(
+                        review_overrides[decision["candidate_id"]][
+                            "expires_at"
+                        ]
+                    ),
+                    "expires_at",
+                )
+                if candidate["pipeline_proof"]
+                else _candidate_authority_expiry(candidate),
+            )
+            if expected_decision == "include"
+            else _parse_time(
+                record["policy_expires_at"], "policy_expires_at"
+            )
         )
         if (
             decision["source_id"] != candidate["source_id"]
@@ -522,10 +763,16 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
             or decision["reason_code"] != expected_reason
             or decision["rationale"] != _RATIONALES[expected_reason]
             or decision["review_trigger"] != record["review_trigger"]
-            or (
-                decision["decision"] == "include"
-                and _parse_time(decision["expires_at"], "expires_at")
-                > _candidate_authority_expiry(candidate)
+            or _parse_time(decision["expires_at"], "expires_at")
+            != expected_decision_expiry
+            or decision["selection_review_override_id"]
+            != (
+                review_overrides[decision["candidate_id"]][
+                    "selection_review_override_id"
+                ]
+                if decision["candidate_id"] in expected_selected
+                and candidate["pipeline_proof"]
+                else None
             )
         ):
             raise SelectionPolicyError(
@@ -567,10 +814,21 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
     }:
         raise SelectionPolicyError("manifest universe accounting is inconsistent")
     expected_manifest_expiry = min(
-        _parse_time(item["expires_at"], "expires_at")
-        for item in decisions
+        [
+            _parse_time(
+                record["policy_expires_at"], "policy_expires_at"
+            ),
+            *(
+                _parse_time(item["expires_at"], "expires_at")
+                for item in decisions
+                if item["decision"] == "include"
+            ),
+        ]
     )
-    if _parse_time(record["expires_at"], "expires_at") != expected_manifest_expiry:
+    if (
+        _parse_time(record["expires_at"], "expires_at")
+        != expected_manifest_expiry
+    ):
         raise SelectionPolicyError(
             "manifest expiry is not bound to its decisions"
         )
@@ -590,7 +848,12 @@ def validate_selection_manifest(value: Mapping[str, Any]) -> dict[str, Any]:
         observed = sum(_matches(item, target) for item in candidates)
         eligible = sum(
             _matches(item, target)
-            and _reason_for(item, evaluated_at=record["decided_at"]) is None
+            and _reason_for(
+                item,
+                evaluated_at=record["decided_at"],
+                review_overrides=review_overrides,
+            )
+            is None
             for item in candidates
         )
         selected = sum(
@@ -640,30 +903,36 @@ def evaluate_selection(
     decided_at: str,
     expires_at: str,
     review_trigger: str,
+    authority_resolver: SelectionCandidateResolver,
+    review_overrides: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Select a deterministic, authority-eligible set for declared strata."""
 
     _require_policy_version(policy_version)
     _validate_window(decided_at, expires_at)
     checked_candidates = sorted(
-        (validate_selection_candidate(item) for item in candidates),
+        (
+            bind_selection_candidate(
+                candidate_id=str(item.get("candidate_id", "")),
+                source_id=str(item.get("source_id", "")),
+                asset_id=str(item.get("asset_id", "")),
+                authority_resolver=authority_resolver,
+            )
+            for item in candidates
+            if isinstance(item, Mapping)
+        ),
         key=lambda item: item["candidate_id"],
     )
+    if len(checked_candidates) != len(candidates):
+        raise SelectionPolicyError("selection candidate references are invalid")
     checked_targets = sorted(
         (validate_coverage_target(item) for item in coverage_targets),
         key=lambda item: (item["priority"], item["coverage_target_id"]),
     )
-    candidate_ids = [item["candidate_id"] for item in checked_candidates]
-    if len(candidate_ids) != len(set(candidate_ids)):
-        raise SelectionPolicyError("candidate IDs must be unique")
-    asset_keys = [
-        (item["source_id"], item["asset_id"]) for item in checked_candidates
-    ]
-    if len(asset_keys) != len(set(asset_keys)):
-        raise SelectionPolicyError("source and asset candidate keys must be unique")
-    target_ids = [item["coverage_target_id"] for item in checked_targets]
-    if len(target_ids) != len(set(target_ids)):
-        raise SelectionPolicyError("coverage target IDs must be unique")
+    _validate_selection_identities(checked_candidates, checked_targets)
+    checked_overrides = _validated_review_overrides(
+        checked_candidates, review_overrides
+    )
     if any(
         item["inventory_snapshot_sha256"] != inventory_snapshot_sha256
         for item in checked_candidates
@@ -676,6 +945,7 @@ def evaluate_selection(
         checked_candidates,
         checked_targets,
         decided_at=decided_at,
+        review_overrides=checked_overrides,
     )
 
     global_expiry = _parse_time(expires_at, "expires_at")
@@ -688,8 +958,15 @@ def evaluate_selection(
             else reasons[item["candidate_id"]]
         )
         unresolved = reason == "metadata_unresolved"
+        proof_override = checked_overrides.get(str(item["candidate_id"]))
         decision_expiry = (
-            min(global_expiry, _candidate_authority_expiry(item))
+            min(
+                global_expiry,
+                _candidate_authority_expiry(item),
+                _parse_time(str(proof_override["expires_at"]), "expires_at")
+                if included and item["pipeline_proof"]
+                else global_expiry,
+            )
             if included
             else global_expiry
         )
@@ -709,6 +986,11 @@ def evaluate_selection(
                 decided_at=decided_at,
                 expires_at=_utc_text(decision_expiry),
                 review_trigger=review_trigger,
+                selection_review_override_id=(
+                    str(proof_override["selection_review_override_id"])
+                    if included and item["pipeline_proof"]
+                    else None
+                ),
             )
         )
     exclusions = [
@@ -727,7 +1009,12 @@ def evaluate_selection(
         eligible_count = sum(
             _matches(item, target)
             for item in checked_candidates
-            if _reason_for(item, evaluated_at=decided_at) is None
+            if _reason_for(
+                item,
+                evaluated_at=decided_at,
+                review_overrides=checked_overrides,
+            )
+            is None
         )
         selected_count = sum(
             _matches(by_id[candidate_id], target)
@@ -763,7 +1050,12 @@ def evaluate_selection(
         "decision_authority": decision_authority,
         "decided_at": decided_at,
         "expires_at": _utc_text(manifest_expiry),
+        "policy_expires_at": _utc_text(global_expiry),
         "candidates": checked_candidates,
+        "review_overrides": sorted(
+            checked_overrides.values(),
+            key=lambda item: str(item["selection_review_override_id"]),
+        ),
         "review_trigger": review_trigger,
         "coverage_targets": checked_targets,
         "decisions": decisions,
@@ -786,4 +1078,7 @@ def evaluate_selection(
     manifest["selection_manifest_id"] = _bound_id(
         "selection_manifest", manifest, "selection_manifest_id"
     )
-    return validate_selection_manifest(manifest)
+    return validate_selection_manifest(
+        manifest,
+        authority_resolver=authority_resolver,
+    )

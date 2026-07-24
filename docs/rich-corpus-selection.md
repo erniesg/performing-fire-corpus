@@ -28,8 +28,9 @@ declared coverage contribution. Popularity and ease of download are not
 accepted selection inputs, so they cannot override authority or coverage.
 
 An object used for pipeline proof is excluded from automatic selection. It may
-enter only through the same separately reviewed selection decision required
-for an ordinary candidate.
+enter only when a separate `selection-review-override` is approved, current,
+and content-bound to the exact candidate digest. Changing any candidate or
+authority fact invalidates that override.
 
 ## Versioned records
 
@@ -40,6 +41,8 @@ The v1 contracts are:
   the exact inventory observation and snapshot plus source-governance, rights,
   retention, privacy, and transformation snapshot hashes and expiries. It is a
   compiled input from those authorities, not a way to manufacture approval;
+- `selection-review-override`: a separately reviewed, expiring, hash-bound
+  exception that can make one exact pipeline-proof candidate eligible;
 - `coverage-target`: a versioned, explained minimum for one declared stratum;
 - `selection-decision`: a hash-bound include, exclude, or unresolved decision
   with the full candidate digest, authority, rationale, rights snapshot,
@@ -57,8 +60,10 @@ target underrepresented.
 ## Deterministic selection
 
 Targets are evaluated in stable priority and identifier order. Candidates that
-pass authority gates are ranked first by contribution to unmet declared
-targets, then by technical quality, then by stable candidate ID. A duplicate
+pass authority gates are ranked first by their best unmet target priority,
+then by the number of unmet targets they cover, technical quality, and stable
+candidate ID. A candidate that covers multiple lower-priority targets can
+never outweigh a candidate covering a higher-priority target. A duplicate
 cluster keeps every source record but selects at most one representative.
 Remaining eligible records are explicitly excluded as `coverage_not_needed`;
 they are not silently discarded.
@@ -71,10 +76,15 @@ controls, or weaken rights and consent.
 Changing the inventory snapshot, policy version, candidate facts, targets, or
 decision facts changes the bound identifiers. Identical inputs produce
 identical bytes and decisions, including deterministic tie handling.
-Manifest validation recomputes coverage and universe accounting from the
-embedded content-bound candidates, targets, and decisions. It also requires
-each exclusion to match its exact decision, so recomputing only the outer hash
-cannot falsify those facts.
+Candidate construction accepts no caller-supplied authority states. A trusted
+resolver must compile the complete inventory, registry/governance, rights,
+retention, privacy/consent, and transformation snapshot fields before the
+candidate digest is created. Manifest validation recomputes selection,
+coverage, identity uniqueness, review-override bindings, and universe
+accounting from the embedded content-bound records. It also requires each
+exclusion to match its exact decision, so recomputing only the outer hash
+cannot falsify those facts. An empty observed universe remains a valid,
+explicit zero-count manifest rather than an exception.
 
 ## Review boundary
 

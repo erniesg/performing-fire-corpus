@@ -19,6 +19,7 @@
     "decided_at",
     "expires_at",
     "review_trigger",
+    "selection_review_override_id",
     "selection_policy_version",
     "rights_snapshot_sha256",
     "evidence_scope"
@@ -62,6 +63,15 @@
     "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "review_trigger": {"$ref": "#/$defs/safeText"},
+    "selection_review_override_id": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "string",
+          "pattern": "^selection_review_override_[0-9a-f]{24}$"
+        }
+      ]
+    },
     "selection_policy_version": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
     "rights_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "evidence_scope": {"$ref": "#/$defs/safeText"}

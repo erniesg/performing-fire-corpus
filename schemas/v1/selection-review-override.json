@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/selection-review-override.json",
+  "title": "Rich-corpus proof selection review override v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "selection_review_override_id",
+    "candidate_id",
+    "candidate_sha256",
+    "source_id",
+    "asset_id",
+    "override_kind",
+    "state",
+    "authority_class",
+    "decided_at",
+    "expires_at",
+    "rationale",
+    "review_trigger",
+    "evidence_scope"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "selection_review_override"},
+    "selection_review_override_id": {
+      "type": "string",
+      "pattern": "^selection_review_override_[0-9a-f]{24}$"
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "candidate_sha256": {"$ref": "#/$defs/hash"},
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "override_kind": {"const": "pipeline_proof_selection"},
+    "state": {"enum": ["approved", "revoked"]},
+    "authority_class": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "rationale": {"$ref": "#/$defs/safeText"},
+    "review_trigger": {"$ref": "#/$defs/safeText"},
+    "evidence_scope": {"$ref": "#/$defs/safeText"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*(?:/home/|/Users/|/tmp/|file://|[A-Za-z]:[\\\\/]))[^\\r\\n]+$"
+    }
+  }
+}

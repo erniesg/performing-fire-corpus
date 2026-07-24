@@ -13,7 +13,9 @@
     "decision_authority",
     "decided_at",
     "expires_at",
+    "policy_expires_at",
     "candidates",
+    "review_overrides",
     "review_trigger",
     "coverage_targets",
     "decisions",
@@ -31,10 +33,14 @@
     "decision_authority": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
     "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "policy_expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "candidates": {
       "type": "array",
-      "minItems": 1,
       "items": {"$ref": "#/$defs/selectionCandidate"}
+    },
+    "review_overrides": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/selectionReviewOverride"}
     },
     "review_trigger": {"$ref": "#/$defs/safeText"},
     "coverage_targets": {
@@ -43,7 +49,6 @@
     },
     "decisions": {
       "type": "array",
-      "minItems": 1,
       "items": {"$ref": "#/$defs/selectionDecision"}
     },
     "exclusions": {
@@ -222,7 +227,8 @@
         "candidate_id", "candidate_sha256", "source_id", "asset_id",
         "decision", "reason_code",
         "rationale", "authority_class", "decided_at", "expires_at",
-        "review_trigger", "selection_policy_version",
+        "review_trigger", "selection_review_override_id",
+        "selection_policy_version",
         "rights_snapshot_sha256", "evidence_scope"
       ],
       "properties": {
@@ -240,6 +246,15 @@
         "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
         "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
         "review_trigger": {"$ref": "#/$defs/safeText"},
+        "selection_review_override_id": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "string",
+              "pattern": "^selection_review_override_[0-9a-f]{24}$"
+            }
+          ]
+        },
         "selection_policy_version": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
         "rights_snapshot_sha256": {"$ref": "#/$defs/hash"},
         "evidence_scope": {"$ref": "#/$defs/safeText"}
@@ -264,6 +279,36 @@
           }
         }
       ]
+    },
+    "selectionReviewOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "record_type", "selection_review_override_id",
+        "candidate_id", "candidate_sha256", "source_id", "asset_id",
+        "override_kind", "state", "authority_class", "decided_at",
+        "expires_at", "rationale", "review_trigger", "evidence_scope"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "selection_review_override"},
+        "selection_review_override_id": {
+          "type": "string",
+          "pattern": "^selection_review_override_[0-9a-f]{24}$"
+        },
+        "candidate_id": {"type": "string", "pattern": "^candidate_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "candidate_sha256": {"$ref": "#/$defs/hash"},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "override_kind": {"const": "pipeline_proof_selection"},
+        "state": {"enum": ["approved", "revoked"]},
+        "authority_class": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+        "decided_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+        "rationale": {"$ref": "#/$defs/safeText"},
+        "review_trigger": {"$ref": "#/$defs/safeText"},
+        "evidence_scope": {"$ref": "#/$defs/safeText"}
+      }
     },
     "selectionExclusion": {
       "type": "object",

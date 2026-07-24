@@ -16,12 +16,14 @@ sys.path.insert(0, str(ROOT / "src"))
 from performing_fire_corpus.selection import (
     SelectionPolicyError,
     bind_selection_candidate,
+    build_proof_selection_override,
     evaluate_selection,
     validate_coverage_target,
     validate_selection_candidate,
     validate_selection_decision,
     validate_selection_exclusion,
     validate_selection_manifest,
+    validate_selection_review_override,
 )
 
 SCHEMA_DIR = ROOT / "schemas" / "v1"
@@ -34,6 +36,41 @@ TRANSFORMATION_SHA = "f" * 64
 OBSERVATION_SHA = "1" * 64
 NOW = "2026-07-24T00:00:00Z"
 EXPIRES = "2026-08-24T00:00:00Z"
+
+
+class SyntheticCandidateResolver:
+    def __init__(self, resolved: dict[str, object]) -> None:
+        self.resolved = copy.deepcopy(resolved)
+
+    def resolve_selection_candidate(
+        self, *, source_id: str, asset_id: str
+    ) -> dict[str, object]:
+        return copy.deepcopy(self.resolved)
+
+
+class SyntheticCandidateRegistry:
+    def __init__(self, candidates: list[dict[str, object]]) -> None:
+        self.resolved = {}
+        for value in candidates:
+            resolved = {
+                key: copy.deepcopy(child)
+                for key, child in value.items()
+                if key
+                not in {
+                    "schema_version",
+                    "record_type",
+                    "candidate_id",
+                    "candidate_sha256",
+                    "source_id",
+                    "asset_id",
+                }
+            }
+            self.resolved[(value["source_id"], value["asset_id"])] = resolved
+
+    def resolve_selection_candidate(
+        self, *, source_id: str, asset_id: str
+    ) -> dict[str, object]:
+        return copy.deepcopy(self.resolved[(source_id, asset_id)])
 
 
 def candidate(
@@ -57,12 +94,7 @@ def candidate(
     pipeline_proof: bool = False,
     authority_expires_at: str = EXPIRES,
 ) -> dict[str, object]:
-    return bind_selection_candidate({
-        "schema_version": 1,
-        "record_type": "selection_candidate",
-        "candidate_id": f"candidate_{suffix}",
-        "source_id": source_id,
-        "asset_id": f"asset_{suffix}",
+    resolved = {
         "inventory_observation_id": f"observation_{suffix}",
         "inventory_observation_sha256": OBSERVATION_SHA,
         "inventory_snapshot_sha256": INVENTORY_SHA,
@@ -95,13 +127,28 @@ def candidate(
         "transformation_expires_at": authority_expires_at,
         "pipeline_proof": pipeline_proof,
         "evidence_scope": "Synthetic metadata fixture only.",
-    })
+    }
+    return bind_selection_candidate(
+        candidate_id=f"candidate_{suffix}",
+        source_id=source_id,
+        asset_id=f"asset_{suffix}",
+        authority_resolver=SyntheticCandidateResolver(resolved),
+    )
 
 
 def rebind_candidate(value: dict[str, object]) -> dict[str, object]:
     facts = copy.deepcopy(value)
     facts.pop("candidate_sha256", None)
-    return bind_selection_candidate(facts)
+    identity = {
+        field: str(facts.pop(field))
+        for field in ("candidate_id", "source_id", "asset_id")
+    }
+    facts.pop("schema_version")
+    facts.pop("record_type")
+    return bind_selection_candidate(
+        **identity,
+        authority_resolver=SyntheticCandidateResolver(facts),
+    )
 
 
 def rebind_record(
@@ -159,6 +206,19 @@ def evaluate(
         decided_at=NOW,
         expires_at=EXPIRES,
         review_trigger="Re-evaluate when inventory, rights, or policy changes.",
+        authority_resolver=SyntheticCandidateRegistry(candidates),
+    )
+
+
+def proof_override(value: dict[str, object]) -> dict[str, object]:
+    return build_proof_selection_override(
+        value,
+        authority_class="reviewed_project_policy",
+        decided_at=NOW,
+        expires_at="2026-07-30T00:00:00.125000Z",
+        rationale="Separately reviewed under the ordinary selection policy.",
+        review_trigger="Re-review when the candidate or authority changes.",
+        evidence_scope="Synthetic review fixture only.",
     )
 
 
@@ -192,7 +252,13 @@ class SelectionPolicyTests(unittest.TestCase):
             manifest["decisions"][0],
             validate_selection_decision(manifest["decisions"][0]),
         )
-        self.assertEqual(manifest, validate_selection_manifest(manifest))
+        self.assertEqual(
+            manifest,
+            validate_selection_manifest(
+                manifest,
+                authority_resolver=SyntheticCandidateRegistry(candidates),
+            ),
+        )
 
     def test_every_known_candidate_is_counted_even_when_not_selectable(self) -> None:
         candidates = [
@@ -279,6 +345,55 @@ class SelectionPolicyTests(unittest.TestCase):
             decisions["candidate_proof"]["reason_code"],
         )
         self.assertEqual("include", decisions["candidate_ordinary"]["decision"])
+
+    def test_hash_bound_review_can_select_a_proof_asset(self) -> None:
+        proof = candidate(
+            "proof_reviewed", technical_quality="high", pipeline_proof=True
+        )
+        override = proof_override(proof)
+        manifest = evaluate_selection(
+            [proof],
+            [target("video", dimension="medium", value="video")],
+            inventory_snapshot_sha256=INVENTORY_SHA,
+            policy_version="selection_policy_v1",
+            decision_authority="reviewed_project_policy",
+            decided_at=NOW,
+            expires_at=EXPIRES,
+            review_trigger=(
+                "Re-evaluate when inventory, rights, or policy changes."
+            ),
+            authority_resolver=SyntheticCandidateRegistry([proof]),
+            review_overrides=[override],
+        )
+        decision = manifest["decisions"][0]
+        self.assertEqual("include", decision["decision"])
+        self.assertEqual(
+            override["selection_review_override_id"],
+            decision["selection_review_override_id"],
+        )
+        self.assertEqual(override["expires_at"], decision["expires_at"])
+        self.assertEqual(
+            override, validate_selection_review_override(override)
+        )
+
+        changed = copy.deepcopy(proof)
+        changed["technical_quality"] = "low"
+        changed = rebind_candidate(changed)
+        with self.assertRaises(SelectionPolicyError):
+            evaluate_selection(
+                [changed],
+                [target("video", dimension="medium", value="video")],
+                inventory_snapshot_sha256=INVENTORY_SHA,
+                policy_version="selection_policy_v1",
+                decision_authority="reviewed_project_policy",
+                decided_at=NOW,
+                expires_at=EXPIRES,
+                review_trigger=(
+                    "Re-evaluate when inventory, rights, or policy changes."
+                ),
+                authority_resolver=SyntheticCandidateRegistry([changed]),
+                review_overrides=[override],
+            )
 
     def test_duplicate_clusters_preserve_records_and_select_one_representative(self) -> None:
         candidates = [
@@ -447,7 +562,12 @@ class SelectionPolicyTests(unittest.TestCase):
             id_field="selection_manifest_id",
         )
         with self.assertRaises(SelectionPolicyError):
-            validate_selection_manifest(forged)
+            validate_selection_manifest(
+                forged,
+                authority_resolver=SyntheticCandidateRegistry(
+                    manifest["candidates"]
+                ),
+            )
 
     def test_target_priority_selects_duplicate_representative(self) -> None:
         priority = candidate(
@@ -476,13 +596,13 @@ class SelectionPolicyTests(unittest.TestCase):
                     "secondary_topic",
                     dimension="topic",
                     value="secondary_topic",
-                    priority=99,
+                    priority=2,
                 ),
                 target(
                     "secondary_context",
                     dimension="performance_context",
                     value="secondary_context",
-                    priority=99,
+                    priority=2,
                 ),
             ],
         )
@@ -515,6 +635,112 @@ class SelectionPolicyTests(unittest.TestCase):
         excessive["coverage_targets"][0]["priority"] = 100
         with self.assertRaises(ValidationError):
             validator.validate(excessive)
+
+    def test_candidate_binding_requires_the_authority_resolver_boundary(self) -> None:
+        resolved = copy.deepcopy(
+            SyntheticCandidateResolver(
+                {
+                    key: value
+                    for key, value in candidate("resolver").items()
+                    if key
+                    not in {
+                        "schema_version",
+                        "record_type",
+                        "candidate_id",
+                        "candidate_sha256",
+                        "source_id",
+                        "asset_id",
+                    }
+                }
+            ).resolved
+        )
+        resolved["candidate_sha256"] = "0" * 64
+        with self.assertRaises(SelectionPolicyError):
+            bind_selection_candidate(
+                candidate_id="candidate_resolver",
+                source_id="njp-video-library",
+                asset_id="asset_resolver",
+                authority_resolver=SyntheticCandidateResolver(resolved),
+            )
+
+        self_attested = candidate("self_attested")
+        current = copy.deepcopy(self_attested)
+        current["rights_state"] = "blocked"
+        current = rebind_candidate(current)
+        manifest = evaluate_selection(
+            [self_attested],
+            [target("video", dimension="medium", value="video")],
+            inventory_snapshot_sha256=INVENTORY_SHA,
+            policy_version="selection_policy_v1",
+            decision_authority="reviewed_project_policy",
+            decided_at=NOW,
+            expires_at=EXPIRES,
+            review_trigger=(
+                "Re-evaluate when inventory, rights, or policy changes."
+            ),
+            authority_resolver=SyntheticCandidateRegistry([current]),
+        )
+        self.assertEqual(
+            "rights_not_approved",
+            manifest["decisions"][0]["reason_code"],
+        )
+
+    def test_manifest_rejects_duplicate_asset_and_target_identities(self) -> None:
+        first = candidate("first")
+        duplicate_asset = candidate("second")
+        duplicate_asset["source_id"] = first["source_id"]
+        duplicate_asset["asset_id"] = first["asset_id"]
+        duplicate_asset["dimensions"]["source"] = first["source_id"]
+        duplicate_asset = rebind_candidate(duplicate_asset)
+        with self.assertRaises(SelectionPolicyError):
+            evaluate(
+                [first, duplicate_asset],
+                [target("video", dimension="medium", value="video")],
+            )
+
+        duplicate_targets = [
+            target("same", dimension="medium", value="video"),
+            target("same", dimension="topic", value="performance"),
+        ]
+        with self.assertRaises(SelectionPolicyError):
+            evaluate([first], duplicate_targets)
+
+    def test_empty_universe_is_a_valid_complete_snapshot(self) -> None:
+        manifest = evaluate([], [])
+        self.assertEqual([], manifest["candidates"])
+        self.assertEqual([], manifest["decisions"])
+        self.assertEqual(
+            {
+                "known_candidates": 0,
+                "included": 0,
+                "excluded": 0,
+                "unresolved": 0,
+            },
+            manifest["universe_counts"],
+        )
+        self.assertEqual(EXPIRES, manifest["expires_at"])
+
+    def test_fractional_authority_expiry_is_not_extended(self) -> None:
+        fractional_expiry = "2026-07-30T00:00:00.125000Z"
+        manifest = evaluate_selection(
+            [candidate("fraction", authority_expires_at=fractional_expiry)],
+            [target("video", dimension="medium", value="video")],
+            inventory_snapshot_sha256=INVENTORY_SHA,
+            policy_version="selection_policy_v1",
+            decision_authority="reviewed_project_policy",
+            decided_at="2026-07-24T00:00:00.062500Z",
+            expires_at="2026-08-24T00:00:00.500000Z",
+            review_trigger=(
+                "Re-evaluate when inventory, rights, or policy changes."
+            ),
+            authority_resolver=SyntheticCandidateRegistry(
+                [candidate("fraction", authority_expires_at=fractional_expiry)]
+            ),
+        )
+        self.assertEqual(fractional_expiry, manifest["expires_at"])
+        self.assertEqual(
+            fractional_expiry, manifest["decisions"][0]["expires_at"]
+        )
 
 
 if __name__ == "__main__":
