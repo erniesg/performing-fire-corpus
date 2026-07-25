@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import multiprocessing
+import os
 import resource
 import signal
 import subprocess
@@ -26,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from performing_fire_corpus.corpus_objects import (  # noqa: E402
     bind_object_receipt,
     derived_object_key,
+    manifest_object_key,
     raw_object_key,
 )
 from performing_fire_corpus.trusted_laptop_worker import (  # noqa: E402
@@ -516,7 +518,7 @@ class FakeControlPlane:
         self.heartbeat_calls = 0
         self.fail_heartbeat_number: int | None = None
         self.fail_checkpoint_stage_after_store: str | None = None
-        self.heartbeat_extension_minutes = 5
+        self.heartbeat_extension_seconds = 5 * 60
         self.lease_duration_seconds = 5 * 60
         self.heartbeat_counter = multiprocessing.get_context(
             "forkserver"
@@ -609,7 +611,7 @@ class FakeControlPlane:
             "job_id": "job_synthetic_laptop_001",
             "heartbeat_at": utc(now),
             "expires_at": utc(
-                now + timedelta(minutes=self.heartbeat_extension_minutes)
+                now + timedelta(seconds=self.heartbeat_extension_seconds)
             ),
         }
         self.events.append({"event": "heartbeat", "lease_id": lease_id})
@@ -778,6 +780,12 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(len(harness.storage.created), 2)
             self.assertIn(str(result["output_object_key"]), harness.storage.created)
             self.assertIn(str(result["manifest_object_key"]), harness.storage.created)
+            self.assertTrue(
+                any(
+                    record.get("record_type") == "derivation_manifest"
+                    for record in harness.receipts.upserts
+                )
+            )
             self.assertEqual(
                 [event["event"] for event in harness.control.events[:2]],
                 ["pair", "claim"],
@@ -1081,7 +1089,8 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
     def test_transform_watchdog_renews_the_lease_while_child_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
-            harness.control.lease_duration_seconds = 1
+            harness.control.lease_duration_seconds = 5 * 60
+            harness.control.heartbeat_extension_seconds = 1
             harness.control.job_value = job(maximum_elapsed_seconds=3)
             harness.transformer.advance_seconds = 0
             harness.transformer.sleep_seconds = 1.2
@@ -1121,9 +1130,39 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 root.glob(".performing-fire-laptop-cache-*")
             )
             self.assertTrue(replacement_cache.is_dir())
+            renamed_owned_cache = root / "renamed-owned-cache"
+            self.assertTrue(renamed_owned_cache.is_dir())
+            self.assertEqual(list(renamed_owned_cache.iterdir()), [])
             self.assertEqual(
                 replacement_file.read_text(encoding="utf-8"), "preserve"
             )
+
+    def test_cache_root_is_expanded_once_for_reaping_and_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            sandbox = Path(directory)
+            fake_home = sandbox / "home"
+            working_directory = sandbox / "working"
+            fake_home.mkdir()
+            working_directory.mkdir()
+            original_directory = Path.cwd()
+            try:
+                os.chdir(working_directory)
+                with mock.patch.dict(
+                    os.environ, {"HOME": str(fake_home)}
+                ):
+                    harness = Harness(Path("~/trusted-cache"))
+                    self.assertEqual(
+                        harness.worker.cache_root,
+                        fake_home / "trusted-cache",
+                    )
+                    self.assertIsNotNone(
+                        harness.worker.run_once(capability())
+                    )
+            finally:
+                os.chdir(original_directory)
+
+            self.assertTrue((fake_home / "trusted-cache").is_dir())
+            self.assertFalse((working_directory / "~").exists())
 
     def test_receipt_commit_must_return_the_exact_requested_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1146,7 +1185,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             harness = Harness(root)
-            harness.control.heartbeat_extension_minutes = 10
+            harness.control.heartbeat_extension_seconds = 10 * 60
             harness.transformer.reap_root = root
             harness.transformer.reap_at = NOW + timedelta(minutes=6)
             self.assertIsNotNone(harness.worker.run_once(capability()))
@@ -1328,6 +1367,64 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "resume_receipt_mismatch",
             )
 
+    def test_resumed_manifest_must_bind_this_exact_transformation(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            result = harness.worker.run_once(capability())
+            self.assertIsNotNone(result)
+            assert result is not None
+            original_receipt = harness.receipts.get_corpus_receipt(
+                str(result["manifest_receipt_id"])
+            )
+            assert original_receipt is not None
+            foreign_body = b'{"synthetic":"foreign-manifest"}'
+            foreign_sha256 = hashlib.sha256(foreign_body).hexdigest()
+            foreign_key = manifest_object_key(
+                "performing-fire/",
+                SOURCE_ID,
+                ASSET_ID,
+                "manifest_" + "f" * 64,
+                foreign_sha256,
+            )
+            foreign_receipt_value = {
+                key: value
+                for key, value in original_receipt.items()
+                if key != "receipt_id"
+            }
+            foreign_receipt_value.update(
+                {
+                    "object_key": foreign_key,
+                    "byte_size": len(foreign_body),
+                    "sha256": foreign_sha256,
+                }
+            )
+            foreign_receipt = bind_object_receipt(foreign_receipt_value)
+            harness.storage.objects[foreign_key] = {
+                "body": foreign_body,
+                "byte_size": len(foreign_body),
+                "media_type": "application/json",
+                "sha256": foreign_sha256,
+            }
+            harness.receipts.receipts_by_id[
+                str(foreign_receipt["receipt_id"])
+            ] = foreign_receipt
+            harness.receipts.receipts_by_key[foreign_key] = foreign_receipt
+            corrupted = copy.deepcopy(result)
+            corrupted["manifest_receipt_id"] = foreign_receipt["receipt_id"]
+            corrupted["manifest_object_key"] = foreign_key
+            corrupted["result_id"] = trusted_laptop_worker._result_id(
+                corrupted
+            )
+            harness.control.completed[str(result["job_id"])] = corrupted
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "resume_manifest_mismatch",
+            )
+
     def test_interrupted_transform_binds_resume_to_exact_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
@@ -1344,6 +1441,70 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(
                 harness.control.blockers[-1]["code"],
                 "transformation_resume_mismatch",
+            )
+
+    def test_resumed_transform_accumulates_prior_resource_consumption(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.fail_checkpoint_stage_after_store = (
+                "transform_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(attempt=2)
+
+            result = harness.worker.run_once(capability())
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertGreaterEqual(float(result["cpu_seconds"]), 4)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cpu_exhausted = Harness(Path(directory))
+            cpu_exhausted.control.job_value = job(maximum_cpu_seconds=3)
+            cpu_exhausted.control.fail_checkpoint_stage_after_store = (
+                "transform_verified"
+            )
+            self.assertIsNone(
+                cpu_exhausted.worker.run_once(capability())
+            )
+            cpu_exhausted.control.fail_checkpoint_stage_after_store = None
+            cpu_exhausted.control.job_value = job(
+                attempt=2,
+                maximum_cpu_seconds=3,
+            )
+
+            self.assertIsNone(
+                cpu_exhausted.worker.run_once(capability())
+            )
+            self.assertEqual(
+                cpu_exhausted.control.blockers[-1]["code"],
+                "cpu_limit_exceeded",
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            elapsed_exhausted = Harness(Path(directory))
+            elapsed_exhausted.control.job_value = job(
+                maximum_elapsed_seconds=1
+            )
+            elapsed_exhausted.transformer.sleep_seconds = 0.6
+            elapsed_exhausted.control.fail_checkpoint_stage_after_store = (
+                "transform_verified"
+            )
+            self.assertIsNone(
+                elapsed_exhausted.worker.run_once(capability())
+            )
+            elapsed_exhausted.control.fail_checkpoint_stage_after_store = None
+            elapsed_exhausted.control.job_value = job(
+                attempt=2,
+                maximum_elapsed_seconds=1,
+            )
+
+            self.assertIsNone(
+                elapsed_exhausted.worker.run_once(capability())
+            )
+            self.assertEqual(
+                elapsed_exhausted.control.blockers[-1]["code"],
+                "elapsed_limit_exceeded",
             )
 
     def test_resume_checkpoint_is_bound_to_the_entire_job_contract(self) -> None:

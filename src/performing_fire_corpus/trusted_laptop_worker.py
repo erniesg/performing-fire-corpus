@@ -1756,29 +1756,24 @@ class _DisposableCache:
 
     def close(self) -> None:
         try:
-            self._assert_identity()
-        except TrustedLaptopWorkerError:
-            os.close(self._directory_fd)
-            os.close(self._root_fd)
-            raise
-        try:
-            marker = _read_json_at(self._directory_fd, ".disposable-v1")
-        except (OSError, UnicodeError, ValueError, TypeError) as exc:
-            os.close(self._directory_fd)
-            os.close(self._root_fd)
-            raise TrustedLaptopWorkerError(
-                "disposable cache ownership marker changed"
-            ) from exc
-        if (
-            not isinstance(marker, Mapping)
-            or marker.get("cache_id") != self._cache_id
-        ):
-            os.close(self._directory_fd)
-            os.close(self._root_fd)
-            raise TrustedLaptopWorkerError(
-                "disposable cache ownership marker changed"
-            )
-        try:
+            try:
+                marker = _read_json_at(
+                    self._directory_fd, ".disposable-v1"
+                )
+            except (OSError, UnicodeError, ValueError, TypeError) as exc:
+                raise TrustedLaptopWorkerError(
+                    "disposable cache ownership marker changed"
+                ) from exc
+            if (
+                not isinstance(marker, Mapping)
+                or marker.get("cache_id") != self._cache_id
+            ):
+                raise TrustedLaptopWorkerError(
+                    "disposable cache ownership marker changed"
+                )
+            # The descriptor still pins the owned directory even if a
+            # transformer renamed it. Wipe its corpus bytes before refusing
+            # to unlink an untrusted replacement at the original name.
             _remove_directory_contents(self._directory_fd)
             if not _same_directory_entry(
                 self._root_fd, self.path.name, self._directory_stat
@@ -1980,10 +1975,11 @@ class BoundedTrustedLaptopWorker:
         self.object_store = object_store
         self.receipt_authority = receipt_authority
         self.transformer = transformer
-        self.cache_root = cache_root
+        self.cache_root = cache_root.expanduser()
         self.clock = clock
         self._active_cache: _DisposableCache | None = None
         self._run_lock = threading.Lock()
+        self._latest_lease_expires_at: datetime | None = None
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -2019,6 +2015,9 @@ class BoundedTrustedLaptopWorker:
                 lease=lease,
                 job=job,
                 now=now,
+            )
+            self._latest_lease_expires_at = _time(
+                validated["expires_at"], "expires_at"
             )
             if self._active_cache is not None:
                 self._active_cache.refresh_lease_expires_at(
@@ -2382,12 +2381,34 @@ class BoundedTrustedLaptopWorker:
         job: Mapping[str, object],
         cache: _DisposableCache,
         started_at: datetime,
+        prior_metrics: Mapping[str, float] | None = None,
     ) -> tuple[int, str, dict[str, float]]:
+        prior_cpu_seconds = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["cpu_seconds"])
+        )
+        prior_elapsed_seconds = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["elapsed_seconds"])
+        )
+        remaining_cpu_seconds = (
+            float(job["maximum_cpu_seconds"]) - prior_cpu_seconds
+        )
+        if remaining_cpu_seconds <= 0:
+            raise TrustedLaptopExecutionError(
+                "cpu_limit_exceeded",
+                "resource",
+                "Discard the cache and keep this job within reviewed bounds.",
+            )
         elapsed_before_transform = max(
             0.0, (self._now() - started_at).total_seconds()
         )
         remaining_elapsed_seconds = (
-            float(job["maximum_elapsed_seconds"]) - elapsed_before_transform
+            float(job["maximum_elapsed_seconds"])
+            - prior_elapsed_seconds
+            - elapsed_before_transform
         )
         if remaining_elapsed_seconds <= 0:
             raise TrustedLaptopExecutionError(
@@ -2404,13 +2425,17 @@ class BoundedTrustedLaptopWorker:
                 "Use a trusted laptop with forkserver process isolation.",
             ) from exc
         receive_connection, send_connection = context.Pipe(duplex=False)
+        child_job = dict(job)
+        child_job["maximum_cpu_seconds"] = max(
+            1, math.ceil(remaining_cpu_seconds)
+        )
         process = context.Process(
             target=_run_transform_child,
             args=(
                 self.transformer,
                 cache.input_path,
                 cache.output_path,
-                dict(job),
+                child_job,
                 send_connection,
             ),
         )
@@ -2434,17 +2459,24 @@ class BoundedTrustedLaptopWorker:
         )
         peak_group_cpu = 0.0
         peak_group_memory = 0
-        lease_window_seconds = max(
-            0.0,
-            (
-                _time(lease["expires_at"], "expires_at")
-                - _time(lease["acquired_at"], "acquired_at")
-            ).total_seconds(),
+        latest_lease_expiry = (
+            self._latest_lease_expires_at
+            or _time(lease["expires_at"], "expires_at")
         )
-        heartbeat_interval = max(
-            0.1, min(30.0, lease_window_seconds / 3.0)
-        )
+        lease_remaining = (
+            latest_lease_expiry - self._now()
+        ).total_seconds()
+        if lease_remaining <= 0:
+            _stop_transform_process(process)
+            receive_connection.close()
+            raise TrustedLaptopExecutionError(
+                "lease_expired",
+                "pairing",
+                "Resume this exact job under a current outbound lease.",
+            )
+        heartbeat_interval = max(0.05, min(30.0, lease_remaining / 3.0))
         next_heartbeat = process_started + heartbeat_interval
+        lease_deadline = process_started + lease_remaining
         try:
             deadline = process_started + remaining_elapsed_seconds
             while process.is_alive():
@@ -2462,7 +2494,7 @@ class BoundedTrustedLaptopWorker:
                 if (
                     observed_cpu is not None
                     and observed_cpu
-                    >= float(job["maximum_cpu_seconds"])
+                    >= remaining_cpu_seconds
                 ):
                     limit_code = "cpu_limit_exceeded"
                     _stop_transform_process(process)
@@ -2487,14 +2519,43 @@ class BoundedTrustedLaptopWorker:
                     _stop_transform_process(process)
                     break
                 current_monotonic = time.monotonic()
+                if current_monotonic >= lease_deadline:
+                    _stop_transform_process(process)
+                    raise TrustedLaptopExecutionError(
+                        "lease_expired",
+                        "pairing",
+                        "Resume this exact job under a current outbound lease.",
+                    )
                 if current_monotonic >= next_heartbeat:
                     self._heartbeat_only(
                         pairing=pairing,
                         lease=lease,
                         job=job,
                     )
+                    latest_lease_expiry = self._latest_lease_expires_at
+                    if latest_lease_expiry is None:
+                        raise TrustedLaptopExecutionError(
+                            "lease_expired",
+                            "pairing",
+                            "Resume this exact job under a current outbound lease.",
+                        )
+                    lease_remaining = (
+                        latest_lease_expiry - self._now()
+                    ).total_seconds()
+                    if lease_remaining <= 0:
+                        raise TrustedLaptopExecutionError(
+                            "lease_expired",
+                            "pairing",
+                            "Resume this exact job under a current outbound lease.",
+                        )
+                    heartbeat_interval = max(
+                        0.05, min(30.0, lease_remaining / 3.0)
+                    )
                     next_heartbeat = (
                         current_monotonic + heartbeat_interval
+                    )
+                    lease_deadline = (
+                        current_monotonic + lease_remaining
                     )
                 if _directory_size(cache._directory_fd) > int(
                     job["maximum_disk_bytes"]
@@ -2538,7 +2599,7 @@ class BoundedTrustedLaptopWorker:
                     and elapsed_at_exit
                     >= max(
                         0.5,
-                        float(job["maximum_cpu_seconds"]) * 0.8,
+                        remaining_cpu_seconds * 0.8,
                     )
                 )
                 code = (
@@ -2624,7 +2685,7 @@ class BoundedTrustedLaptopWorker:
                 "resource",
                 "Use a transformer that reports the reviewed resource metrics.",
             )
-        metrics = {
+        current_metrics = {
             field: _finite_number(outcome[field], field)
             for field in (
                 "cpu_seconds",
@@ -2637,27 +2698,44 @@ class BoundedTrustedLaptopWorker:
             (self._now() - started_at).total_seconds(),
             time.monotonic() - process_started,
         )
-        metrics["cpu_seconds"] = max(
-            metrics["cpu_seconds"],
+        current_metrics["cpu_seconds"] = max(
+            current_metrics["cpu_seconds"],
             peak_group_cpu,
             _finite_number(
                 payload["observed_cpu_seconds"],
                 "observed_cpu_seconds",
             ),
         )
-        metrics["peak_memory_bytes"] = max(
-            metrics["peak_memory_bytes"],
+        current_metrics["peak_memory_bytes"] = max(
+            current_metrics["peak_memory_bytes"],
             float(peak_group_memory),
             _finite_number(
                 payload["observed_memory_bytes"],
                 "observed_memory_bytes",
             ),
         )
-        metrics["working_disk_bytes"] = max(
-            metrics["working_disk_bytes"],
+        current_metrics["working_disk_bytes"] = max(
+            current_metrics["working_disk_bytes"],
             float(_directory_size(cache._directory_fd)),
         )
-        metrics["elapsed_seconds"] = elapsed
+        metrics = {
+            "cpu_seconds": (
+                prior_cpu_seconds + current_metrics["cpu_seconds"]
+            ),
+            "peak_memory_bytes": max(
+                0.0
+                if prior_metrics is None
+                else float(prior_metrics["peak_memory_bytes"]),
+                current_metrics["peak_memory_bytes"],
+            ),
+            "working_disk_bytes": max(
+                0.0
+                if prior_metrics is None
+                else float(prior_metrics["working_disk_bytes"]),
+                current_metrics["working_disk_bytes"],
+            ),
+            "elapsed_seconds": prior_elapsed_seconds + elapsed,
+        }
         checks = (
             (
                 metrics["cpu_seconds"],
@@ -2797,15 +2875,13 @@ class BoundedTrustedLaptopWorker:
             key,
         )
 
-    def _create_manifest(
+    def _manifest_artifact(
         self,
         *,
         job: Mapping[str, object],
-        cache: _DisposableCache,
         input_receipt: Mapping[str, object],
         output_receipt: Mapping[str, object],
-        boundary_guard_factory: Callable[[str], Callable[[str], None]],
-    ) -> tuple[dict[str, object], str]:
+    ) -> tuple[dict[str, object], bytes, str, str]:
         manifest_id = "manifest_" + _digest(
             {
                 "job_id": job["job_id"],
@@ -2831,19 +2907,6 @@ class BoundedTrustedLaptopWorker:
                 evidence_ref=str(job["evidence_ref"]),
             )
             payload = _canonical(manifest)
-            if (
-                len(payload) > _MANIFEST_MAX_BYTES
-                or int(job["input_byte_size"])
-                + int(output_receipt["byte_size"])
-                + len(payload)
-                > int(job["maximum_disk_bytes"])
-            ):
-                raise TrustedLaptopExecutionError(
-                    "manifest_disk_limit_exceeded",
-                    "resource",
-                    "Keep the sanitized manifest within the reviewed disk bound.",
-                )
-            cache.write_manifest(payload)
             manifest_sha256 = hashlib.sha256(payload).hexdigest()
             key = manifest_object_key(
                 str(job["namespace_prefix"]),
@@ -2852,9 +2915,69 @@ class BoundedTrustedLaptopWorker:
                 manifest_id,
                 manifest_sha256,
             )
-        except TrustedLaptopExecutionError:
-            raise
         except (CorpusObjectError, OSError, TrustedLaptopWorkerError) as exc:
+            raise TrustedLaptopExecutionError(
+                "manifest_build_failed",
+                "manifest",
+                "Rebuild the sanitized manifest from durable exact receipts.",
+            ) from exc
+        return manifest, payload, key, manifest_sha256
+
+    def _assert_manifest_receipt_matches(
+        self,
+        *,
+        job: Mapping[str, object],
+        input_receipt: Mapping[str, object],
+        output_receipt: Mapping[str, object],
+        manifest_receipt: Mapping[str, object],
+    ) -> None:
+        _, payload, key, manifest_sha256 = self._manifest_artifact(
+            job=job,
+            input_receipt=input_receipt,
+            output_receipt=output_receipt,
+        )
+        if (
+            manifest_receipt.get("object_key") != key
+            or manifest_receipt.get("sha256") != manifest_sha256
+            or manifest_receipt.get("byte_size") != len(payload)
+            or manifest_receipt.get("media_type") != "application/json"
+        ):
+            raise TrustedLaptopExecutionError(
+                "resume_manifest_mismatch",
+                "checkpoint",
+                "Hold this exact job and reconcile its derivation manifest.",
+                required_authority_class="corpus_operator",
+            )
+
+    def _create_manifest(
+        self,
+        *,
+        job: Mapping[str, object],
+        cache: _DisposableCache,
+        input_receipt: Mapping[str, object],
+        output_receipt: Mapping[str, object],
+        boundary_guard_factory: Callable[[str], Callable[[str], None]],
+    ) -> tuple[dict[str, object], str]:
+        manifest, payload, key, manifest_sha256 = self._manifest_artifact(
+            job=job,
+            input_receipt=input_receipt,
+            output_receipt=output_receipt,
+        )
+        if (
+            len(payload) > _MANIFEST_MAX_BYTES
+            or int(job["input_byte_size"])
+            + int(output_receipt["byte_size"])
+            + len(payload)
+            > int(job["maximum_disk_bytes"])
+        ):
+            raise TrustedLaptopExecutionError(
+                "manifest_disk_limit_exceeded",
+                "resource",
+                "Keep the sanitized manifest within the reviewed disk bound.",
+            )
+        try:
+            cache.write_manifest(payload)
+        except (OSError, TrustedLaptopWorkerError) as exc:
             raise TrustedLaptopExecutionError(
                 "manifest_build_failed",
                 "manifest",
@@ -2897,14 +3020,36 @@ class BoundedTrustedLaptopWorker:
                 exc.next_action,
             ) from exc
         boundary_guard(key)
-        return (
-            self._persist_receipt(
-                receipt,
-                operation_id="trusted-laptop-manifest-"
-                + _digest({"job_id": job["job_id"], "object_key": key}),
-            ),
-            key,
+        manifest_receipt = self._persist_receipt(
+            receipt,
+            operation_id="trusted-laptop-manifest-"
+            + _digest({"job_id": job["job_id"], "object_key": key}),
         )
+        try:
+            persisted_manifest = self.receipt_authority.upsert(
+                manifest,
+                operation_id="trusted-laptop-lineage-"
+                + _digest(
+                    {
+                        "job_id": job["job_id"],
+                        "manifest_id": manifest["manifest_id"],
+                    }
+                ),
+            )
+        except Exception as exc:
+            raise TrustedLaptopExecutionError(
+                "manifest_commit_failed",
+                "manifest",
+                "Resume from the exact manifest object and persist its lineage.",
+            ) from exc
+        if persisted_manifest != manifest:
+            raise TrustedLaptopExecutionError(
+                "manifest_commit_conflict",
+                "manifest",
+                "Hold the exact manifest and reconcile its durable lineage.",
+                required_authority_class="corpus_operator",
+            )
+        return manifest_receipt, key
 
     def _result(
         self,
@@ -3087,6 +3232,9 @@ class BoundedTrustedLaptopWorker:
         lease: Mapping[str, object],
         job: Mapping[str, object],
     ) -> dict[str, object]:
+        self._latest_lease_expires_at = _time(
+            lease["expires_at"], "expires_at"
+        )
         self._assert_capability_covers_job(capability, job)
         self._assert_capability_current(capability)
         try:
@@ -3136,7 +3284,7 @@ class BoundedTrustedLaptopWorker:
                 str(job["input_object_key"]),
                 code="input_object_tombstoned",
             )
-            self._input_receipt(job)
+            input_receipt = self._input_receipt(job)
             self._verify_input_head(job=job)
             output_receipt = self._checkpoint_receipt(
                 job=job,
@@ -3149,6 +3297,12 @@ class BoundedTrustedLaptopWorker:
                 receipt_id=result["manifest_receipt_id"],
                 object_key=result["manifest_object_key"],
                 object_kind="manifest",
+            )
+            self._assert_manifest_receipt_matches(
+                job=job,
+                input_receipt=input_receipt,
+                output_receipt=output_receipt,
+                manifest_receipt=manifest_receipt,
             )
             if (
                 output_receipt["sha256"] != result["output_sha256"]
@@ -3253,6 +3407,13 @@ class BoundedTrustedLaptopWorker:
                 object_key=resume["manifest_object_key"],
                 object_kind="manifest",
             )
+            if output_receipt is not None:
+                self._assert_manifest_receipt_matches(
+                    job=job,
+                    input_receipt=input_receipt,
+                    output_receipt=output_receipt,
+                    manifest_receipt=manifest_receipt,
+                )
             self._heartbeat_only(
                 pairing=pairing,
                 lease=lease,
@@ -3348,6 +3509,12 @@ class BoundedTrustedLaptopWorker:
                     job=job,
                     cache=cache,
                     started_at=started_at,
+                    prior_metrics=(
+                        metrics
+                        if resume is not None
+                        and resume["stage"] == "transform_verified"
+                        else None
+                    ),
                 )
                 observed_output_key = derived_object_key(
                     str(job["namespace_prefix"]),

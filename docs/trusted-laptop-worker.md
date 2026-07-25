@@ -42,8 +42,9 @@ For each claim, the worker:
 5. runs one serializable, reviewed transformer in a fresh POSIX forkserver
    process group with inherited kernel CPU, address-space, and output-file
    limits plus parent watchdogs that aggregate descendant CPU and resident
-   memory, spend only the job's remaining elapsed budget, renew the live
-   lease, and bound cache-disk use;
+   memory, spend only the job's remaining cumulative CPU and elapsed budgets
+   across retries, schedule heartbeats against the latest renewed lease
+   expiry, and bound cache-disk use;
 6. checkpoints the exact output hash, size, key, and aggregate resource facts
    before any object create;
 7. refreshes the lease, elapsed bound, current authority, input tombstone, and
@@ -51,9 +52,10 @@ For each claim, the worker:
 8. accepts an output only after conditional create or matching exact-key
    recovery, exact-key `HEAD`, and a durable object receipt whose committed
    response exactly equals the requested receipt;
-9. builds the existing most-restrictive derivation manifest from verified
-   receipts, then applies the same guarded immutable-create sequence to the
-   manifest; and
+9. builds the existing most-restrictive derivation manifest from the exact
+   verified input and output receipts, applies the same guarded
+   immutable-create sequence to the manifest, and persists the exact
+   derivation-manifest lineage record; and
 10. completes with a content-free result containing exact object/receipt IDs,
     hashes, sizes, inherited rights/privacy/retention facts, and aggregate
     resource use refreshed after manifest persistence and rechecked against
@@ -83,8 +85,12 @@ durable blocker and cannot create a second key. If the output receipt is
 already durable, resume skips download and transformation. If both receipts
 are durable, resume verifies exact `HEAD` facts and completes without reading
 corpus bytes. Every resumed derived receipt must also match the hash and size
-bound into its checkpoint; a self-consistent but contradictory checkpoint is
-held for operator reconciliation.
+bound into its checkpoint, and every resumed manifest receipt must reproduce
+the exact manifest key, hash, size, and MIME type derived from this job's
+verified input and output receipts. A self-consistent but foreign receipt or
+contradictory checkpoint is held for operator reconciliation. Resource facts
+from an interrupted `transform_verified` attempt are carried into the retry,
+so retries cannot reset CPU or elapsed consumption.
 
 A lost conditional-create response is accepted only when immediate exact-key
 `HEAD` matches the declared size, MIME type, and hash. Lease or outbound
@@ -92,14 +98,17 @@ pairing loss releases only that job. It does not hold unrelated work.
 
 ## Disposable cache
 
-The cache root is an injected trusted-laptop setting and is not serialized.
+The cache root is an injected trusted-laptop setting, expanded once before
+both creation and reaping, and is not serialized.
 Each job directory has a content-free ownership marker bound to its pairing,
 lease, and job. The worker pins the root and job-directory identities with
 file descriptors, writes internal files without following symlinks, and
-performs cleanup relative to those descriptors. It refuses cleanup if the
-named directory no longer has the pinned device/inode identity. Validated
-heartbeats atomically refresh the marker expiry, so an active renewed cache
-cannot be reaped using the claim's original expiry.
+performs cleanup relative to those descriptors. If a transformer renames the
+owned directory and installs an untrusted replacement at the original name,
+the worker wipes corpus bytes from the still-pinned owned directory but
+refuses to unlink the replacement. Validated heartbeats atomically refresh
+the marker expiry, so an active renewed cache cannot be reaped using the
+claim's original expiry.
 
 Normal success and every handled failure remove that exact directory. Startup
 reaping removes only worker-named, validly marker-bound directories whose
