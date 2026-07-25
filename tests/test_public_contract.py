@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -43,6 +44,44 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
         self.assertIn(".local/rucksack-vm-sessions.json", ignored)
         self.assertIn(".local/rucksack-vm-sessions.json.lock", ignored)
+
+    def test_network_smoke_live_state_root_is_ignored_exactly(self) -> None:
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".local/network-smoke/", ignored)
+
+        check = subprocess.run(
+            [
+                "git",
+                "check-ignore",
+                "--",
+                ".local/network-smoke/ledger.sqlite3",
+                ".local/network-smoke/manifest.json",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if check.returncode == 128:
+            self.skipTest("git work tree unavailable")
+        self.assertEqual(0, check.returncode)
+        self.assertEqual(
+            [
+                ".local/network-smoke/ledger.sqlite3",
+                ".local/network-smoke/manifest.json",
+            ],
+            sorted(check.stdout.split()),
+        )
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "--", ".local"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, tracked.returncode)
+        self.assertEqual("", tracked.stdout.strip())
 
     def test_repository_contains_no_source_documents_or_media(self) -> None:
         forbidden = [
@@ -90,6 +129,7 @@ class PublicRepositoryContractTests(unittest.TestCase):
             "--sanitized-manifest",
             "unauthenticated",
             "must not be added to portable CI",
+            ".local/network-smoke/",
         ):
             self.assertIn(value, smoke)
 
@@ -110,6 +150,26 @@ class PublicRepositoryContractTests(unittest.TestCase):
             "follow-up issue 6",
         ):
             self.assertIn(value, proof)
+
+    def test_metadata_readiness_proof_marks_observations_as_expired_hypotheses(
+        self,
+    ) -> None:
+        proof = (ROOT / "docs" / "metadata-readiness-proof.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(proof.split())
+        for value in (
+            "historical evidence",
+            "not a current source fact",
+            "expired hypotheses",
+            "has not yet produced a current observation",
+            "no request was made",
+            "environment gate rather than a source observation",
+            "Next safe action",
+            ".local/network-smoke/",
+            "Sanitized observations (issue 7, historical)",
+        ):
+            self.assertIn(value, normalized)
 
     def test_r2_runbook_documents_the_low_level_held_transfer_boundary(self) -> None:
         runbook = (ROOT / "docs" / "r2-object-storage.md").read_text(

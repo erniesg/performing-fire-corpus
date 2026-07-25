@@ -11,6 +11,7 @@
 **/.agent/vm-runs/
 .rucksack/secrets/
 .env.live
+.local/network-smoke/
 .local/r2-proof/
 .local/rucksack-vm-sessions.json
 .local/rucksack-vm-sessions.json.lock
