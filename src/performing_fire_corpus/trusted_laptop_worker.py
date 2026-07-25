@@ -1996,8 +1996,8 @@ class BoundedTrustedLaptopWorker:
         lease: Mapping[str, object],
         job: Mapping[str, object],
     ) -> dict[str, object]:
-        now = self._now()
-        if _time(pairing["expires_at"], "expires_at") <= now:
+        request_at = self._now()
+        if _time(pairing["expires_at"], "expires_at") <= request_at:
             raise TrustedLaptopExecutionError(
                 "pairing_expired",
                 "pairing",
@@ -2007,14 +2007,21 @@ class BoundedTrustedLaptopWorker:
             heartbeat = self.control_plane.heartbeat(
                 str(lease["lease_id"]),
                 str(pairing["pairing_id"]),
-                now=now,
+                now=request_at,
             )
+            response_at = self._now()
+            if _time(pairing["expires_at"], "expires_at") <= response_at:
+                raise TrustedLaptopExecutionError(
+                    "pairing_expired",
+                    "pairing",
+                    "Establish a fresh outbound pairing before resuming this job.",
+                )
             validated = _validate_heartbeat(
                 heartbeat,
                 pairing=pairing,
                 lease=lease,
                 job=job,
-                now=now,
+                now=response_at,
             )
             self._latest_lease_expires_at = _time(
                 validated["expires_at"], "expires_at"
@@ -2084,15 +2091,28 @@ class BoundedTrustedLaptopWorker:
             ) from exc
         return _validate_authority(value, job=job, now=now, stage=stage)
 
+    def _cumulative_elapsed(
+        self,
+        *,
+        started_at: datetime,
+        prior_elapsed_seconds: float,
+    ) -> float:
+        return prior_elapsed_seconds + max(
+            0.0, (self._now() - started_at).total_seconds()
+        )
+
     def _assert_elapsed(
         self,
         *,
         job: Mapping[str, object],
         started_at: datetime,
+        prior_elapsed_seconds: float = 0.0,
     ) -> None:
-        if (self._now() - started_at).total_seconds() > float(
-            job["maximum_elapsed_seconds"]
-        ):
+        elapsed_seconds = self._cumulative_elapsed(
+            started_at=started_at,
+            prior_elapsed_seconds=prior_elapsed_seconds,
+        )
+        if elapsed_seconds > float(job["maximum_elapsed_seconds"]):
             raise TrustedLaptopExecutionError(
                 "elapsed_limit_exceeded",
                 "resource",
@@ -2106,11 +2126,15 @@ class BoundedTrustedLaptopWorker:
         cache: _DisposableCache,
         started_at: datetime,
         metrics: Mapping[str, float],
+        prior_elapsed_seconds: float = 0.0,
     ) -> dict[str, float]:
         refreshed = dict(metrics)
         refreshed["elapsed_seconds"] = max(
             float(metrics["elapsed_seconds"]),
-            max(0.0, (self._now() - started_at).total_seconds()),
+            self._cumulative_elapsed(
+                started_at=started_at,
+                prior_elapsed_seconds=prior_elapsed_seconds,
+            ),
         )
         try:
             refreshed["working_disk_bytes"] = max(
@@ -2163,6 +2187,7 @@ class BoundedTrustedLaptopWorker:
         job: Mapping[str, object],
         started_at: datetime,
         authority_stage: str,
+        prior_elapsed_seconds: float = 0.0,
         dependent_keys: Sequence[str] = (),
     ) -> Callable[[str], None]:
         def guard(target_key: str) -> None:
@@ -2172,7 +2197,12 @@ class BoundedTrustedLaptopWorker:
                 lease=lease,
                 job=job,
             )
-            self._assert_elapsed(job=job, started_at=started_at)
+            self._assert_capability_current(capability)
+            self._assert_elapsed(
+                job=job,
+                started_at=started_at,
+                prior_elapsed_seconds=prior_elapsed_seconds,
+            )
             self._current_authority(job=job, stage=authority_stage)
             self._assert_not_tombstoned(
                 str(job["input_object_key"]),
@@ -3362,6 +3392,7 @@ class BoundedTrustedLaptopWorker:
         output_receipt: dict[str, object] | None = None
         manifest_key: str | None = None
         manifest_receipt: dict[str, object] | None = None
+        prior_elapsed_seconds = 0.0
         if resume is not None and resume["stage"] in {
             "transform_verified",
             "output_verified",
@@ -3379,6 +3410,7 @@ class BoundedTrustedLaptopWorker:
                     "elapsed_seconds",
                 )
             }
+            prior_elapsed_seconds = metrics["elapsed_seconds"]
         if resume is not None and resume["stage"] in {
             "output_verified",
             "manifest_verified",
@@ -3419,7 +3451,6 @@ class BoundedTrustedLaptopWorker:
                 lease=lease,
                 job=job,
             )
-            self._assert_elapsed(job=job, started_at=started_at)
             self._current_authority(
                 job=job, stage="before_resume_complete"
             )
@@ -3437,6 +3468,18 @@ class BoundedTrustedLaptopWorker:
                     "checkpoint",
                     "Keep this job blocked until its exact resume facts are complete.",
                 )
+            self._assert_elapsed(
+                job=job,
+                started_at=started_at,
+                prior_elapsed_seconds=prior_elapsed_seconds,
+            )
+            metrics["elapsed_seconds"] = max(
+                metrics["elapsed_seconds"],
+                self._cumulative_elapsed(
+                    started_at=started_at,
+                    prior_elapsed_seconds=prior_elapsed_seconds,
+                ),
+            )
             return self._result(
                 job=job,
                 output_receipt=output_receipt,
@@ -3463,7 +3506,11 @@ class BoundedTrustedLaptopWorker:
                     job=job,
                 )
                 self._assert_capability_current(capability)
-                self._assert_elapsed(job=job, started_at=started_at)
+                self._assert_elapsed(
+                    job=job,
+                    started_at=started_at,
+                    prior_elapsed_seconds=prior_elapsed_seconds,
+                )
                 self._current_authority(
                     job=job, stage="at_input_download"
                 )
@@ -3572,6 +3619,7 @@ class BoundedTrustedLaptopWorker:
                     job=job,
                     started_at=started_at,
                     authority_stage="at_output_create",
+                    prior_elapsed_seconds=prior_elapsed_seconds,
                 )
                 output_receipt, output_key = self._create_output(
                     job=job,
@@ -3627,6 +3675,7 @@ class BoundedTrustedLaptopWorker:
                     job=job,
                     started_at=started_at,
                     authority_stage="at_manifest_create",
+                    prior_elapsed_seconds=prior_elapsed_seconds,
                     dependent_keys=(output_key,),
                 )
 
@@ -3642,6 +3691,7 @@ class BoundedTrustedLaptopWorker:
                 cache=cache,
                 started_at=started_at,
                 metrics=metrics,
+                prior_elapsed_seconds=prior_elapsed_seconds,
             )
             manifest_progress = {
                 "output_object_key": output_key,
@@ -3667,6 +3717,7 @@ class BoundedTrustedLaptopWorker:
                 cache=cache,
                 started_at=started_at,
                 metrics=metrics,
+                prior_elapsed_seconds=prior_elapsed_seconds,
             )
             return self._result(
                 job=job,

@@ -750,6 +750,68 @@ class TrustedLaptopSchemaTests(unittest.TestCase):
         with self.assertRaises(TrustedLaptopWorkerError):
             validate_trusted_laptop_record(parameterized_media_type)
 
+    def test_schema_rejects_runtime_invalid_checkpoint_stage_facts(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        lease_value = {
+            "schema_version": 1,
+            "record_type": "trusted_laptop_lease",
+            "lease_id": "lease_synthetic_laptop_001",
+            "pairing_id": "pairing_synthetic_001",
+            "job_id": "job_synthetic_laptop_001",
+            "acquired_at": utc(NOW),
+            "expires_at": utc(NOW + timedelta(minutes=5)),
+        }
+        claimed = trusted_laptop_worker._checkpoint(
+            pairing=pairing(),
+            lease=lease_value,
+            job=job(),
+            stage="claimed",
+            now=NOW,
+        )
+        claimed.update(
+            {
+                "output_object_key": derived_object_key(
+                    "performing-fire/",
+                    SOURCE_ID,
+                    ASSET_ID,
+                    transformation_id(),
+                    OUTPUT_SHA256,
+                ),
+                "output_sha256": OUTPUT_SHA256,
+                "output_byte_size": len(OUTPUT),
+                "cpu_seconds": 1,
+                "peak_memory_bytes": 1,
+                "working_disk_bytes": len(INPUT) + len(OUTPUT),
+                "elapsed_seconds": 1,
+            }
+        )
+        resume_state = {
+            key: value
+            for key, value in claimed.items()
+            if key
+            not in {
+                "schema_version",
+                "record_type",
+                "checkpoint_id",
+                "resume_state_sha256",
+                "recorded_at",
+            }
+        }
+        resume_hash = trusted_laptop_worker._digest(resume_state)
+        claimed["resume_state_sha256"] = resume_hash
+        claimed["checkpoint_id"] = (
+            "checkpoint_"
+            + trusted_laptop_worker._digest(
+                {"resume_state_sha256": resume_hash}
+            )
+        )
+
+        with self.assertRaises(ValidationError):
+            self.validator.validate(claimed)
+        with self.assertRaises(TrustedLaptopWorkerError):
+            validate_trusted_laptop_record(claimed)
+
 
 class TrustedLaptopWorkerTests(unittest.TestCase):
     def test_cpu_hard_limit_never_exceeds_the_declared_bound(self) -> None:
@@ -1098,6 +1160,36 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
 
             self.assertIsNotNone(harness.worker.run_once(capability()))
 
+    def test_heartbeat_renewal_is_checked_after_the_rpc_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.heartbeat_extension_seconds = 1
+            original_heartbeat = harness.control.heartbeat
+
+            def delayed_heartbeat(
+                lease_id: str,
+                pairing_id: str,
+                *,
+                now: datetime,
+            ) -> dict[str, object]:
+                value = original_heartbeat(
+                    lease_id,
+                    pairing_id,
+                    now=now,
+                )
+                if harness.control.heartbeat_calls == 6:
+                    harness.clock.advance(2)
+                return value
+
+            harness.control.heartbeat = delayed_heartbeat  # type: ignore[method-assign]
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "pairing_disconnected",
+            )
+
     def test_manifest_symlink_cannot_overwrite_an_unrelated_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1316,6 +1408,63 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(harness.transformer.calls, 1)
             self.assertEqual(len(harness.storage.created), 2)
+
+    def test_output_resume_accumulates_elapsed_before_manifest_create(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(maximum_elapsed_seconds=10)
+            harness.control.fail_checkpoint_stage_after_store = (
+                "output_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(len(harness.storage.created), 1)
+            checkpoint = next(
+                event
+                for event in reversed(harness.control.events)
+                if event.get("record_type") == "trusted_laptop_checkpoint"
+                and event.get("stage") == "output_verified"
+            )
+            checkpoint["elapsed_seconds"] = 5
+            resume_state = {
+                key: value
+                for key, value in checkpoint.items()
+                if key
+                not in {
+                    "schema_version",
+                    "record_type",
+                    "checkpoint_id",
+                    "resume_state_sha256",
+                    "recorded_at",
+                }
+            }
+            resume_hash = trusted_laptop_worker._digest(resume_state)
+            checkpoint["resume_state_sha256"] = resume_hash
+            checkpoint["checkpoint_id"] = (
+                "checkpoint_"
+                + trusted_laptop_worker._digest(
+                    {"resume_state_sha256": resume_hash}
+                )
+            )
+
+            def advance_before_manifest_head(key: str, call: int) -> None:
+                if "/manifests/" in key and call == 1:
+                    harness.clock.advance(8)
+
+            harness.storage.before_head = advance_before_manifest_head
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(
+                attempt=2,
+                maximum_elapsed_seconds=10,
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(len(harness.storage.created), 1)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "elapsed_limit_exceeded",
+            )
 
     def test_resumed_output_receipt_must_match_checkpoint_hash_and_size(self) -> None:
         from performing_fire_corpus import trusted_laptop_worker

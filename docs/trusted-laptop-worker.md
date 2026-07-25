@@ -47,8 +47,10 @@ For each claim, the worker:
    expiry, and bound cache-disk use;
 6. checkpoints the exact output hash, size, key, and aggregate resource facts
    before any object create;
-7. refreshes the lease, elapsed bound, current authority, input tombstone, and
-   target tombstone at the actual conditional-create call;
+7. refreshes the lease, samples the clock again after the heartbeat response,
+   rechecks pairing and capability expiry, and rechecks the cumulative elapsed
+   bound, current authority, input tombstone, and target tombstone at the
+   actual conditional-create call;
 8. accepts an output only after conditional create or matching exact-key
    recovery, exact-key `HEAD`, and a durable object receipt whose committed
    response exactly equals the requested receipt;
@@ -90,7 +92,9 @@ the exact manifest key, hash, size, and MIME type derived from this job's
 verified input and output receipts. A self-consistent but foreign receipt or
 contradictory checkpoint is held for operator reconciliation. Resource facts
 from an interrupted `transform_verified` attempt are carried into the retry,
-so retries cannot reset CPU or elapsed consumption.
+so retries cannot reset CPU or elapsed consumption. Post-transform resume work
+adds the new attempt's elapsed time to the durable checkpoint rather than
+taking the larger of two disjoint intervals.
 
 A lost conditional-create response is accepted only when immediate exact-key
 `HEAD` matches the declared size, MIME type, and hash. Lease or outbound
@@ -135,6 +139,11 @@ in checkpoints, logs, errors, issues, evidence, or manifests.
 - resumable checkpoints;
 - successful results; and
 - sanitized blockers.
+
+Checkpoint stage conditionals encode the same fact invariants as runtime:
+pre-transform stages carry no output facts, `transform_verified` carries exact
+output facts without receipts, `output_verified` adds only the output receipt,
+and `manifest_verified` requires both exact receipts.
 
 Derived-object and derivation-manifest records continue to use
 `schemas/v1/derived-object.json`,

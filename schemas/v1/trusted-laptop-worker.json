@@ -417,7 +417,89 @@
         },
         "resume_state_sha256": {"$ref": "#/$defs/sha256"},
         "recorded_at": {"$ref": "#/$defs/utc_time"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "enum": ["claimed", "input_verified", "transform_started"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"type": "null"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"type": "null"},
+              "output_byte_size": {"type": "null"},
+              "cpu_seconds": {"type": "null"},
+              "peak_memory_bytes": {"type": "null"},
+              "working_disk_bytes": {"type": "null"},
+              "elapsed_seconds": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "transform_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "output_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"$ref": "#/$defs/identifier"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "manifest_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"$ref": "#/$defs/identifier"},
+              "manifest_object_key": {"$ref": "#/$defs/object_key"},
+              "manifest_receipt_id": {"$ref": "#/$defs/identifier"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        }
+      ]
     },
     "result": {
       "type": "object",
