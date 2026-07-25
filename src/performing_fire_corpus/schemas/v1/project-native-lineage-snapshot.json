@@ -26,6 +26,9 @@
         "contribution_id": {
           "$ref": "#/$defs/contributionId"
         },
+        "contribution_sha256": {
+          "$ref": "#/$defs/hash"
+        },
         "input_contribution_ids": {
           "items": {
             "$ref": "#/$defs/contributionId"
@@ -47,6 +50,7 @@
       "required": [
         "consent_ids",
         "contribution_id",
+        "contribution_sha256",
         "input_contribution_ids",
         "system_provenance_id"
       ],

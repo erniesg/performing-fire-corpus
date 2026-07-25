@@ -92,9 +92,9 @@ class ProjectNativeLifecycleError(ValueError):
 class ProjectNativeAuthorityResolver(Protocol):
     """Trusted durable issuer and current legal-hold resolver boundary."""
 
-    def lineage_snapshot_was_issued(
-        self, *, lineage_snapshot: Mapping[str, Any]
-    ) -> bool: ...
+    def resolve_current_lineage_snapshot(
+        self,
+    ) -> Mapping[str, Any] | None: ...
 
     def resolve_legal_hold_resolution(
         self,
@@ -674,6 +674,7 @@ def issue_project_native_lineage_snapshot(
     entries = [
         {
             "contribution_id": record["contribution_id"],
+            "contribution_sha256": _sha256(record),
             "input_contribution_ids": record["input_contribution_ids"],
             "consent_ids": record["consent_ids"],
             "system_provenance_id": record["system_provenance_id"],
@@ -723,16 +724,19 @@ def _validate_authoritative_graph(
         id_prefix="project_native_lineage_",
     )
     try:
-        issued = authority_resolver.lineage_snapshot_was_issued(
-            lineage_snapshot=snapshot
+        current_snapshot = (
+            authority_resolver.resolve_current_lineage_snapshot()
         )
     except Exception as error:
         raise ProjectNativeLifecycleError(
             "lineage issuance authority is unavailable"
         ) from error
-    if issued is not True:
+    if (
+        not isinstance(current_snapshot, Mapping)
+        or _canonical(current_snapshot) != _canonical(snapshot)
+    ):
         raise ProjectNativeLifecycleError(
-            "lineage snapshot was not durably issued"
+            "lineage snapshot is not the current durable authority"
         )
     if snapshot["contribution_ids"] != _sorted_unique(
         snapshot["contribution_ids"],
@@ -773,7 +777,8 @@ def _validate_authoritative_graph(
                 "lineage snapshot arrays are not canonical"
             )
         if (
-            entry["input_contribution_ids"]
+            entry["contribution_sha256"] != _sha256(record)
+            or entry["input_contribution_ids"]
             != record["input_contribution_ids"]
             or entry["consent_ids"] != record["consent_ids"]
             or entry["system_provenance_id"]

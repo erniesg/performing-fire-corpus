@@ -278,10 +278,10 @@ class SyntheticAuthorityResolver:
             legal_hold_resolution
         )
 
-    def lineage_snapshot_was_issued(
-        self, *, lineage_snapshot: dict[str, object]
-    ) -> bool:
-        return lineage_snapshot == self._lineage_snapshot
+    def resolve_current_lineage_snapshot(
+        self,
+    ) -> dict[str, object]:
+        return copy.deepcopy(self._lineage_snapshot)
 
     def resolve_legal_hold_resolution(
         self,
@@ -953,6 +953,19 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 removed_score_export_ids=forged["score_export_ids"],
                 completed_at=NOW + timedelta(minutes=5),
             )
+        changed_target = contribution(raw_hash=HASH_B)
+        original_authority = graph_args([first])
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "authoritative lineage",
+        ):
+            build_project_native_deletion_work(
+                [changed_target],
+                deletion(trigger_state="consent_revoked"),
+                **original_authority,
+                legal_hold=None,
+                now=NOW,
+            )
 
         hold_status = deletion(trigger_state="consent_revoked")
         hold_status["status"] = "under_legal_hold_review"
@@ -1045,6 +1058,20 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         )
         records = [direct, derived]
         authority = graph_args(records)
+        v1_authority = graph_args([direct])
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "current durable authority",
+        ):
+            build_subject_export_job(
+                [direct],
+                [consent()],
+                lineage_snapshot=v1_authority["lineage_snapshot"],
+                authority_resolver=authority["authority_resolver"],
+                subject_ref="subject_synthetic_visitor_001",
+                requested_at=NOW,
+                expires_at=NOW + timedelta(hours=1),
+            )
         export = build_subject_export_job(
             records,
             [consent()],
@@ -1145,7 +1172,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ProjectNativeLifecycleError,
-            "not durably issued",
+            "not the current durable authority",
         ):
             evaluate_project_native_graph_operation(
                 tampered,

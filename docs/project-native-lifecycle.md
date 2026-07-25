@@ -70,11 +70,14 @@ current consent/retention/deletion bundle, and recomputes purpose, consent
 lineage, audiences, uses, confidentiality, and retention. The caller must
 supply a versioned, creator-issued, ID- and hash-bound lineage snapshot that
 independently records the complete contribution universe, input IDs, consent
-IDs, and system provenance. The lifecycle engine confirms exact issuance
-through a trusted durable-authority resolver; a structurally valid
-caller-created snapshot is not authority. A missing inventory member, altered
-or unissued snapshot, changed input or consent set, cycle, stale inherited
-field, or later input withdrawal blocks the derived operation.
+IDs, system provenance, and each full canonical contribution hash, including
+its exact object, index, cache, and export targets. The lifecycle engine
+resolves the single current snapshot through a trusted durable-authority
+resolver; a structurally valid caller-created or previously issued but
+superseded snapshot is not authority. A missing inventory member, altered or
+stale snapshot, changed contribution target, changed input or consent set,
+cycle, stale inherited field, or later input withdrawal blocks the derived
+operation.
 
 ## Withdrawal, deletion, and legal hold
 
