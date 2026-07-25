@@ -987,6 +987,37 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "elapsed_limit_exceeded",
             )
 
+    def test_failed_resume_lookup_cannot_reset_elapsed_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(maximum_elapsed_seconds=1)
+            original_lookup = harness.control.get_completed_result
+
+            def failed_lookup(job_id: str) -> dict[str, object] | None:
+                del job_id
+                harness.clock.advance(2)
+                raise ConnectionError("synthetic lookup failure")
+
+            harness.control.get_completed_result = failed_lookup  # type: ignore[method-assign]
+            self.assertIsNone(harness.worker.run_once(capability()))
+            checkpoint = harness.control.get_latest_checkpoint(
+                "job_synthetic_laptop_001"
+            )
+            self.assertIsNotNone(checkpoint)
+            assert checkpoint is not None
+            self.assertTrue(checkpoint["attempt_open"])
+            harness.control.get_completed_result = original_lookup  # type: ignore[method-assign]
+            harness.control.job_value = job(
+                attempt=2,
+                maximum_elapsed_seconds=1,
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 0)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "attempt_unreconciled",
+            )
+
     def test_missing_derivative_rights_blocks_before_any_object_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))

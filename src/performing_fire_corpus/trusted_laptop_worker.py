@@ -1522,9 +1522,10 @@ def _stop_transform_process(process: Any) -> tuple[float, int]:
         return members
 
     members = sample()
-    if not members and not process.is_alive():
+    if not process.is_alive():
         process.join()
-        return peak_cpu, peak_rss
+        if members <= 1:
+            return peak_cpu, peak_rss
     try:
         os.killpg(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -2176,11 +2177,32 @@ class BoundedTrustedLaptopWorker:
     ) -> None:
         previous = self._last_checkpoint
         started_at = self._claim_started_at
-        if (
-            previous is None
-            or started_at is None
-            or self._checkpoint_outcome_unknown
-        ):
+        if started_at is None or self._checkpoint_outcome_unknown:
+            return
+        if previous is None:
+            cumulative_elapsed = self._cumulative_elapsed(
+                started_at=started_at,
+                prior_elapsed_seconds=0.0,
+            )
+            checkpoint = _checkpoint(
+                pairing=pairing,
+                lease=lease,
+                job=job,
+                stage="attempt_failed",
+                now=self._now(),
+                progress={
+                    "cpu_seconds": 0.0,
+                    "peak_memory_bytes": 0.0,
+                    "working_disk_bytes": 0.0,
+                    "elapsed_seconds": cumulative_elapsed,
+                },
+                attempt_open=True,
+            )
+            try:
+                self.control_plane.checkpoint(checkpoint)
+                self._last_checkpoint = checkpoint
+            except Exception:
+                pass
             return
         stage = str(previous["stage"])
         cumulative_elapsed = self._cumulative_elapsed(
@@ -2878,20 +2900,36 @@ class BoundedTrustedLaptopWorker:
                         "Resume this exact job under a current outbound lease.",
                     )
                 if current_monotonic >= next_heartbeat:
-                    heartbeat_timeout = max(
-                        0.01,
-                        min(
-                            0.05,
-                            deadline - current_monotonic,
-                            lease_deadline - current_monotonic,
-                        ),
+                    heartbeat_timeout = min(
+                        0.05,
+                        deadline - current_monotonic,
+                        lease_deadline - current_monotonic,
                     )
+                    if heartbeat_timeout <= 0:
+                        raise TrustedLaptopExecutionError(
+                            "elapsed_limit_exceeded",
+                            "resource",
+                            "Discard the cache and keep this job within reviewed bounds.",
+                        )
                     self._heartbeat_only(
                         pairing=pairing,
                         lease=lease,
                         job=job,
                         timeout_seconds=heartbeat_timeout,
                     )
+                    current_monotonic = time.monotonic()
+                    if current_monotonic >= deadline:
+                        raise TrustedLaptopExecutionError(
+                            "elapsed_limit_exceeded",
+                            "resource",
+                            "Discard the cache and keep this job within reviewed bounds.",
+                        )
+                    if current_monotonic >= lease_deadline:
+                        raise TrustedLaptopExecutionError(
+                            "lease_expired",
+                            "pairing",
+                            "Resume this exact job under a current outbound lease.",
+                        )
                     latest_lease_expiry = self._latest_lease_expires_at
                     if latest_lease_expiry is None:
                         raise TrustedLaptopExecutionError(
@@ -2927,7 +2965,6 @@ class BoundedTrustedLaptopWorker:
                     "resource",
                     "Discard the cache and keep this job within reviewed bounds.",
                 )
-            process.join()
             if process.pid is not None:
                 final_group_usage = _process_group_usage(process.pid)
                 if final_group_usage is not None:
