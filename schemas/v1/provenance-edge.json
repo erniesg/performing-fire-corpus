@@ -18,7 +18,7 @@
     "origin_class": {"enum": ["factual_source_metadata", "derived_observation", "generated_score", "project_native"]},
     "origin_record_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*_[a-z0-9][a-z0-9._-]{0,127}$"},
     "origin_record_sha256": {"$ref": "#/$defs/hash"},
-    "transformation_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^transformation_[a-z0-9][a-z0-9._-]{0,127}$"}]},
+    "transformation_id": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^transform(?:ation)?_[a-z0-9][a-z0-9._-]{0,127}$"}]},
     "input_provenance_edge_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^provenance_edge_[a-z0-9][a-z0-9._-]{0,159}$"}},
     "evidence_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "evidence_expires_at": {"type": "string", "format": "date-time", "pattern": "Z$"}

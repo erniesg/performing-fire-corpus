@@ -14,6 +14,15 @@ from performing_fire_corpus.acquisition import (
 )
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
+from performing_fire_corpus.search_index import SearchIndexError
+from performing_fire_corpus.search_service import (
+    build_corpus_index,
+    export_score_features,
+    load_authority_bundle,
+    read_json_artifact,
+    search_corpus_index,
+    write_json_artifact,
+)
 from performing_fire_corpus.r2 import (
     ApprovalError,
     UrllibHTTPClient,
@@ -117,7 +126,136 @@ def build_parser() -> argparse.ArgumentParser:
     acquire_one.add_argument("--storage-config", required=True)
     acquire_one.add_argument("--cache-directory", required=True)
     acquire_one.add_argument("--sanitized-output", required=True)
+    search = subparsers.add_parser(
+        "search",
+        help="offline rights-filtered corpus index and local search surface",
+    )
+    search_subparsers = search.add_subparsers(dest="search_command", required=True)
+    build_index = search_subparsers.add_parser(
+        "build",
+        help="build one deterministic corpus index from a validated snapshot",
+    )
+    build_index.add_argument("--index-id", required=True)
+    build_index.add_argument("--snapshot", required=True)
+    build_index.add_argument("--authority", required=True)
+    build_index.add_argument("--built-at", required=True)
+    build_index.add_argument("--derived-objects")
+    build_index.add_argument("--coverage-targets")
+    build_index.add_argument("--previous-index")
+    build_index.add_argument("--output", required=True)
+    query = search_subparsers.add_parser(
+        "query", help="run one rights-filtered local query with safe facets"
+    )
+    query.add_argument("--index", required=True)
+    query.add_argument("--authority", required=True)
+    query.add_argument(
+        "--audience", required=True, choices=("operator", "researcher", "public")
+    )
+    query.add_argument("--current-time", required=True)
+    query.add_argument("--term", action="append", default=[])
+    query.add_argument("--source-id")
+    query.add_argument("--language")
+    query.add_argument("--period")
+    query.add_argument("--medium")
+    query.add_argument("--selection-state")
+    query.add_argument("--duplicate-cluster-id")
+    query.add_argument("--limit", type=int)
+    query.add_argument("--output", required=True)
+    export_scores = search_subparsers.add_parser(
+        "export-scores",
+        help="export rights-safe score-generation features and exact keys",
+    )
+    export_scores.add_argument("--index", required=True)
+    export_scores.add_argument("--authority", required=True)
+    export_scores.add_argument(
+        "--audience", required=True, choices=("operator", "researcher")
+    )
+    export_scores.add_argument("--current-time", required=True)
+    export_scores.add_argument("--output", required=True)
     return parser
+
+
+def _run_search_command(arguments: argparse.Namespace) -> int:
+    authority = load_authority_bundle(arguments.authority)
+    if arguments.search_command == "build":
+        index = build_corpus_index(
+            index_id=arguments.index_id,
+            snapshot=read_json_artifact(arguments.snapshot),
+            built_at=arguments.built_at,
+            authority_resolver=authority,
+            derived_objects=(
+                read_json_artifact(arguments.derived_objects)
+                if arguments.derived_objects
+                else ()
+            ),
+            object_authority=authority,
+            coverage_targets=(
+                read_json_artifact(arguments.coverage_targets)
+                if arguments.coverage_targets
+                else ()
+            ),
+            previous_index=(
+                read_json_artifact(arguments.previous_index)
+                if arguments.previous_index
+                else None
+            ),
+        )
+        write_json_artifact(arguments.output, index)
+        print(
+            json.dumps(
+                {
+                    "status": "complete",
+                    "corpus_index_id": index["corpus_index_id"],
+                    "index_sha256": index["index_sha256"],
+                    "indexed_documents": len(index["entries"]),
+                    "superseded_fields": len(index["superseded_fields"]),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    if arguments.search_command == "query":
+        result = search_corpus_index(
+            read_json_artifact(arguments.index),
+            audience=arguments.audience,
+            current_time=arguments.current_time,
+            authority_resolver=authority,
+            query_terms=arguments.term,
+            source_id=arguments.source_id,
+            language=arguments.language,
+            period=arguments.period,
+            medium=arguments.medium,
+            selection_state=arguments.selection_state,
+            duplicate_cluster_id=arguments.duplicate_cluster_id,
+            limit=arguments.limit,
+        )
+        write_json_artifact(arguments.output, result)
+        print(
+            json.dumps(
+                {"status": "complete", "result_count": result["result_count"]},
+                sort_keys=True,
+            )
+        )
+        return 0
+    export = export_score_features(
+        read_json_artifact(arguments.index),
+        audience=arguments.audience,
+        current_time=arguments.current_time,
+        authority_resolver=authority,
+        object_authority=authority,
+    )
+    write_json_artifact(arguments.output, export)
+    print(
+        json.dumps(
+            {
+                "status": "complete",
+                "score_export_id": export["score_export_id"],
+                "exported_documents": len(export["documents"]),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
 
 
 def _trusted_vm_paths(arguments: argparse.Namespace) -> dict[str, Path]:
@@ -288,6 +426,31 @@ def main(
                     {
                         "code": "transfer_failed",
                         "next_action": "Review the bounded transfer gates and retry safely.",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 1
+    elif arguments.command == "search":
+        try:
+            return _run_search_command(arguments)
+        except SearchIndexError:
+            print(
+                json.dumps(
+                    {
+                        "code": "search_authority_unavailable",
+                        "next_action": "Review the local snapshot, authority bundle, and rights gates.",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 4
+        except Exception:
+            print(
+                json.dumps(
+                    {
+                        "code": "search_surface_failed",
+                        "next_action": "Review the local snapshot, authority bundle, and rights gates.",
                     },
                     sort_keys=True,
                 )

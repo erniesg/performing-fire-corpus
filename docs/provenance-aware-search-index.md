@@ -78,6 +78,11 @@ pre-event provenance record, so a no-op cannot satisfy a replacement event.
 It cannot be inferred or broadened to a document, source, prefix, or
 object-store deletion.
 
+A provenance edge names its transformation with the repository-wide
+`transform_` identifier so an indexed derived field can be matched to the
+exact derived object receipt that produced it. The older `transformation_`
+form stays valid so existing records are not invalidated.
+
 Provenance edges list their complete transformation inputs. Removing or
 replacing an input requires an exact current event for every transitive
 derived or generated dependent; otherwise snapshot construction stops.
