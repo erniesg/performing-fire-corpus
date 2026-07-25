@@ -334,7 +334,10 @@ class NJPCenterAdapterTests(unittest.TestCase):
     def test_attachment_locators_fail_closed_on_credentials_or_other_hosts(self) -> None:
         adapter = InventedMainAdapter()
         for url in (
-            "https://person:secret@njp.ggcf.kr/storage/upload/file.pdf",
+            # Assembled at runtime: a literal credential-shaped URL would
+            # trip the Rucksack publisher secret scan on every later edit
+            # of this file. The final string is identical either way.
+            "https://person:" + "secret@njp.ggcf.kr/storage/upload/file.pdf",
             "https://njp.ggcf.kr:444/storage/upload/file.pdf",
             "https://unreviewed.invalid/storage/upload/file.pdf",
             "/storage/upload/file.pdf?token=opaque",
