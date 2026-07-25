@@ -26,7 +26,61 @@ and the [operator gate contract](docs/operator-gates.md) apply across every lane
 allowlisted content-free records, exact-head evidence, held-not-passed CI, and
 human blockers that always carry an exact next safe action and resumable state.
 
+The [product readiness matrix](docs/product-readiness-matrix.md) is the
+falsifiable status record. Every capability claim below is a row there, with its
+current CLI surface, implementation path, passing test, evidence lane, and
+either a sanitized live proof or a durable blocker.
+
 ## Status
 
-Rucksack created this repository and installed its reversible agent harness.
-The implementation ledger is being generated and reviewed before activation.
+This is a tested rights-aware corpus pipeline with one bounded source proof and
+explicit held gates. It is not a hosted operator product.
+
+Implemented and covered by passing offline tests: the Python CLI and durable
+SQLite ledger, versioned record schemas, rights qualification, bounded discovery
+and source governance, the ANTIEGG, NJP Art Center, NJP Video Library, and
+official YouTube metadata adapters, the offline adapter-conformance harness,
+R2 readiness and transfer boundaries, the full-corpus object contract,
+rights-aware derived-media and worker contracts, the provenance-aware search
+index, local rights-filtered query, score-generation export, the project-native
+lifecycle contract, and safe observability, evidence, and operator gates. Those
+tests run against checked-in synthetic fixtures and fake clients.
+
+Live-proven: one bounded metadata-only run against the public ANTIEGG article
+endpoint, recorded in [the readiness proof](docs/metadata-readiness-proof.md)
+and explicitly marked historical. Nothing else in this repository has been run
+against a live source or service.
+
+Not yet real, and not claimed to be:
+
+- No hosted operator UI exists. No HTTP server, web form, or loopback API is
+  implemented. The search surface is a local reference over local artifacts.
+- Nothing is deployed. The deploy workflow is held, grants no token, and exits
+  non-zero by design.
+- No object has been transferred to R2, no worker has processed real media, and
+  no index has been built from a real corpus.
+- Source counts are unverified hypotheses. The repository does not mirror
+  source sites in bulk and claims no complete source count.
+- Adding a source outside the reviewed public universe is a held human decision.
+- A refused or skipped GitHub Actions job is evidence that a gate held, not
+  evidence that a capability works.
+
+There is no PRD or demo document in this repository; that absence is recorded
+in the matrix rather than filled with an invented one.
+
+## Validating
+
+`pyproject.toml` declares `requires-python = ">=3.11"`. Select a supported
+interpreter first so results are comparable and an unsupported `python3` fails
+with an exact version message instead of a partial run:
+
+```bash
+sh scripts/preflight-python
+sh scripts/preflight-python -m unittest discover -s tests
+scripts/agent-evidence
+```
+
+See [`.agent/verify.md`](.agent/verify.md) for the exit taxonomy and
+[the readiness matrix](docs/product-readiness-matrix.md#command-surface) for
+every documented command with its lane, secret names, live side effects, and
+stop conditions.

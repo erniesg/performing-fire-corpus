@@ -1,0 +1,84 @@
+#!/usr/bin/env sh
+# Runtime preflight: select a Python interpreter that satisfies the
+# `requires-python` floor declared in `pyproject.toml` (>= 3.11).
+#
+# Lane: portable. No secrets, no network, no live side effects.
+#
+# Usage:
+#   scripts/preflight-python                       # print the selected interpreter
+#   scripts/preflight-python -m unittest discover -s tests
+#
+# With arguments the selected interpreter replaces this process, so an
+# unsupported runtime fails before validation instead of producing a partial
+# result on a runtime the package does not support. Set
+# `PERFORMING_FIRE_PYTHON` to pin one interpreter; a pinned interpreter is
+# never silently replaced by another candidate.
+#
+# Exit codes follow `.agent/verify.md`:
+#   0  a supported interpreter was selected
+#   2  blocked: no interpreter >= 3.11 is available
+
+set -u
+
+REQUIRED_MAJOR=3
+REQUIRED_MINOR=11
+REQUIRED="${REQUIRED_MAJOR}.${REQUIRED_MINOR}"
+
+report_version() {
+	# Prints "<major>.<minor>" for a resolvable interpreter, otherwise nothing.
+	command -v "$1" >/dev/null 2>&1 || return 1
+	"$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null
+}
+
+is_supported() {
+	# Numeric comparison only; a non-numeric report is treated as unsupported.
+	major="${1%%.*}"
+	minor="${1#*.}"
+	minor="${minor%%.*}"
+	case "${major}${minor}" in
+	'' | *[!0-9]*) return 1 ;;
+	esac
+	[ "$major" -gt "$REQUIRED_MAJOR" ] && return 0
+	[ "$major" -eq "$REQUIRED_MAJOR" ] && [ "$minor" -ge "$REQUIRED_MINOR" ]
+}
+
+if [ -n "${PERFORMING_FIRE_PYTHON:-}" ]; then
+	candidates="$PERFORMING_FIRE_PYTHON"
+else
+	candidates="python3 python3.14 python3.13 python3.12 python3.11 python"
+fi
+
+selected=''
+observed=''
+for candidate in $candidates; do
+	version="$(report_version "$candidate")" || continue
+	if [ -z "$version" ]; then
+		observed="${observed}  ${candidate}: version could not be reported
+"
+		continue
+	fi
+	if is_supported "$version"; then
+		selected="$candidate"
+		break
+	fi
+	observed="${observed}  ${candidate}: ${version}
+"
+done
+
+if [ -z "$selected" ]; then
+	[ -n "$observed" ] || observed="  (no candidate interpreter was found on PATH)
+"
+	printf '%s\n' "preflight-python: no Python >= ${REQUIRED} was found." >&2
+	printf '%s\n' "performing-fire-corpus declares requires-python >= ${REQUIRED} in pyproject.toml." >&2
+	printf '%s\n' "Interpreters checked (${candidates}):" >&2
+	printf '%s' "$observed" >&2
+	printf '%s\n' "Install Python ${REQUIRED} or newer, or set PERFORMING_FIRE_PYTHON to a supported interpreter, then rerun validation." >&2
+	exit 2
+fi
+
+if [ "$#" -eq 0 ]; then
+	printf '%s\n' "$selected"
+	exit 0
+fi
+
+exec "$selected" "$@"
