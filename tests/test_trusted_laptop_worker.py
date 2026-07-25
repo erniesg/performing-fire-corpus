@@ -33,6 +33,7 @@ from performing_fire_corpus.corpus_objects import (  # noqa: E402
 from performing_fire_corpus.trusted_laptop_worker import (  # noqa: E402
     BoundedTrustedLaptopWorker,
     TrustedLaptopWorkerError,
+    _checkpoint,
     reap_stale_disposable_caches,
     transformation_contract_id,
     validate_trusted_laptop_record,
@@ -565,19 +566,67 @@ class FakeControlPlane:
         )
         if self.job_value is None:
             return None
+        completed = copy.deepcopy(
+            self.completed.get(str(self.job_value["job_id"]))
+        )
+        checkpoints = [
+            event
+            for event in self.events
+            if event.get("record_type") == "trusted_laptop_checkpoint"
+            and event.get("job_id") == self.job_value["job_id"]
+        ]
+        resume = None if not checkpoints else copy.deepcopy(checkpoints[-1])
+        lease = {
+            "schema_version": 1,
+            "record_type": "trusted_laptop_lease",
+            "lease_id": "lease_synthetic_laptop_001",
+            "pairing_id": pairing_value["pairing_id"],
+            "job_id": self.job_value["job_id"],
+            "acquired_at": utc(now),
+            "expires_at": utc(
+                now + timedelta(seconds=self.lease_duration_seconds)
+            ),
+        }
+        if resume is not None and bool(resume["attempt_open"]):
+            attempt = copy.deepcopy(resume)
+        else:
+            progress = (
+                None
+                if resume is None
+                else {
+                    field: resume[field]
+                    for field in (
+                        "output_object_key",
+                        "output_receipt_id",
+                        "manifest_object_key",
+                        "manifest_receipt_id",
+                        "output_sha256",
+                        "output_byte_size",
+                        "cpu_seconds",
+                        "peak_memory_bytes",
+                        "working_disk_bytes",
+                        "elapsed_seconds",
+                    )
+                    if resume[field] is not None
+                }
+            )
+            attempt = _checkpoint(
+                pairing=pairing_value,
+                lease=lease,
+                job=self.job_value,
+                stage=(
+                    "claimed" if resume is None else str(resume["stage"])
+                ),
+                now=now,
+                progress=progress,
+            )
+            self.events.append(copy.deepcopy(attempt))
         return {
             "job": copy.deepcopy(self.job_value),
-            "lease": {
-                "schema_version": 1,
-                "record_type": "trusted_laptop_lease",
-                "lease_id": "lease_synthetic_laptop_001",
-                "pairing_id": pairing_value["pairing_id"],
-                "job_id": self.job_value["job_id"],
-                "acquired_at": utc(now),
-                "expires_at": utc(
-                    now + timedelta(seconds=self.lease_duration_seconds)
-                ),
-            },
+            "lease": lease,
+            "completed_result": completed,
+            "resume_checkpoint": resume,
+            "attempt_checkpoint": attempt,
         }
 
     def get_completed_result(
@@ -987,36 +1036,16 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "elapsed_limit_exceeded",
             )
 
-    def test_failed_resume_lookup_cannot_reset_elapsed_budget(self) -> None:
+    def test_claim_atomically_supplies_attempt_and_resume_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
-            harness.control.job_value = job(maximum_elapsed_seconds=1)
-            original_lookup = harness.control.get_completed_result
-
-            def failed_lookup(job_id: str) -> dict[str, object] | None:
-                del job_id
-                harness.clock.advance(2)
-                raise ConnectionError("synthetic lookup failure")
-
-            harness.control.get_completed_result = failed_lookup  # type: ignore[method-assign]
-            self.assertIsNone(harness.worker.run_once(capability()))
-            checkpoint = harness.control.get_latest_checkpoint(
-                "job_synthetic_laptop_001"
+            harness.control.get_completed_result = mock.Mock(
+                side_effect=AssertionError("non-atomic completed lookup")
             )
-            self.assertIsNotNone(checkpoint)
-            assert checkpoint is not None
-            self.assertTrue(checkpoint["attempt_open"])
-            harness.control.get_completed_result = original_lookup  # type: ignore[method-assign]
-            harness.control.job_value = job(
-                attempt=2,
-                maximum_elapsed_seconds=1,
+            harness.control.get_latest_checkpoint = mock.Mock(
+                side_effect=AssertionError("non-atomic resume lookup")
             )
-            self.assertIsNone(harness.worker.run_once(capability()))
-            self.assertEqual(harness.transformer.calls, 0)
-            self.assertEqual(
-                harness.control.blockers[-1]["code"],
-                "attempt_unreconciled",
-            )
+            self.assertIsNotNone(harness.worker.run_once(capability()))
 
     def test_missing_derivative_rights_blocks_before_any_object_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1250,13 +1279,18 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             harness.control.job_value = job(
                 maximum_cpu_seconds=1,
                 maximum_elapsed_seconds=10,
+                maximum_memory_bytes=256 * 1024 * 1024,
             )
             harness.transformer.cpu_seconds = 0
             harness.transformer.advance_seconds = 0
             harness.transformer.descendant_processes = 2
             harness.transformer.descendant_busy_seconds = 0.75
 
-            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertIsNone(
+                harness.worker.run_once(
+                    capability(maximum_memory_bytes=256 * 1024 * 1024)
+                )
+            )
             self.assertEqual(harness.storage.created, [])
             self.assertEqual(
                 harness.control.blockers[0]["code"],
@@ -1294,7 +1328,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             harness = Harness(Path(directory))
             harness.control.lease_duration_seconds = 1.5
             harness.control.heartbeat_extension_seconds = 1.5
-            harness.control.block_heartbeat_number = 5
+            harness.control.block_heartbeat_number = 4
             harness.control.job_value = job(maximum_elapsed_seconds=1)
             harness.transformer.advance_seconds = 0
             harness.transformer.sleep_seconds = 2
@@ -1340,7 +1374,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                     now=now,
                     timeout_seconds=timeout_seconds,
                 )
-                if harness.control.heartbeat_calls == 6:
+                if harness.control.heartbeat_calls == 5:
                     harness.clock.advance(2)
                 return value
 

@@ -32,7 +32,9 @@ identifiers and exact object keys, never media or local paths.
 
 For each claim, the worker:
 
-1. starts the job elapsed clock at the validated claim, then validates the
+1. receives the job, lease, prior completed/checkpoint state, and an already
+   durable open-attempt checkpoint in one atomic claim response, starts the
+   job elapsed clock, then validates the
    current pairing, capability, job, retry budget, lease, and capacity for
    every derived, manifest, and lifecycle object key before I/O;
 2. resolves current derivative-rights, consent, privacy, retention, deletion,
@@ -81,6 +83,9 @@ Checkpoints are hash-bound and monotonic by stage:
   modified durable result fails closed;
 - `attempt_open` is set before resumable work; an open attempt is held until
   its resource use is durably reconciled or a completed result exists;
+- claim creation atomically returns prior resume/completed state and persists
+  the open attempt, so a failed follow-up control-plane lookup cannot reset a
+  budget;
 - `attempt_failed` preserves measured cumulative CPU, memory, disk, and
   elapsed consumption without claiming an output for setup, download, and
   transform failures before an output is verified;

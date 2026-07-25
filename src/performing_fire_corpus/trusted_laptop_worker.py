@@ -331,14 +331,6 @@ class TrustedLaptopControlPlane(Protocol):
         now: datetime,
     ) -> Mapping[str, object] | None: ...
 
-    def get_completed_result(
-        self, job_id: str
-    ) -> Mapping[str, object] | None: ...
-
-    def get_latest_checkpoint(
-        self, job_id: str
-    ) -> Mapping[str, object] | None: ...
-
     def heartbeat(
         self,
         lease_id: str,
@@ -1603,17 +1595,32 @@ def _run_transform_child(
                 ),
             }
         except MemoryError:
-            payload = {"state": "memory_limit_exceeded"}
+            state = "memory_limit_exceeded"
         except OSError as exc:
-            payload = {
-                "state": (
-                    "output_limit_exceeded"
-                    if exc.errno == errno.EFBIG
-                    else "transformer_failed"
-                )
-            }
+            state = (
+                "output_limit_exceeded"
+                if exc.errno == errno.EFBIG
+                else "transformer_failed"
+            )
         except BaseException:
-            payload = {"state": "transformer_failed"}
+            state = "transformer_failed"
+        if "payload" not in locals():
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+            payload = {
+                "state": state,
+                "observed_cpu_seconds": float(
+                    usage.ru_utime
+                    + usage.ru_stime
+                    + child_usage.ru_utime
+                    + child_usage.ru_stime
+                ),
+                "observed_memory_bytes": max(
+                    0,
+                    _maximum_rss_bytes(usage) - baseline_rss,
+                    _maximum_rss_bytes(child_usage),
+                ),
+            }
         try:
             encoded = _canonical(payload)
             if len(encoded) > _MANIFEST_MAX_BYTES:
@@ -3042,6 +3049,11 @@ class BoundedTrustedLaptopWorker:
                 {"state"},
                 {
                     "state",
+                    "observed_cpu_seconds",
+                    "observed_memory_bytes",
+                },
+                {
+                    "state",
                     "outcome",
                     "observed_cpu_seconds",
                     "observed_memory_bytes",
@@ -3049,6 +3061,33 @@ class BoundedTrustedLaptopWorker:
             )
             or payload.get("state") != "ok"
         ):
+            if (
+                isinstance(payload, Mapping)
+                and self._last_transform_attempt_metrics is not None
+                and isinstance(
+                    payload.get("observed_cpu_seconds"), (int, float)
+                )
+                and isinstance(
+                    payload.get("observed_memory_bytes"), (int, float)
+                )
+            ):
+                prior_cpu = (
+                    0.0
+                    if prior_metrics is None
+                    else float(prior_metrics["cpu_seconds"])
+                )
+                self._last_transform_attempt_metrics["cpu_seconds"] = max(
+                    self._last_transform_attempt_metrics["cpu_seconds"],
+                    prior_cpu + float(payload["observed_cpu_seconds"]),
+                )
+                self._last_transform_attempt_metrics[
+                    "peak_memory_bytes"
+                ] = max(
+                    self._last_transform_attempt_metrics[
+                        "peak_memory_bytes"
+                    ],
+                    float(payload["observed_memory_bytes"]),
+                )
             state = (
                 str(payload.get("state"))
                 if isinstance(payload, Mapping)
@@ -3467,46 +3506,6 @@ class BoundedTrustedLaptopWorker:
         value["result_id"] = _result_id(value)
         return _validate_result(value)
 
-    def _latest_checkpoint(
-        self,
-        *,
-        job: Mapping[str, object],
-    ) -> dict[str, object] | None:
-        try:
-            value = self.control_plane.get_latest_checkpoint(
-                str(job["job_id"])
-            )
-        except Exception as exc:
-            raise TrustedLaptopExecutionError(
-                "pairing_disconnected",
-                "pairing",
-                "Resume this exact lease after outbound pairing is restored.",
-            ) from exc
-        if value is None:
-            return None
-        try:
-            checkpoint = _validate_checkpoint(value)
-        except TrustedLaptopWorkerError as exc:
-            raise TrustedLaptopExecutionError(
-                "resume_checkpoint_invalid",
-                "checkpoint",
-                "Hold this exact job and reconcile its durable checkpoint.",
-                required_authority_class="corpus_operator",
-            ) from exc
-        if (
-            checkpoint["job_id"] != job["job_id"]
-            or checkpoint["input_object_key"] != job["input_object_key"]
-            or checkpoint["job_contract_sha256"]
-            != _job_contract_sha256(job)
-        ):
-            raise TrustedLaptopExecutionError(
-                "resume_checkpoint_mismatch",
-                "checkpoint",
-                "Hold this exact job and reconcile its durable checkpoint.",
-                required_authority_class="corpus_operator",
-            )
-        return checkpoint
-
     def _checkpoint_receipt(
         self,
         *,
@@ -3597,6 +3596,9 @@ class BoundedTrustedLaptopWorker:
         pairing: Mapping[str, object],
         lease: Mapping[str, object],
         job: Mapping[str, object],
+        completed: Mapping[str, object] | None,
+        resume: Mapping[str, object] | None,
+        attempt: Mapping[str, object],
     ) -> dict[str, object]:
         started_at = self._now()
         self._claim_started_at = started_at
@@ -3609,16 +3611,6 @@ class BoundedTrustedLaptopWorker:
         )
         self._assert_capability_covers_job(capability, job)
         self._assert_capability_current(capability)
-        try:
-            completed = self.control_plane.get_completed_result(
-                str(job["job_id"])
-            )
-        except Exception as exc:
-            raise TrustedLaptopExecutionError(
-                "pairing_disconnected",
-                "pairing",
-                "Resume this exact lease after outbound pairing is restored.",
-            ) from exc
         if completed is not None:
             result = _validate_result(completed)
             if (
@@ -3713,8 +3705,30 @@ class BoundedTrustedLaptopWorker:
                 completed_at=str(result["completed_at"]),
             )
 
-        resume = self._latest_checkpoint(job=job)
+        self._last_checkpoint = _validate_checkpoint(attempt)
+        if (
+            self._last_checkpoint["job_id"] != job["job_id"]
+            or self._last_checkpoint["job_contract_sha256"]
+            != _job_contract_sha256(job)
+            or not bool(self._last_checkpoint["attempt_open"])
+        ):
+            raise TrustedLaptopWorkerError(
+                "invalid atomic attempt checkpoint"
+            )
         if resume is not None:
+            resume = _validate_checkpoint(resume)
+            if (
+                resume["job_id"] != job["job_id"]
+                or resume["input_object_key"] != job["input_object_key"]
+                or resume["job_contract_sha256"]
+                != _job_contract_sha256(job)
+            ):
+                raise TrustedLaptopExecutionError(
+                    "resume_checkpoint_mismatch",
+                    "checkpoint",
+                    "Hold this exact job and reconcile its durable checkpoint.",
+                    required_authority_class="corpus_operator",
+                )
             if bool(resume["attempt_open"]):
                 raise TrustedLaptopExecutionError(
                     "attempt_unreconciled",
@@ -3729,39 +3743,10 @@ class BoundedTrustedLaptopWorker:
                     "Hold this exact attempt until its resource consumption is reconciled.",
                     required_authority_class="corpus_operator",
                 )
-            self._last_checkpoint = resume
             if resume["elapsed_seconds"] is not None:
                 self._claim_prior_elapsed_seconds = float(
                     resume["elapsed_seconds"]
                 )
-        if resume is None:
-            self._maintain(
-                pairing=pairing, lease=lease, job=job, stage="claimed"
-            )
-        else:
-            resume_progress = {
-                field: resume[field]
-                for field in (
-                    "output_object_key",
-                    "output_receipt_id",
-                    "manifest_object_key",
-                    "manifest_receipt_id",
-                    "output_sha256",
-                    "output_byte_size",
-                    "cpu_seconds",
-                    "peak_memory_bytes",
-                    "working_disk_bytes",
-                    "elapsed_seconds",
-                )
-                if resume[field] is not None
-            }
-            self._maintain(
-                pairing=pairing,
-                lease=lease,
-                job=job,
-                stage=str(resume["stage"]),
-                progress=resume_progress,
-            )
         self._current_authority(job=job, stage="after_claim")
         self._current_authority(job=job, stage="before_input")
         self._assert_not_tombstoned(
@@ -4191,7 +4176,13 @@ class BoundedTrustedLaptopWorker:
             return None
         if (
             not isinstance(reservation, Mapping)
-            or set(reservation) != {"job", "lease"}
+            or set(reservation) != {
+                "job",
+                "lease",
+                "completed_result",
+                "resume_checkpoint",
+                "attempt_checkpoint",
+            }
             or not isinstance(reservation["job"], Mapping)
             or not isinstance(reservation["lease"], Mapping)
         ):
@@ -4204,6 +4195,15 @@ class BoundedTrustedLaptopWorker:
                 job=job,
                 now=self._now(),
             )
+            completed = reservation["completed_result"]
+            resume = reservation["resume_checkpoint"]
+            attempt = reservation["attempt_checkpoint"]
+            if completed is not None and not isinstance(completed, Mapping):
+                raise TrustedLaptopWorkerError("invalid completed result")
+            if resume is not None and not isinstance(resume, Mapping):
+                raise TrustedLaptopWorkerError("invalid resume checkpoint")
+            if not isinstance(attempt, Mapping):
+                raise TrustedLaptopWorkerError("invalid attempt checkpoint")
         except TrustedLaptopWorkerError as exc:
             # A malformed job cannot safely contribute its unvalidated IDs to
             # a blocker.  Reject the reservation and let the control plane
@@ -4217,6 +4217,9 @@ class BoundedTrustedLaptopWorker:
                 pairing=pairing,
                 lease=lease,
                 job=job,
+                completed=completed,
+                resume=resume,
+                attempt=attempt,
             )
             self.control_plane.complete(result)
             return result
