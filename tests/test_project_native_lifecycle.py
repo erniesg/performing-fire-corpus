@@ -24,6 +24,8 @@ from performing_fire_corpus.project_native_lifecycle import (
     derive_project_native_contribution,
     evaluate_project_native_graph_operation,
     evaluate_project_native_operation,
+    issue_project_native_legal_hold_resolution,
+    issue_project_native_lineage_snapshot,
     validate_project_native_contributions,
 )
 
@@ -228,19 +230,67 @@ def contribution(
 
 def graph_args(
     records: list[dict[str, object]],
+    *,
+    hold_resolution: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
-        "authoritative_contribution_ids": sorted(
-            str(record["contribution_id"]) for record in records
+    snapshot = issue_project_native_lineage_snapshot(
+        records,
+        inventory_version=1,
+        issued_at=datetime(
+            2026, 7, 24, 4, 0, tzinfo=timezone.utc
         ),
-        "lineage_authority": {
-            str(record["contribution_id"]): list(
-                record["input_contribution_ids"]
-            )
-            for record in records
-            if record["input_contribution_ids"]
-        },
+    )
+    resolution = (
+        clear_hold_resolution(records)
+        if hold_resolution is None
+        else hold_resolution
+    )
+    return {
+        "lineage_snapshot": snapshot,
+        "authority_resolver": SyntheticAuthorityResolver(
+            snapshot,
+            resolution,
+        ),
     }
+
+
+def clear_hold_resolution(
+    records: list[dict[str, object]],
+    *,
+    resolved_at: datetime = NOW + timedelta(minutes=4),
+) -> dict[str, object]:
+    return issue_project_native_legal_hold_resolution(
+        sorted(str(record["contribution_id"]) for record in records),
+        legal_hold=None,
+        resolved_at=resolved_at,
+        valid_until=resolved_at + timedelta(minutes=5),
+    )
+
+
+class SyntheticAuthorityResolver:
+    def __init__(
+        self,
+        lineage_snapshot: dict[str, object],
+        legal_hold_resolution: dict[str, object],
+    ) -> None:
+        self._lineage_snapshot = copy.deepcopy(lineage_snapshot)
+        self._legal_hold_resolution = copy.deepcopy(
+            legal_hold_resolution
+        )
+
+    def lineage_snapshot_was_issued(
+        self, *, lineage_snapshot: dict[str, object]
+    ) -> bool:
+        return lineage_snapshot == self._lineage_snapshot
+
+    def resolve_legal_hold_resolution(
+        self,
+        *,
+        contribution_ids: list[str],
+        completed_at: datetime,
+    ) -> dict[str, object]:
+        del contribution_ids, completed_at
+        return copy.deepcopy(self._legal_hold_resolution)
 
 
 def authority_bundle(
@@ -294,6 +344,8 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             "project-native-deletion-work",
             "project-native-export-job",
             "project-native-legal-hold",
+            "project-native-legal-hold-resolution",
+            "project-native-lineage-snapshot",
         ):
             with self.subTest(schema_mirror=name):
                 self.assertEqual(
@@ -466,7 +518,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 **authority_bundle(consent()),
                 **authority_bundle(second_consent),
             },
-            lineage_authority={},
+            **graph_args([first, second]),
             redaction_applied=True,
             contribution_id="contribution_synthetic_score_001",
             source_id="project-native-generated-scores",
@@ -539,7 +591,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 **authority_bundle(consent()),
                 **authority_bundle(artist_consent),
             },
-            lineage_authority={},
+            **graph_args([first, second]),
             redaction_applied=True,
             contribution_id="contribution_synthetic_score_002",
             source_id="project-native-generated-scores",
@@ -603,23 +655,13 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ProjectNativeLifecycleError,
-            "completeness",
+            "completeness|incomplete",
         ):
             evaluate_project_native_graph_operation(
                 derived,
                 [second, derived],
                 authorities,
-                authoritative_contribution_ids=[
-                    first["contribution_id"],
-                    second["contribution_id"],
-                    derived["contribution_id"],
-                ],
-                lineage_authority={
-                    derived["contribution_id"]: [
-                        first["contribution_id"],
-                        second["contribution_id"],
-                    ]
-                },
+                **graph_args([first, second, derived]),
                 operation="indexing",
                 audience="researcher",
                 redaction_applied=True,
@@ -945,6 +987,42 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 requested_at=NOW,
                 expires_at=NOW + timedelta(hours=1),
             )
+        current_hold = {
+            "schema_version": 1,
+            "record_type": "project_native_legal_hold",
+            "legal_hold_id": "legal_hold_synthetic_completion_001",
+            "authority_class": "legal_reviewer",
+            "basis_code": "reviewed_preservation_duty",
+            "contribution_ids": [first["contribution_id"]],
+            "decided_at": "2026-07-25T01:01:00Z",
+            "expires_at": "2026-07-26T00:00:00Z",
+            "review_at": "2026-07-25T12:00:00Z",
+            "state": "active",
+        }
+        held_resolution = issue_project_native_legal_hold_resolution(
+            [first["contribution_id"]],
+            legal_hold=current_hold,
+            resolved_at=NOW + timedelta(minutes=4),
+            valid_until=NOW + timedelta(minutes=9),
+        )
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "current legal hold",
+        ):
+            complete_project_native_deletion(
+                work,
+                [first],
+                **graph_args(
+                    [first],
+                    hold_resolution=held_resolution,
+                ),
+                deleted_raw_object_keys=work["raw_object_keys"],
+                deleted_derived_object_keys=work["derived_object_keys"],
+                removed_index_document_ids=work["index_document_ids"],
+                invalidated_cache_entry_ids=work["cache_entry_ids"],
+                removed_score_export_ids=work["score_export_ids"],
+                completed_at=NOW + timedelta(minutes=5),
+            )
 
     def test_authoritative_lineage_drives_export_and_withdrawal(self) -> None:
         direct = contribution()
@@ -952,7 +1030,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             [direct],
             input_contribution_ids=[direct["contribution_id"]],
             authorities=authority_bundle(consent()),
-            lineage_authority={},
+            **graph_args([direct]),
             redaction_applied=True,
             contribution_id="contribution_synthetic_score_subject_001",
             source_id="project-native-generated-scores",
@@ -1023,7 +1101,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 **authority_bundle(consent()),
                 **authority_bundle(artist_consent),
             },
-            lineage_authority={},
+            **graph_args([direct, artist]),
             redaction_applied=True,
             contribution_id="contribution_synthetic_score_lineage_001",
             source_id="project-native-generated-scores",
@@ -1051,17 +1129,35 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                     **authority_bundle(consent()),
                     **authority_bundle(artist_consent),
                 },
-                authoritative_contribution_ids=sorted(
-                    record["contribution_id"] for record in lineage_records
-                ),
-                lineage_authority={
-                    tampered["contribution_id"]: sorted(
-                        [
-                            direct["contribution_id"],
-                            artist["contribution_id"],
-                        ]
-                    )
+                **graph_args([direct, artist, two_input]),
+                operation="indexing",
+                audience="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )
+        issued_authority = graph_args([direct, artist, two_input])
+        reduced_snapshot = issue_project_native_lineage_snapshot(
+            lineage_records,
+            inventory_version=2,
+            issued_at=datetime(
+                2026, 7, 24, 5, 0, tzinfo=timezone.utc
+            ),
+        )
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "not durably issued",
+        ):
+            evaluate_project_native_graph_operation(
+                tampered,
+                lineage_records,
+                {
+                    **authority_bundle(consent()),
+                    **authority_bundle(artist_consent),
                 },
+                lineage_snapshot=reduced_snapshot,
+                authority_resolver=issued_authority[
+                    "authority_resolver"
+                ],
                 operation="indexing",
                 audience="researcher",
                 redaction_applied=True,
@@ -1069,6 +1165,20 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             )
 
         revoked = consent(state="revoked")
+        drifted = copy.deepcopy(derived)
+        drifted["consent_ids"] = ["consent_synthetic_unrelated_001"]
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "authoritative lineage",
+        ):
+            apply_project_native_withdrawal(
+                [direct, drifted],
+                revoked,
+                deletion(trigger_state="consent_revoked"),
+                **authority,
+                legal_hold=None,
+                now=NOW,
+            )
         updated, work = apply_project_native_withdrawal(
             records,
             revoked,
@@ -1088,16 +1198,13 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ProjectNativeLifecycleError,
-            "completeness",
+            "completeness|incomplete",
         ):
             apply_project_native_withdrawal(
                 [direct],
                 revoked,
                 deletion(trigger_state="consent_revoked"),
-                authoritative_contribution_ids=authority[
-                    "authoritative_contribution_ids"
-                ],
-                lineage_authority=authority["lineage_authority"],
+                **authority,
                 legal_hold=None,
                 now=NOW,
             )

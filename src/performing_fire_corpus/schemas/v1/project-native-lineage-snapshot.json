@@ -1,0 +1,116 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-lineage-snapshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "contributionId": {
+      "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "idArray": {
+      "items": {
+        "$ref": "#/$defs/id"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "entry": {
+      "additionalProperties": false,
+      "properties": {
+        "consent_ids": {
+          "$ref": "#/$defs/idArray"
+        },
+        "contribution_id": {
+          "$ref": "#/$defs/contributionId"
+        },
+        "input_contribution_ids": {
+          "items": {
+            "$ref": "#/$defs/contributionId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "system_provenance_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "consent_ids",
+        "contribution_id",
+        "input_contribution_ids",
+        "system_provenance_id"
+      ],
+      "type": "object"
+    },
+    "hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "contribution_ids": {
+      "items": {
+        "$ref": "#/$defs/contributionId"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/entry"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "inventory_version": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "issuer_role": {
+      "const": "lifecycle_lineage_controller"
+    },
+    "lineage_snapshot_id": {
+      "pattern": "^project_native_lineage_[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "lineage_snapshot_sha256": {
+      "$ref": "#/$defs/hash"
+    },
+    "record_type": {
+      "const": "project_native_lineage_snapshot"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "contribution_ids",
+    "entries",
+    "inventory_version",
+    "issued_at",
+    "issuer_role",
+    "lineage_snapshot_id",
+    "lineage_snapshot_sha256",
+    "record_type",
+    "schema_version"
+  ],
+  "title": "Project-native creator-issued lineage snapshot v1",
+  "type": "object"
+}

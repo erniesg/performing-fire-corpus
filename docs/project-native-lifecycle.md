@@ -68,10 +68,13 @@ derived record cannot make an input more public or retain it longer.
 Every derived use traverses the complete input graph again, requires each
 current consent/retention/deletion bundle, and recomputes purpose, consent
 lineage, audiences, uses, confidentiality, and retention. The caller must
-supply the authoritative contribution-ID universe and creator-recorded
-lineage resolver. A missing inventory member, incomplete resolver, changed
-input set, cycle, stale inherited field, or later input withdrawal blocks the
-derived operation.
+supply a versioned, creator-issued, ID- and hash-bound lineage snapshot that
+independently records the complete contribution universe, input IDs, consent
+IDs, and system provenance. The lifecycle engine confirms exact issuance
+through a trusted durable-authority resolver; a structurally valid
+caller-created snapshot is not authority. A missing inventory member, altered
+or unissued snapshot, changed input or consent set, cycle, stale inherited
+field, or later input withdrawal blocks the derived operation.
 
 ## Withdrawal, deletion, and legal hold
 
@@ -92,8 +95,13 @@ A legal hold is a separate record with reviewed authority and basis, an exact
 contribution scope, decision time, mandatory review time, and expiry. A missing,
 partial, review-due, released, or expired hold cannot authorize a held state.
 A current scoped hold produces review work and prevents automatic completion.
-The deletion authority status and supplied hold must agree exactly. A hold
-status without its reviewed hold record cannot fall through to ordinary
+The deletion authority status and supplied hold must agree exactly. Completion
+also requires a separately issued, hash-bound legal-hold resolution for the
+exact contribution scope. The resolution is valid for at most five minutes
+and is fetched through the trusted current-authority resolver immediately
+before completion. It must still be current at completion; a newly issued hold
+blocks older pending work. A missing or unavailable resolver fails closed. A
+hold status without its reviewed hold record cannot fall through to ordinary
 pending deletion. A hold never restores use eligibility or silently becomes
 indefinite retention.
 

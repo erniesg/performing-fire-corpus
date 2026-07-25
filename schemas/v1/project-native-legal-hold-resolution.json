@@ -1,0 +1,82 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-legal-hold-resolution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "contributionId": {
+      "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_class": {
+      "const": "legal_hold_resolver"
+    },
+    "contribution_ids": {
+      "items": {
+        "$ref": "#/$defs/contributionId"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "legal_hold_id": {
+      "anyOf": [
+        {
+          "pattern": "^legal_hold_[a-z0-9][a-z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "record_type": {
+      "const": "project_native_legal_hold_resolution"
+    },
+    "resolution_id": {
+      "pattern": "^project_native_hold_resolution_[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "resolution_sha256": {
+      "$ref": "#/$defs/hash"
+    },
+    "resolved_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "state": {
+      "enum": [
+        "clear",
+        "held"
+      ]
+    },
+    "valid_until": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "authority_class",
+    "contribution_ids",
+    "legal_hold_id",
+    "record_type",
+    "resolution_id",
+    "resolution_sha256",
+    "resolved_at",
+    "schema_version",
+    "state",
+    "valid_until"
+  ],
+  "title": "Project-native current legal-hold resolution v1",
+  "type": "object"
+}

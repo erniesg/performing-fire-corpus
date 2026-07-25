@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
@@ -87,6 +87,21 @@ _HASH = re.compile(r"^[0-9a-f]{64}$")
 
 class ProjectNativeLifecycleError(ValueError):
     """Raised when project-native data could escape its reviewed lifecycle."""
+
+
+class ProjectNativeAuthorityResolver(Protocol):
+    """Trusted durable issuer and current legal-hold resolver boundary."""
+
+    def lineage_snapshot_was_issued(
+        self, *, lineage_snapshot: Mapping[str, Any]
+    ) -> bool: ...
+
+    def resolve_legal_hold_resolution(
+        self,
+        *,
+        contribution_ids: Sequence[str],
+        completed_at: datetime,
+    ) -> Mapping[str, Any] | None: ...
 
 
 def _schema_resource(name: str) -> Any:
@@ -639,52 +654,153 @@ def validate_project_native_contributions(
     return sorted(records, key=lambda item: item["contribution_id"])
 
 
+def issue_project_native_lineage_snapshot(
+    contributions: Sequence[Mapping[str, Any]],
+    *,
+    inventory_version: int,
+    issued_at: datetime,
+) -> dict[str, Any]:
+    """Issue an immutable creator-side inventory and lineage authority."""
+
+    if issued_at.tzinfo is None:
+        raise ProjectNativeLifecycleError(
+            "lineage snapshot issue time must be timezone-aware"
+        )
+    records = validate_project_native_contributions(contributions)
+    if not records:
+        raise ProjectNativeLifecycleError(
+            "lineage snapshot requires contributions"
+        )
+    entries = [
+        {
+            "contribution_id": record["contribution_id"],
+            "input_contribution_ids": record["input_contribution_ids"],
+            "consent_ids": record["consent_ids"],
+            "system_provenance_id": record["system_provenance_id"],
+        }
+        for record in records
+    ]
+    payload = {
+        "schema_version": 1,
+        "record_type": "project_native_lineage_snapshot",
+        "inventory_version": inventory_version,
+        "issuer_role": "lifecycle_lineage_controller",
+        "issued_at": _utc_text(issued_at),
+        "contribution_ids": [
+            record["contribution_id"] for record in records
+        ],
+        "entries": entries,
+    }
+    snapshot_id = f"project_native_lineage_{_sha256(payload)[:24]}"
+    return _validate_bound_record(
+        "project-native-lineage-snapshot",
+        {
+            **payload,
+            "lineage_snapshot_id": snapshot_id,
+            "lineage_snapshot_sha256": _sha256(
+                {**payload, "lineage_snapshot_id": snapshot_id}
+            ),
+        },
+        id_field="lineage_snapshot_id",
+        hash_field="lineage_snapshot_sha256",
+        id_prefix="project_native_lineage_",
+    )
+
+
 def _validate_authoritative_graph(
     contributions: Sequence[Mapping[str, Any]],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     records = validate_project_native_contributions(contributions)
     ids = [record["contribution_id"] for record in records]
-    expected_ids = _sorted_unique(
-        authoritative_contribution_ids,
-        "authoritative_contribution_ids",
+    snapshot = _validate_bound_record(
+        "project-native-lineage-snapshot",
+        lineage_snapshot,
+        id_field="lineage_snapshot_id",
+        hash_field="lineage_snapshot_sha256",
+        id_prefix="project_native_lineage_",
     )
-    if ids != expected_ids:
+    try:
+        issued = authority_resolver.lineage_snapshot_was_issued(
+            lineage_snapshot=snapshot
+        )
+    except Exception as error:
+        raise ProjectNativeLifecycleError(
+            "lineage issuance authority is unavailable"
+        ) from error
+    if issued is not True:
+        raise ProjectNativeLifecycleError(
+            "lineage snapshot was not durably issued"
+        )
+    if snapshot["contribution_ids"] != _sorted_unique(
+        snapshot["contribution_ids"],
+        "lineage_snapshot.contribution_ids",
+    ):
+        raise ProjectNativeLifecycleError(
+            "lineage snapshot contribution IDs are not canonical"
+        )
+    entries = snapshot["entries"]
+    entry_ids = [entry["contribution_id"] for entry in entries]
+    if entry_ids != sorted(entry_ids) or entry_ids != ids:
+        raise ProjectNativeLifecycleError(
+            "lineage snapshot entries are incomplete or noncanonical"
+        )
+    if ids != snapshot["contribution_ids"]:
         raise ProjectNativeLifecycleError(
             "contribution inventory lacks authoritative completeness"
-        )
-    if not isinstance(lineage_authority, Mapping):
-        raise ProjectNativeLifecycleError(
-            "authoritative lineage resolver is required"
-        )
-    derived_ids = {
-        record["contribution_id"]
-        for record in records
-        if record["input_contribution_ids"]
-    }
-    if set(lineage_authority) != derived_ids:
-        raise ProjectNativeLifecycleError(
-            "authoritative lineage resolver is incomplete"
         )
     inventory = {
         record["contribution_id"]: record for record in records
     }
-    for contribution_id in sorted(derived_ids):
-        expected_inputs = _sorted_unique(
-            lineage_authority[contribution_id],
-            f"lineage_authority.{contribution_id}",
-        )
+    for entry in entries:
+        contribution_id = entry["contribution_id"]
         record = inventory[contribution_id]
-        if expected_inputs != record["input_contribution_ids"]:
+        if (
+            entry["input_contribution_ids"]
+            != _sorted_unique(
+                entry["input_contribution_ids"],
+                f"lineage_snapshot.{contribution_id}.inputs",
+            )
+            or entry["consent_ids"]
+            != _sorted_unique(
+                entry["consent_ids"],
+                f"lineage_snapshot.{contribution_id}.consents",
+            )
+        ):
+            raise ProjectNativeLifecycleError(
+                "lineage snapshot arrays are not canonical"
+            )
+        if (
+            entry["input_contribution_ids"]
+            != record["input_contribution_ids"]
+            or entry["consent_ids"] != record["consent_ids"]
+            or entry["system_provenance_id"]
+            != record["system_provenance_id"]
+        ):
             raise ProjectNativeLifecycleError(
                 "derived contribution conflicts with authoritative lineage"
             )
-        if any(input_id not in inventory for input_id in expected_inputs):
+        if any(
+            input_id not in inventory
+            for input_id in entry["input_contribution_ids"]
+        ):
             raise ProjectNativeLifecycleError(
                 "authoritative lineage references a missing contribution"
             )
+        if entry["input_contribution_ids"]:
+            expected_consents = sorted(
+                {
+                    consent_id
+                    for input_id in entry["input_contribution_ids"]
+                    for consent_id in inventory[input_id]["consent_ids"]
+                }
+            )
+            if entry["consent_ids"] != expected_consents:
+                raise ProjectNativeLifecycleError(
+                    "derived consent lineage conflicts with authoritative inputs"
+                )
 
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -727,7 +843,8 @@ def derive_project_native_contribution(
     *,
     input_contribution_ids: Sequence[str],
     authorities: Mapping[str, Mapping[str, Any]],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     redaction_applied: bool,
     contribution_id: str,
     source_id: str,
@@ -745,11 +862,8 @@ def derive_project_native_contribution(
     )
     records, inventory = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=[
-            record["contribution_id"]
-            for record in validate_project_native_contributions(contributions)
-        ],
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
     )
     if (
         not requested_inputs
@@ -782,10 +896,8 @@ def derive_project_native_contribution(
             input_record,
             records,
             authorities,
-            authoritative_contribution_ids=[
-                record["contribution_id"] for record in records
-            ],
-            lineage_authority=lineage_authority,
+            lineage_snapshot=lineage_snapshot,
+            authority_resolver=authority_resolver,
             operation="derived_processing",
             audience=common_audiences[0],
             redaction_applied=redaction_applied,
@@ -993,8 +1105,8 @@ def evaluate_project_native_graph_operation(
     contributions: Sequence[Mapping[str, Any]],
     authorities: Mapping[str, Mapping[str, Any]],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     operation: str,
     audience: str,
     redaction_applied: bool,
@@ -1005,8 +1117,8 @@ def evaluate_project_native_graph_operation(
     target = validate_project_native_contribution(contribution)
     records, inventory = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
     )
     current_target = inventory.get(target["contribution_id"])
     if current_target is None:
@@ -1220,8 +1332,8 @@ def build_subject_export_job(
     contributions: Sequence[Mapping[str, Any]],
     consents: Sequence[Mapping[str, Any]],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     subject_ref: str,
     requested_at: datetime,
     expires_at: datetime,
@@ -1238,8 +1350,8 @@ def build_subject_export_job(
         )
     all_records, inventory = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
     )
     direct_records = [
         record
@@ -1387,12 +1499,118 @@ def _validate_legal_hold(
     return record
 
 
+def issue_project_native_legal_hold_resolution(
+    contribution_ids: Sequence[str],
+    *,
+    legal_hold: Mapping[str, Any] | None,
+    resolved_at: datetime,
+    valid_until: datetime,
+) -> dict[str, Any]:
+    """Issue a short-lived legal-authority decision for exact targets."""
+
+    ids = _sorted_unique(contribution_ids, "contribution_ids")
+    if (
+        not ids
+        or resolved_at.tzinfo is None
+        or valid_until.tzinfo is None
+        or not resolved_at < valid_until
+        or valid_until - resolved_at > timedelta(minutes=5)
+    ):
+        raise ProjectNativeLifecycleError(
+            "legal-hold resolution window is invalid"
+        )
+    hold_value = None
+    if legal_hold is not None:
+        hold_value = _validate_legal_hold(
+            legal_hold,
+            contribution_ids=ids,
+            now=resolved_at,
+        )
+    payload = {
+        "schema_version": 1,
+        "record_type": "project_native_legal_hold_resolution",
+        "authority_class": "legal_hold_resolver",
+        "state": "held" if hold_value is not None else "clear",
+        "legal_hold_id": (
+            hold_value["legal_hold_id"]
+            if hold_value is not None
+            else None
+        ),
+        "contribution_ids": ids,
+        "resolved_at": _utc_text(resolved_at),
+        "valid_until": _utc_text(valid_until),
+    }
+    resolution_id = (
+        f"project_native_hold_resolution_{_sha256(payload)[:24]}"
+    )
+    return _validate_bound_record(
+        "project-native-legal-hold-resolution",
+        {
+            **payload,
+            "resolution_id": resolution_id,
+            "resolution_sha256": _sha256(
+                {**payload, "resolution_id": resolution_id}
+            ),
+        },
+        id_field="resolution_id",
+        hash_field="resolution_sha256",
+        id_prefix="project_native_hold_resolution_",
+    )
+
+
+def _validate_current_hold_resolution(
+    value: Mapping[str, Any],
+    *,
+    contribution_ids: Sequence[str],
+    completed_at: datetime,
+) -> dict[str, Any]:
+    resolution = _validate_bound_record(
+        "project-native-legal-hold-resolution",
+        value,
+        id_field="resolution_id",
+        hash_field="resolution_sha256",
+        id_prefix="project_native_hold_resolution_",
+    )
+    if resolution["contribution_ids"] != list(contribution_ids):
+        raise ProjectNativeLifecycleError(
+            "legal-hold resolution scope does not match deletion work"
+        )
+    resolved = _parse_time(
+        resolution["resolved_at"],
+        "legal_hold_resolution.resolved_at",
+    )
+    valid_until = _parse_time(
+        resolution["valid_until"],
+        "legal_hold_resolution.valid_until",
+    )
+    current = completed_at.astimezone(UTC)
+    if (
+        not resolved <= current < valid_until
+        or valid_until - resolved > timedelta(minutes=5)
+    ):
+        raise ProjectNativeLifecycleError(
+            "legal-hold resolution is not current"
+        )
+    if (
+        (resolution["state"] == "held")
+        != (resolution["legal_hold_id"] is not None)
+    ):
+        raise ProjectNativeLifecycleError(
+            "legal-hold resolution state is inconsistent"
+        )
+    if resolution["state"] == "held":
+        raise ProjectNativeLifecycleError(
+            "current legal hold prevents deletion completion"
+        )
+    return resolution
+
+
 def build_project_native_deletion_work(
     contributions: Sequence[Mapping[str, Any]],
     deletion: Mapping[str, Any],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     legal_hold: Mapping[str, Any] | None,
     now: datetime,
 ) -> dict[str, Any]:
@@ -1439,15 +1657,29 @@ def build_project_native_deletion_work(
         raise ProjectNativeLifecycleError(
             "deletion request chronology or SLA is invalid"
         )
-    all_records, _ = _validate_authoritative_graph(
+    all_records, inventory = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
     )
+    direct_ids = {
+        record["contribution_id"]
+        for record in all_records
+        if (
+            not record["input_contribution_ids"]
+            and deletion_value["consent_id"] in record["consent_ids"]
+        )
+    }
     records = [
         record
         for record in all_records
-        if deletion_value["consent_id"] in record["consent_ids"]
+        if (
+            record["contribution_id"] in direct_ids
+            or bool(
+                _transitive_ancestors(record["contribution_id"], inventory)
+                & direct_ids
+            )
+        )
     ]
     if not records:
         raise ProjectNativeLifecycleError(
@@ -1574,8 +1806,8 @@ def complete_project_native_deletion(
     work: Mapping[str, Any],
     contributions: Sequence[Mapping[str, Any]],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     deleted_raw_object_keys: Sequence[str],
     deleted_derived_object_keys: Sequence[str],
     removed_index_document_ids: Sequence[str],
@@ -1596,8 +1828,28 @@ def complete_project_native_deletion(
         )
     all_records, _ = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
+    )
+    try:
+        legal_hold_resolution = (
+            authority_resolver.resolve_legal_hold_resolution(
+                contribution_ids=record["contribution_ids"],
+                completed_at=completed_at,
+            )
+        )
+    except Exception as error:
+        raise ProjectNativeLifecycleError(
+            "current legal-hold authority is unavailable"
+        ) from error
+    if not isinstance(legal_hold_resolution, Mapping):
+        raise ProjectNativeLifecycleError(
+            "current legal-hold resolution is required"
+        )
+    _validate_current_hold_resolution(
+        legal_hold_resolution,
+        contribution_ids=record["contribution_ids"],
+        completed_at=completed_at,
     )
     affected_records = [
         contribution
@@ -1679,8 +1931,8 @@ def apply_project_native_withdrawal(
     consent: Mapping[str, Any],
     deletion: Mapping[str, Any],
     *,
-    authoritative_contribution_ids: Sequence[str],
-    lineage_authority: Mapping[str, Sequence[str]],
+    lineage_snapshot: Mapping[str, Any],
+    authority_resolver: ProjectNativeAuthorityResolver,
     legal_hold: Mapping[str, Any] | None,
     now: datetime,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -1704,8 +1956,8 @@ def apply_project_native_withdrawal(
         )
     records, inventory = _validate_authoritative_graph(
         contributions,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
     )
     direct_ids = {
         record["contribution_id"]
@@ -1733,15 +1985,18 @@ def apply_project_native_withdrawal(
     work = build_project_native_deletion_work(
         records,
         deletion_value,
-        authoritative_contribution_ids=authoritative_contribution_ids,
-        lineage_authority=lineage_authority,
+        lineage_snapshot=lineage_snapshot,
+        authority_resolver=authority_resolver,
         legal_hold=legal_hold,
         now=now,
     )
     updated: list[dict[str, Any]] = []
+    affected_ids = {
+        record["contribution_id"] for record in affected
+    }
     for record in records:
         value = copy.deepcopy(record)
-        if consent_value["consent_id"] in value["consent_ids"]:
+        if value["contribution_id"] in affected_ids:
             value["consent_state"] = "revoked"
             value["allowed_uses"] = []
             value["withdrawal_state"] = "withdrawn"
