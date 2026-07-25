@@ -3609,8 +3609,6 @@ class BoundedTrustedLaptopWorker:
         self._latest_lease_expires_at = _time(
             lease["expires_at"], "expires_at"
         )
-        self._assert_capability_covers_job(capability, job)
-        self._assert_capability_current(capability)
         attempt_record = _validate_checkpoint(attempt)
         if (
             attempt_record["pairing_id"] != pairing["pairing_id"]
@@ -3686,6 +3684,8 @@ class BoundedTrustedLaptopWorker:
                     "atomic attempt does not bind resume state"
                 )
         self._last_checkpoint = attempt_record
+        self._assert_capability_covers_job(capability, job)
+        self._assert_capability_current(capability)
         if completed is not None:
             result = _validate_result(completed)
             if (

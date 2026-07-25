@@ -1111,6 +1111,33 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 harness.control.blockers[-1]["code"], "worker_failed"
             )
 
+    def test_capability_failure_preserves_atomic_resume_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.transformer.failure_after_work = RuntimeError(
+                "synthetic transform failure"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            previous = harness.control.get_latest_checkpoint(
+                "job_synthetic_laptop_001"
+            )
+            assert previous is not None
+            previous_cpu = float(previous["cpu_seconds"])
+            harness.control.job_value = job(attempt=2)
+
+            self.assertIsNone(
+                harness.worker.run_once(
+                    capability(capabilities=["transcription"])
+                )
+            )
+            current = harness.control.get_latest_checkpoint(
+                "job_synthetic_laptop_001"
+            )
+            assert current is not None
+            self.assertGreaterEqual(
+                float(current["cpu_seconds"]), previous_cpu
+            )
+
     def test_missing_derivative_rights_blocks_before_any_object_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
