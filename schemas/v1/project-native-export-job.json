@@ -1,0 +1,75 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-export-job.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "hash": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "objectKey": {
+      "maxLength": 512,
+      "pattern": "^performing-fire/v1/(?:raw|derived)/project-native-[a-z-]+/contribution_[a-z0-9._-]+/[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "consent_ids": {
+      "items": {
+        "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "contribution_ids": {
+      "items": {
+        "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "export_job_id": {
+      "pattern": "^project_native_export_[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "export_job_sha256": {"$ref": "#/$defs/hash"},
+    "object_keys": {
+      "items": {"$ref": "#/$defs/objectKey"},
+      "type": "array",
+      "uniqueItems": true
+    },
+    "record_type": {"const": "project_native_export_job"},
+    "requested_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "schema_version": {"const": 1},
+    "state": {"const": "ready"},
+    "subject_ref": {
+      "pattern": "^subject_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "consent_ids",
+    "contribution_ids",
+    "expires_at",
+    "export_job_id",
+    "export_job_sha256",
+    "object_keys",
+    "record_type",
+    "requested_at",
+    "schema_version",
+    "state",
+    "subject_ref"
+  ],
+  "title": "Project-native subject export job v1",
+  "type": "object"
+}

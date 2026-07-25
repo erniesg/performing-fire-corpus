@@ -1,0 +1,122 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-deletion-work.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "hash": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "id": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "idArray": {
+      "items": {"$ref": "#/$defs/id"},
+      "type": "array",
+      "uniqueItems": true
+    },
+    "objectKey": {
+      "maxLength": 512,
+      "pattern": "^performing-fire/v1/(?:raw|derived)/project-native-[a-z-]+/contribution_[a-z0-9._-]+/[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "objectKeyArray": {
+      "items": {"$ref": "#/$defs/objectKey"},
+      "type": "array",
+      "uniqueItems": true
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_entry_ids": {"$ref": "#/$defs/idArray"},
+        "contribution_id": {
+          "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        "derived_object_keys": {"$ref": "#/$defs/objectKeyArray"},
+        "index_document_ids": {"$ref": "#/$defs/idArray"},
+        "raw_object_keys": {"$ref": "#/$defs/objectKeyArray"},
+        "score_export_ids": {"$ref": "#/$defs/idArray"}
+      },
+      "required": [
+        "cache_entry_ids",
+        "contribution_id",
+        "derived_object_keys",
+        "index_document_ids",
+        "raw_object_keys",
+        "score_export_ids"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cache_entry_ids": {"$ref": "#/$defs/idArray"},
+    "contribution_ids": {
+      "items": {
+        "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "deletion_due_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "deletion_id": {
+      "pattern": "^deletion_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "derived_object_keys": {"$ref": "#/$defs/objectKeyArray"},
+    "index_document_ids": {"$ref": "#/$defs/idArray"},
+    "legal_hold_id": {
+      "anyOf": [
+        {
+          "pattern": "^legal_hold_[a-z0-9][a-z0-9._-]{0,127}$",
+          "type": "string"
+        },
+        {"type": "null"}
+      ]
+    },
+    "raw_object_keys": {"$ref": "#/$defs/objectKeyArray"},
+    "record_type": {"const": "project_native_deletion_work"},
+    "requested_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "schema_version": {"const": 1},
+    "score_export_ids": {"$ref": "#/$defs/idArray"},
+    "state": {"enum": ["legal_hold_review", "pending"]},
+    "targets": {
+      "items": {"$ref": "#/$defs/target"},
+      "minItems": 1,
+      "type": "array"
+    },
+    "work_id": {
+      "pattern": "^project_native_deletion_work_[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "work_sha256": {"$ref": "#/$defs/hash"}
+  },
+  "required": [
+    "cache_entry_ids",
+    "contribution_ids",
+    "deletion_due_at",
+    "deletion_id",
+    "derived_object_keys",
+    "index_document_ids",
+    "legal_hold_id",
+    "raw_object_keys",
+    "record_type",
+    "requested_at",
+    "schema_version",
+    "score_export_ids",
+    "state",
+    "targets",
+    "work_id",
+    "work_sha256"
+  ],
+  "title": "Project-native exact deletion work v1",
+  "type": "object"
+}
