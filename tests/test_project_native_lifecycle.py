@@ -226,6 +226,43 @@ def contribution(
     )
 
 
+def graph_args(
+    records: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "authoritative_contribution_ids": sorted(
+            str(record["contribution_id"]) for record in records
+        ),
+        "lineage_authority": {
+            str(record["contribution_id"]): list(
+                record["input_contribution_ids"]
+            )
+            for record in records
+            if record["input_contribution_ids"]
+        },
+    }
+
+
+def authority_bundle(
+    consent_value: dict[str, object],
+) -> dict[str, dict[str, object]]:
+    consent_id = str(consent_value["consent_id"])
+    source_id = str(consent_value["source_id"])
+    return {
+        consent_id: {
+            "consent": consent_value,
+            "retention": retention(
+                consent_id=consent_id,
+                source_id=source_id,
+            ),
+            "deletion": deletion(
+                consent_id=consent_id,
+                source_id=source_id,
+            ),
+        }
+    }
+
+
 class ProjectNativeLifecycleTests(unittest.TestCase):
     def test_published_schemas_are_strict_and_content_free(self) -> None:
         values = {
@@ -233,6 +270,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             "project-native-export-job": build_subject_export_job(
                 [contribution()],
                 [consent()],
+                **graph_args([contribution()]),
                 subject_ref="subject_synthetic_visitor_001",
                 requested_at=NOW,
                 expires_at=NOW + timedelta(hours=1),
@@ -420,6 +458,16 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         )
         derived = derive_project_native_contribution(
             [first, second],
+            input_contribution_ids=[
+                first["contribution_id"],
+                second["contribution_id"],
+            ],
+            authorities={
+                **authority_bundle(consent()),
+                **authority_bundle(second_consent),
+            },
+            lineage_authority={},
+            redaction_applied=True,
             contribution_id="contribution_synthetic_score_001",
             source_id="project-native-generated-scores",
             data_class="generated_score",
@@ -483,6 +531,16 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         )
         derived = derive_project_native_contribution(
             [first, second],
+            input_contribution_ids=[
+                first["contribution_id"],
+                second["contribution_id"],
+            ],
+            authorities={
+                **authority_bundle(consent()),
+                **authority_bundle(artist_consent),
+            },
+            lineage_authority={},
+            redaction_applied=True,
             contribution_id="contribution_synthetic_score_002",
             source_id="project-native-generated-scores",
             data_class="generated_score",
@@ -513,6 +571,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             derived,
             [first, second, derived],
             authorities,
+            **graph_args([first, second, derived]),
             operation="indexing",
             audience="researcher",
             redaction_applied=True,
@@ -530,6 +589,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             derived,
             [first, second, derived],
             authorities,
+            **graph_args([first, second, derived]),
             operation="indexing",
             audience="researcher",
             redaction_applied=True,
@@ -541,25 +601,36 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             blocked["reasons"],
         )
 
-        missing = evaluate_project_native_graph_operation(
-            derived,
-            [second, derived],
-            authorities,
-            operation="indexing",
-            audience="researcher",
-            redaction_applied=True,
-            now=NOW,
-        )
-        self.assertFalse(missing["eligible"])
-        self.assertIn(
-            "input:contribution_synthetic_visitor_001:missing",
-            missing["reasons"],
-        )
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "completeness",
+        ):
+            evaluate_project_native_graph_operation(
+                derived,
+                [second, derived],
+                authorities,
+                authoritative_contribution_ids=[
+                    first["contribution_id"],
+                    second["contribution_id"],
+                    derived["contribution_id"],
+                ],
+                lineage_authority={
+                    derived["contribution_id"]: [
+                        first["contribution_id"],
+                        second["contribution_id"],
+                    ]
+                },
+                operation="indexing",
+                audience="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )
 
     def test_subject_export_contains_only_stable_ids_and_object_keys(self) -> None:
         value = build_subject_export_job(
             [contribution()],
             [consent()],
+            **graph_args([contribution()]),
             subject_ref="subject_synthetic_visitor_001",
             requested_at=NOW,
             expires_at=NOW + timedelta(hours=1),
@@ -587,6 +658,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             build_subject_export_job(
                 [contribution()],
                 [missing_export_authority],
+                **graph_args([contribution()]),
                 subject_ref="subject_synthetic_visitor_001",
                 requested_at=NOW,
                 expires_at=NOW + timedelta(hours=1),
@@ -598,6 +670,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             build_subject_export_job(
                 [contribution()],
                 [consent(), consent()],
+                **graph_args([contribution()]),
                 subject_ref="subject_synthetic_visitor_001",
                 requested_at=NOW,
                 expires_at=NOW + timedelta(hours=1),
@@ -609,6 +682,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             [contribution()],
             revoked,
             deletion(trigger_state="consent_revoked"),
+            **graph_args([contribution()]),
             legal_hold=None,
             now=NOW,
         )
@@ -641,6 +715,7 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             build_project_native_deletion_work(
                 [contribution()],
                 slow,
+                **graph_args([contribution()]),
                 legal_hold=None,
                 now=NOW,
             )
@@ -660,7 +735,11 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         }
         work = build_project_native_deletion_work(
             [contribution()],
-            deletion(trigger_state="consent_revoked"),
+            {
+                **deletion(trigger_state="consent_revoked"),
+                "status": "under_legal_hold_review",
+            },
+            **graph_args([contribution()]),
             legal_hold=hold,
             now=NOW,
         )
@@ -675,7 +754,11 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         ):
             build_project_native_deletion_work(
                 [contribution()],
-                deletion(trigger_state="consent_revoked"),
+                {
+                    **deletion(trigger_state="consent_revoked"),
+                    "status": "under_legal_hold_review",
+                },
+                **graph_args([contribution()]),
                 legal_hold=expired,
                 now=NOW,
             )
@@ -687,7 +770,11 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         ):
             build_project_native_deletion_work(
                 [contribution()],
-                deletion(trigger_state="consent_revoked"),
+                {
+                    **deletion(trigger_state="consent_revoked"),
+                    "status": "under_legal_hold_review",
+                },
+                **graph_args([contribution()]),
                 legal_hold=review_due,
                 now=NOW,
             )
@@ -696,11 +783,14 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         work = build_project_native_deletion_work(
             [contribution()],
             deletion(trigger_state="consent_revoked"),
+            **graph_args([contribution()]),
             legal_hold=None,
             now=NOW,
         )
         tombstones = complete_project_native_deletion(
             work,
+            [contribution()],
+            **graph_args([contribution()]),
             deleted_raw_object_keys=work["raw_object_keys"],
             deleted_derived_object_keys=work["derived_object_keys"],
             removed_index_document_ids=work["index_document_ids"],
@@ -727,6 +817,8 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         ):
             complete_project_native_deletion(
                 work,
+                [contribution()],
+                **graph_args([contribution()]),
                 deleted_raw_object_keys=[],
                 deleted_derived_object_keys=work["derived_object_keys"],
                 removed_index_document_ids=work["index_document_ids"],
@@ -742,6 +834,8 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         ):
             complete_project_native_deletion(
                 tampered,
+                [contribution()],
+                **graph_args([contribution()]),
                 deleted_raw_object_keys=work["raw_object_keys"],
                 deleted_derived_object_keys=work["derived_object_keys"],
                 removed_index_document_ids=work["index_document_ids"],
@@ -758,6 +852,8 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
         ):
             complete_project_native_deletion(
                 self_rehashed,
+                [contribution()],
+                **graph_args([contribution()]),
                 deleted_raw_object_keys=work["raw_object_keys"],
                 deleted_derived_object_keys=work["derived_object_keys"],
                 removed_index_document_ids=work["index_document_ids"],
@@ -782,6 +878,229 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
             "duplicate submission content",
         ):
             validate_project_native_contributions([first, same_content])
+
+    def test_reviewer_fail_closed_regressions(self) -> None:
+        first = contribution()
+        second = contribution(
+            contribution_id="contribution_synthetic_visitor_002",
+            raw_hash=HASH_B,
+        )
+        work = build_project_native_deletion_work(
+            [first],
+            deletion(trigger_state="consent_revoked"),
+            **graph_args([first]),
+            legal_hold=None,
+            now=NOW,
+        )
+        forged = copy.deepcopy(work)
+        forged["targets"][0]["raw_object_keys"] = second["raw_object_keys"]
+        forged["raw_object_keys"] = second["raw_object_keys"]
+        forged = rebind_deletion_work(forged)
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "authoritative contribution targets",
+        ):
+            complete_project_native_deletion(
+                forged,
+                [first],
+                **graph_args([first]),
+                deleted_raw_object_keys=forged["raw_object_keys"],
+                deleted_derived_object_keys=forged["derived_object_keys"],
+                removed_index_document_ids=forged["index_document_ids"],
+                invalidated_cache_entry_ids=forged["cache_entry_ids"],
+                removed_score_export_ids=forged["score_export_ids"],
+                completed_at=NOW + timedelta(minutes=5),
+            )
+
+        hold_status = deletion(trigger_state="consent_revoked")
+        hold_status["status"] = "under_legal_hold_review"
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "status and legal-hold",
+        ):
+            build_project_native_deletion_work(
+                [first],
+                hold_status,
+                **graph_args([first]),
+                legal_hold=None,
+                now=NOW,
+            )
+
+        future_consent = consent()
+        future_consent["decided_at"] = "2026-07-26T00:00:00Z"
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "currently effective consent",
+        ):
+            contribution(consent_value=future_consent)
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "currently effective consent",
+        ):
+            build_subject_export_job(
+                [first],
+                [future_consent],
+                **graph_args([first]),
+                subject_ref="subject_synthetic_visitor_001",
+                requested_at=NOW,
+                expires_at=NOW + timedelta(hours=1),
+            )
+
+    def test_authoritative_lineage_drives_export_and_withdrawal(self) -> None:
+        direct = contribution()
+        derived = derive_project_native_contribution(
+            [direct],
+            input_contribution_ids=[direct["contribution_id"]],
+            authorities=authority_bundle(consent()),
+            lineage_authority={},
+            redaction_applied=True,
+            contribution_id="contribution_synthetic_score_subject_001",
+            source_id="project-native-generated-scores",
+            data_class="generated_score",
+            provenance_id="provenance_synthetic_score_subject_001",
+            system_provenance_id="system_provenance_visual_rules_v1",
+            derived_object_keys=[
+                "performing-fire/v1/derived/project-native-generated-scores/"
+                f"contribution_synthetic_score_subject_001/{HASH_A}"
+            ],
+            created_at="2026-07-24T03:00:00Z",
+        )
+        records = [direct, derived]
+        authority = graph_args(records)
+        export = build_subject_export_job(
+            records,
+            [consent()],
+            **authority,
+            subject_ref="subject_synthetic_visitor_001",
+            requested_at=NOW,
+            expires_at=NOW + timedelta(hours=1),
+        )
+        self.assertEqual(
+            sorted(
+                [direct["contribution_id"], derived["contribution_id"]]
+            ),
+            export["contribution_ids"],
+        )
+
+        artist_consent = consent(
+            consent_id="consent_synthetic_artist_lineage_001",
+            source_id="project-native-artist-submissions",
+            subject_ref="subject_synthetic_artist_lineage_001",
+            confidentiality="sensitive",
+        )
+        artist = build_project_native_contribution(
+            contribution_id="contribution_synthetic_artist_lineage_001",
+            subject_ref=str(artist_consent["subject_ref"]),
+            source_id=str(artist_consent["source_id"]),
+            data_class="artist_submission",
+            purpose_code=str(artist_consent["purpose_code"]),
+            consent=artist_consent,
+            confidentiality_class="sensitive",
+            allowed_audiences=["researcher"],
+            allowed_uses=[
+                "derived_processing",
+                "indexing",
+                "metadata_inventory",
+            ],
+            provenance_id="provenance_synthetic_artist_lineage_001",
+            input_contribution_ids=[],
+            raw_object_keys=[],
+            derived_object_keys=[],
+            index_document_ids=[],
+            cache_entry_ids=[],
+            score_export_ids=[],
+            retention_expires_at="2026-08-01T00:00:00Z",
+            system_provenance_id=None,
+            created_at="2026-07-24T02:00:00Z",
+        )
+        two_input = derive_project_native_contribution(
+            [direct, artist],
+            input_contribution_ids=[
+                direct["contribution_id"],
+                artist["contribution_id"],
+            ],
+            authorities={
+                **authority_bundle(consent()),
+                **authority_bundle(artist_consent),
+            },
+            lineage_authority={},
+            redaction_applied=True,
+            contribution_id="contribution_synthetic_score_lineage_001",
+            source_id="project-native-generated-scores",
+            data_class="generated_score",
+            provenance_id="provenance_synthetic_score_lineage_001",
+            system_provenance_id="system_provenance_visual_rules_v1",
+            derived_object_keys=[],
+            created_at="2026-07-24T03:00:00Z",
+        )
+        tampered = copy.deepcopy(two_input)
+        tampered["input_contribution_ids"] = [direct["contribution_id"]]
+        tampered["consent_ids"] = direct["consent_ids"]
+        tampered["confidentiality_class"] = direct["confidentiality_class"]
+        tampered["allowed_audiences"] = direct["allowed_audiences"]
+        tampered["allowed_uses"] = direct["allowed_uses"]
+        lineage_records = [direct, artist, tampered]
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "authoritative lineage",
+        ):
+            evaluate_project_native_graph_operation(
+                tampered,
+                lineage_records,
+                {
+                    **authority_bundle(consent()),
+                    **authority_bundle(artist_consent),
+                },
+                authoritative_contribution_ids=sorted(
+                    record["contribution_id"] for record in lineage_records
+                ),
+                lineage_authority={
+                    tampered["contribution_id"]: sorted(
+                        [
+                            direct["contribution_id"],
+                            artist["contribution_id"],
+                        ]
+                    )
+                },
+                operation="indexing",
+                audience="researcher",
+                redaction_applied=True,
+                now=NOW,
+            )
+
+        revoked = consent(state="revoked")
+        updated, work = apply_project_native_withdrawal(
+            records,
+            revoked,
+            deletion(trigger_state="consent_revoked"),
+            **authority,
+            legal_hold=None,
+            now=NOW,
+        )
+        self.assertEqual(
+            sorted(
+                [direct["contribution_id"], derived["contribution_id"]]
+            ),
+            work["contribution_ids"],
+        )
+        self.assertTrue(
+            all(record["withdrawal_state"] == "withdrawn" for record in updated)
+        )
+        with self.assertRaisesRegex(
+            ProjectNativeLifecycleError,
+            "completeness",
+        ):
+            apply_project_native_withdrawal(
+                [direct],
+                revoked,
+                deletion(trigger_state="consent_revoked"),
+                authoritative_contribution_ids=authority[
+                    "authoritative_contribution_ids"
+                ],
+                lineage_authority=authority["lineage_authority"],
+                legal_hold=None,
+                now=NOW,
+            )
 
 
 if __name__ == "__main__":

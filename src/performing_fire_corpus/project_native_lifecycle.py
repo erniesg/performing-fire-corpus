@@ -231,7 +231,34 @@ def _validate_consent_record(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProjectNativeLifecycleError(
             "active consent is not affirmative and withdrawable"
         )
+    if _parse_time(
+        record["decided_at"], "consent.decided_at"
+    ) >= _parse_time(record["expires_at"], "consent.expires_at"):
+        raise ProjectNativeLifecycleError(
+            "consent authority chronology is invalid"
+        )
     return record
+
+
+def _require_consent_effective(
+    consent: Mapping[str, Any],
+    *,
+    at: datetime,
+    operation: str,
+) -> None:
+    if at.tzinfo is None:
+        raise ProjectNativeLifecycleError(
+            f"{operation} time must be timezone-aware"
+        )
+    current = at.astimezone(UTC)
+    if not (
+        _parse_time(consent["decided_at"], "consent.decided_at")
+        <= current
+        < _parse_time(consent["expires_at"], "consent.expires_at")
+    ):
+        raise ProjectNativeLifecycleError(
+            f"{operation} lacks currently effective consent"
+        )
 
 
 def _validate_bound_record(
@@ -503,6 +530,11 @@ def build_project_native_contribution(
             "contribution use exceeds consent"
         )
     created = _parse_time(created_at, "created_at")
+    _require_consent_effective(
+        consent_value,
+        at=created,
+        operation="contribution intake",
+    )
     retention_text = (
         _utc_text(
             min(
@@ -607,9 +639,96 @@ def validate_project_native_contributions(
     return sorted(records, key=lambda item: item["contribution_id"])
 
 
-def derive_project_native_contribution(
-    inputs: Sequence[Mapping[str, Any]],
+def _validate_authoritative_graph(
+    contributions: Sequence[Mapping[str, Any]],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    records = validate_project_native_contributions(contributions)
+    ids = [record["contribution_id"] for record in records]
+    expected_ids = _sorted_unique(
+        authoritative_contribution_ids,
+        "authoritative_contribution_ids",
+    )
+    if ids != expected_ids:
+        raise ProjectNativeLifecycleError(
+            "contribution inventory lacks authoritative completeness"
+        )
+    if not isinstance(lineage_authority, Mapping):
+        raise ProjectNativeLifecycleError(
+            "authoritative lineage resolver is required"
+        )
+    derived_ids = {
+        record["contribution_id"]
+        for record in records
+        if record["input_contribution_ids"]
+    }
+    if set(lineage_authority) != derived_ids:
+        raise ProjectNativeLifecycleError(
+            "authoritative lineage resolver is incomplete"
+        )
+    inventory = {
+        record["contribution_id"]: record for record in records
+    }
+    for contribution_id in sorted(derived_ids):
+        expected_inputs = _sorted_unique(
+            lineage_authority[contribution_id],
+            f"lineage_authority.{contribution_id}",
+        )
+        record = inventory[contribution_id]
+        if expected_inputs != record["input_contribution_ids"]:
+            raise ProjectNativeLifecycleError(
+                "derived contribution conflicts with authoritative lineage"
+            )
+        if any(input_id not in inventory for input_id in expected_inputs):
+            raise ProjectNativeLifecycleError(
+                "authoritative lineage references a missing contribution"
+            )
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(contribution_id: str) -> None:
+        if contribution_id in visiting:
+            raise ProjectNativeLifecycleError(
+                "authoritative contribution lineage contains a cycle"
+            )
+        if contribution_id in visited:
+            return
+        visiting.add(contribution_id)
+        for input_id in inventory[contribution_id]["input_contribution_ids"]:
+            visit(input_id)
+        visiting.remove(contribution_id)
+        visited.add(contribution_id)
+
+    for contribution_id in ids:
+        visit(contribution_id)
+    return records, inventory
+
+
+def _transitive_ancestors(
+    contribution_id: str,
+    inventory: Mapping[str, Mapping[str, Any]],
+) -> set[str]:
+    ancestors: set[str] = set()
+    pending = list(inventory[contribution_id]["input_contribution_ids"])
+    while pending:
+        input_id = pending.pop()
+        if input_id in ancestors:
+            continue
+        ancestors.add(input_id)
+        pending.extend(inventory[input_id]["input_contribution_ids"])
+    return ancestors
+
+
+def derive_project_native_contribution(
+    contributions: Sequence[Mapping[str, Any]],
+    *,
+    input_contribution_ids: Sequence[str],
+    authorities: Mapping[str, Mapping[str, Any]],
+    lineage_authority: Mapping[str, Sequence[str]],
+    redaction_applied: bool,
     contribution_id: str,
     source_id: str,
     data_class: str,
@@ -618,13 +737,65 @@ def derive_project_native_contribution(
     derived_object_keys: Sequence[str],
     created_at: str,
 ) -> dict[str, Any]:
-    """Build a derived record with the intersection of every input authority."""
+    """Build a derived record from a complete, currently authorized graph."""
 
-    records = validate_project_native_contributions(inputs)
-    if not records or data_class not in _DERIVED_DATA_CLASSES:
+    requested_inputs = _sorted_unique(
+        input_contribution_ids,
+        "input_contribution_ids",
+    )
+    records, inventory = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=[
+            record["contribution_id"]
+            for record in validate_project_native_contributions(contributions)
+        ],
+        lineage_authority=lineage_authority,
+    )
+    if (
+        not requested_inputs
+        or data_class not in _DERIVED_DATA_CLASSES
+        or any(input_id not in inventory for input_id in requested_inputs)
+    ):
         raise ProjectNativeLifecycleError(
             "derived contribution requires reviewed inputs and data class"
         )
+    required_graph_ids = set(requested_inputs)
+    for input_id in requested_inputs:
+        required_graph_ids.update(_transitive_ancestors(input_id, inventory))
+    if required_graph_ids != set(inventory):
+        raise ProjectNativeLifecycleError(
+            "derived contribution input graph is not exact"
+        )
+    direct_records = [inventory[input_id] for input_id in requested_inputs]
+    created = _parse_time(created_at, "created_at")
+    common_audiences = sorted(
+        set.intersection(
+            *(set(record["allowed_audiences"]) for record in direct_records)
+        )
+    )
+    if not common_audiences:
+        raise ProjectNativeLifecycleError(
+            "derived inputs lack a common authorized audience"
+        )
+    for input_record in direct_records:
+        result = evaluate_project_native_graph_operation(
+            input_record,
+            records,
+            authorities,
+            authoritative_contribution_ids=[
+                record["contribution_id"] for record in records
+            ],
+            lineage_authority=lineage_authority,
+            operation="derived_processing",
+            audience=common_audiences[0],
+            redaction_applied=redaction_applied,
+            now=created,
+        )
+        if not result["eligible"]:
+            raise ProjectNativeLifecycleError(
+                "derived inputs lack compatible current authority"
+            )
+    records = direct_records
     purpose_codes = {record["purpose_code"] for record in records}
     if len(purpose_codes) != 1:
         raise ProjectNativeLifecycleError(
@@ -686,9 +857,7 @@ def derive_project_native_contribution(
         "allowed_audiences": audiences,
         "allowed_uses": uses,
         "provenance_id": provenance_id,
-        "input_contribution_ids": sorted(
-            record["contribution_id"] for record in records
-        ),
+        "input_contribution_ids": requested_inputs,
         "raw_object_keys": [],
         "derived_object_keys": _sorted_unique(
             derived_object_keys,
@@ -824,6 +993,8 @@ def evaluate_project_native_graph_operation(
     contributions: Sequence[Mapping[str, Any]],
     authorities: Mapping[str, Mapping[str, Any]],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
     operation: str,
     audience: str,
     redaction_applied: bool,
@@ -832,14 +1003,21 @@ def evaluate_project_native_graph_operation(
     """Recheck a contribution and every transitive input authority."""
 
     target = validate_project_native_contribution(contribution)
-    records = validate_project_native_contributions(contributions)
-    inventory = {
-        record["contribution_id"]: record for record in records
-    }
+    records, inventory = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
+    )
     current_target = inventory.get(target["contribution_id"])
     if current_target is None:
-        inventory[target["contribution_id"]] = target
-    elif _canonical(current_target) != _canonical(target):
+        return {
+            "contribution_id": target["contribution_id"],
+            "operation": operation,
+            "audience": audience,
+            "eligible": False,
+            "reasons": ["target:missing_from_authoritative_inventory"],
+        }
+    if _canonical(current_target) != _canonical(target):
         return {
             "contribution_id": target["contribution_id"],
             "operation": operation,
@@ -1042,6 +1220,8 @@ def build_subject_export_job(
     contributions: Sequence[Mapping[str, Any]],
     consents: Sequence[Mapping[str, Any]],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
     subject_ref: str,
     requested_at: datetime,
     expires_at: datetime,
@@ -1056,9 +1236,14 @@ def build_subject_export_job(
         raise ProjectNativeLifecycleError(
             "subject export window is invalid"
         )
-    records = [
+    all_records, inventory = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
+    )
+    direct_records = [
         record
-        for record in validate_project_native_contributions(contributions)
+        for record in all_records
         if record["subject_ref"] == subject_ref
     ]
     consent_values = {
@@ -1069,13 +1254,36 @@ def build_subject_export_job(
         raise ProjectNativeLifecycleError(
             "subject export contains duplicate consent authority"
         )
-    if not records:
+    if not direct_records:
         raise ProjectNativeLifecycleError(
             "subject export has no matching contributions"
         )
+    subject_consent_ids = {
+        record["consent_ids"][0] for record in direct_records
+    }
+    direct_ids = {
+        record["contribution_id"] for record in direct_records
+    }
+    records = [
+        record
+        for record in all_records
+        if (
+            record["contribution_id"] in direct_ids
+            or bool(
+                _transitive_ancestors(record["contribution_id"], inventory)
+                & direct_ids
+            )
+        )
+    ]
+    if any(
+        not set(record["consent_ids"]).issubset(subject_consent_ids)
+        for record in records
+    ):
+        raise ProjectNativeLifecycleError(
+            "subject export cannot disclose a mixed-subject derivative"
+        )
     current = requested_at.astimezone(UTC)
-    for record in records:
-        consent_id = record["consent_ids"][0]
+    for consent_id in sorted(subject_consent_ids):
         authority = consent_values.get(consent_id)
         if (
             authority is None
@@ -1089,6 +1297,11 @@ def build_subject_export_job(
             raise ProjectNativeLifecycleError(
                 "subject export lacks current exact consent"
             )
+        _require_consent_effective(
+            authority,
+            at=current,
+            operation="subject export",
+        )
     latest_expiry = min(
         [
             _parse_time(record["retention_expires_at"], "retention_expires_at")
@@ -1096,10 +1309,10 @@ def build_subject_export_job(
         ]
         + [
             _parse_time(
-                consent_values[record["consent_ids"][0]]["expires_at"],
+                consent_values[consent_id]["expires_at"],
                 "consent.expires_at",
             )
-            for record in records
+            for consent_id in sorted(subject_consent_ids)
         ]
     )
     if expires_at.astimezone(UTC) > latest_expiry:
@@ -1111,7 +1324,7 @@ def build_subject_export_job(
         "record_type": "project_native_export_job",
         "subject_ref": subject_ref,
         "consent_ids": sorted(
-            {record["consent_ids"][0] for record in records}
+            subject_consent_ids
         ),
         "contribution_ids": [
             record["contribution_id"] for record in records
@@ -1178,6 +1391,8 @@ def build_project_native_deletion_work(
     contributions: Sequence[Mapping[str, Any]],
     deletion: Mapping[str, Any],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
     legal_hold: Mapping[str, Any] | None,
     now: datetime,
 ) -> dict[str, Any]:
@@ -1200,6 +1415,12 @@ def build_project_native_deletion_work(
         raise ProjectNativeLifecycleError(
             "deletion work lacks a durable trigger"
         )
+    if (
+        deletion_value["status"] == "under_legal_hold_review"
+    ) != (legal_hold is not None):
+        raise ProjectNativeLifecycleError(
+            "deletion status and legal-hold authority are inconsistent"
+        )
     requested_at = _parse_time(
         deletion_value["requested_at"],
         "deletion.requested_at",
@@ -1218,9 +1439,14 @@ def build_project_native_deletion_work(
         raise ProjectNativeLifecycleError(
             "deletion request chronology or SLA is invalid"
         )
+    all_records, _ = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
+    )
     records = [
         record
-        for record in validate_project_native_contributions(contributions)
+        for record in all_records
         if deletion_value["consent_id"] in record["consent_ids"]
     ]
     if not records:
@@ -1261,6 +1487,7 @@ def build_project_native_deletion_work(
         "schema_version": 1,
         "record_type": "project_native_deletion_work",
         "deletion_id": deletion_value["deletion_id"],
+        "consent_id": deletion_value["consent_id"],
         "state": state,
         "legal_hold_id": (
             None
@@ -1327,9 +1554,28 @@ def _exact_values(
         )
 
 
+def _targets_for_contributions(
+    records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "contribution_id": record["contribution_id"],
+            "raw_object_keys": record["raw_object_keys"],
+            "derived_object_keys": record["derived_object_keys"],
+            "index_document_ids": record["index_document_ids"],
+            "cache_entry_ids": record["cache_entry_ids"],
+            "score_export_ids": record["score_export_ids"],
+        }
+        for record in records
+    ]
+
+
 def complete_project_native_deletion(
     work: Mapping[str, Any],
+    contributions: Sequence[Mapping[str, Any]],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
     deleted_raw_object_keys: Sequence[str],
     deleted_derived_object_keys: Sequence[str],
     removed_index_document_ids: Sequence[str],
@@ -1347,6 +1593,29 @@ def complete_project_native_deletion(
     if completed_at.tzinfo is None:
         raise ProjectNativeLifecycleError(
             "deletion completion time must be timezone-aware"
+        )
+    all_records, _ = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
+    )
+    affected_records = [
+        contribution
+        for contribution in all_records
+        if record["consent_id"] in contribution["consent_ids"]
+    ]
+    authoritative_targets = _targets_for_contributions(affected_records)
+    if (
+        record["contribution_ids"]
+        != [
+            contribution["contribution_id"]
+            for contribution in affected_records
+        ]
+        or _canonical(record["targets"])
+        != _canonical(authoritative_targets)
+    ):
+        raise ProjectNativeLifecycleError(
+            "deletion work conflicts with authoritative contribution targets"
         )
     for expected_field, observed, label in (
         ("raw_object_keys", deleted_raw_object_keys, "raw object"),
@@ -1410,6 +1679,8 @@ def apply_project_native_withdrawal(
     consent: Mapping[str, Any],
     deletion: Mapping[str, Any],
     *,
+    authoritative_contribution_ids: Sequence[str],
+    lineage_authority: Mapping[str, Sequence[str]],
     legal_hold: Mapping[str, Any] | None,
     now: datetime,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -1431,19 +1702,39 @@ def apply_project_native_withdrawal(
         raise ProjectNativeLifecycleError(
             "withdrawal lacks linked revoked consent and deletion authority"
         )
-    records = validate_project_native_contributions(contributions)
+    records, inventory = _validate_authoritative_graph(
+        contributions,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
+    )
+    direct_ids = {
+        record["contribution_id"]
+        for record in records
+        if (
+            record["subject_ref"] == consent_value["subject_ref"]
+            and consent_value["consent_id"] in record["consent_ids"]
+        )
+    }
     affected = [
         record
         for record in records
-        if consent_value["consent_id"] in record["consent_ids"]
+        if (
+            consent_value["consent_id"] in record["consent_ids"]
+            or bool(
+                _transitive_ancestors(record["contribution_id"], inventory)
+                & direct_ids
+            )
+        )
     ]
     if not affected:
         raise ProjectNativeLifecycleError(
             "withdrawal has no linked contributions"
         )
     work = build_project_native_deletion_work(
-        affected,
+        records,
         deletion_value,
+        authoritative_contribution_ids=authoritative_contribution_ids,
+        lineage_authority=lineage_authority,
         legal_hold=legal_hold,
         now=now,
     )

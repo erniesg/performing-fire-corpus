@@ -34,7 +34,9 @@ Participant-originated records require affirmative, current, specific,
 withdrawable consent. The contribution source, pseudonymous subject, purpose,
 notice version, confidentiality, audiences, uses, and retention must remain
 within that consent. Silence, a pending record, a prechecked default, or broad
-future-use language is not authority.
+future-use language is not authority. Consent must already be effective when
+the contribution is created and when a subject export is requested; a future
+decision time or an expired authority fails closed.
 
 Each use is evaluated again against current consent, retention, deletion,
 audience, redaction, and contribution state. A stale consent snapshot, changed
@@ -42,7 +44,9 @@ purpose, stricter confidentiality, shortened retention, expiry, withdrawal,
 pending deletion, unauthorized audience, or missing redaction blocks use.
 Public retrieval additionally requires a public contribution and the public
 audience. Subject export requires both `subject_copy` policy and the explicit
-`subject_export` consent operation.
+`subject_export` consent operation. It traverses the authoritative graph and
+includes subject-only derivatives; a mixed-subject derivative is blocked
+rather than disclosed.
 
 The project-native operations are metadata inventory, derived processing,
 indexing, score generation, search visibility, retention, subject export, and
@@ -63,27 +67,35 @@ input, missing input, or missing system provenance prevents creation. A
 derived record cannot make an input more public or retain it longer.
 Every derived use traverses the complete input graph again, requires each
 current consent/retention/deletion bundle, and recomputes purpose, consent
-lineage, audiences, uses, confidentiality, and retention. A missing input,
-cycle, stale inherited field, or later input withdrawal blocks the derived
-operation.
+lineage, audiences, uses, confidentiality, and retention. The caller must
+supply the authoritative contribution-ID universe and creator-recorded
+lineage resolver. A missing inventory member, incomplete resolver, changed
+input set, cycle, stale inherited field, or later input withdrawal blocks the
+derived operation.
 
 ## Withdrawal, deletion, and legal hold
 
 Withdrawal removes allowed uses from every direct or derived record linked to
-the revoked consent and moves each record to pending deletion. The deletion
-plan contains exact targets for raw objects, derived objects, index documents,
-caches, and score exports. It carries stable IDs and object keys only.
+the revoked consent, using authoritative transitive graph traversal, and moves
+each record to pending deletion. The deletion plan contains exact targets for
+raw objects, derived objects, index documents, caches, and score exports. It
+carries stable IDs and object keys only.
 
 Completion requires exact equality between every planned and observed removal
-set. A missing or extra key fails closed. Successful completion emits one
-content-free tombstone per contribution with IDs, completion time, and counts;
-it contains no deleted content or locator.
+set and rebinds every plan target to the current authoritative contribution
+inventory before any completion can be attested. A self-consistent but
+re-targeted work record, missing contribution, or extra key fails closed.
+Successful completion emits one content-free tombstone per contribution with
+IDs, completion time, and counts; it contains no deleted content or locator.
 
 A legal hold is a separate record with reviewed authority and basis, an exact
 contribution scope, decision time, mandatory review time, and expiry. A missing,
 partial, review-due, released, or expired hold cannot authorize a held state.
 A current scoped hold produces review work and prevents automatic completion.
-It never restores use eligibility or silently becomes indefinite retention.
+The deletion authority status and supplied hold must agree exactly. A hold
+status without its reviewed hold record cannot fall through to ordinary
+pending deletion. A hold never restores use eligibility or silently becomes
+indefinite retention.
 
 ## Retention defaults and product boundary
 

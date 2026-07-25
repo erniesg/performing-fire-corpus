@@ -58,6 +58,10 @@
       "type": "array",
       "uniqueItems": true
     },
+    "consent_id": {
+      "pattern": "^consent_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
     "deletion_due_at": {
       "format": "date-time",
       "pattern": "Z$",
@@ -101,6 +105,7 @@
   },
   "required": [
     "cache_entry_ids",
+    "consent_id",
     "contribution_ids",
     "deletion_due_at",
     "deletion_id",
