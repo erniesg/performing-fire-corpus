@@ -362,7 +362,9 @@ class FakeAuthorityResolver:
 class FakeTransformer:
     def __init__(self, clock: FakeClock) -> None:
         self.clock = clock
-        self._calls = multiprocessing.Value("i", 0)
+        self._calls = multiprocessing.get_context("forkserver").Value(
+            "i", 0
+        )
         self.output = OUTPUT
         self.cpu_seconds = 2
         self.memory_bytes = 1024

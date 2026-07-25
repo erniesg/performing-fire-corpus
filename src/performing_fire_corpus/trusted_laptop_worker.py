@@ -1342,6 +1342,19 @@ def _set_hard_resource_limit(resource_kind: int, requested: int) -> None:
     resource.setrlimit(resource_kind, (target, target))
 
 
+def _set_cpu_resource_limit(requested: int) -> None:
+    _, inherited_hard = resource.getrlimit(resource.RLIMIT_CPU)
+    hard_target = (
+        requested + 1
+        if inherited_hard == resource.RLIM_INFINITY
+        else min(requested + 1, inherited_hard)
+    )
+    resource.setrlimit(
+        resource.RLIMIT_CPU,
+        (min(requested, hard_target), hard_target),
+    )
+
+
 def _stop_transform_process(process: Any) -> None:
     pid = process.pid
     if pid is None:
@@ -1378,7 +1391,7 @@ def _run_transform_child(
         baseline_rss = _maximum_rss_bytes(
             resource.getrusage(resource.RUSAGE_SELF)
         )
-        _set_hard_resource_limit(resource.RLIMIT_CPU, cpu_limit)
+        _set_cpu_resource_limit(cpu_limit)
         _set_hard_resource_limit(resource.RLIMIT_FSIZE, output_limit)
         if baseline_vms > 0:
             address_limit = baseline_vms + memory_limit
