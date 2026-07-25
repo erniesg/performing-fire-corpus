@@ -38,14 +38,16 @@ For each claim, the worker:
 3. verifies the durable input receipt and exact-key `HEAD`;
 4. downloads only that approved key into a marker-bound disposable cache and
    verifies its exact hash and size before the transformer runs;
-5. supervises a storage- and tool-injected transformation under the job
-   resource limits;
+5. runs one serializable, reviewed transformer in a fresh POSIX forkserver
+   child with kernel CPU, address-space, and output-file limits plus parent
+   watchdogs for elapsed time, resident-memory growth, and cache-disk use;
 6. checkpoints the exact output hash, size, key, and aggregate resource facts
    before any object create;
 7. refreshes the lease, elapsed bound, current authority, input tombstone, and
    target tombstone at the actual conditional-create call;
 8. accepts an output only after conditional create or matching exact-key
-   recovery, exact-key `HEAD`, and a durable object receipt;
+   recovery, exact-key `HEAD`, and a durable object receipt whose committed
+   response exactly equals the requested receipt;
 9. builds the existing most-restrictive derivation manifest from verified
    receipts, then applies the same guarded immutable-create sequence to the
    manifest; and
@@ -84,14 +86,23 @@ pairing loss releases only that job. It does not hold unrelated work.
 
 The cache root is an injected trusted-laptop setting and is not serialized.
 Each job directory has a content-free ownership marker bound to its pairing,
-lease, and job. Normal success and every handled failure remove that exact
-directory. Startup reaping removes only worker-named, validly marker-bound
-directories whose lease has expired. Symlinks, malformed markers, active
-leases, and unrelated paths are preserved.
+lease, and job. The worker pins the root and job-directory identities with
+file descriptors, writes internal files without following symlinks, and
+performs cleanup relative to those descriptors. It refuses cleanup if the
+named directory no longer has the pinned device/inode identity. Validated
+heartbeats atomically refresh the marker expiry, so an active renewed cache
+cannot be reaped using the claim's original expiry.
 
-The transformer and exact-object-store adapters receive local paths only as
-in-process arguments. They must enforce their declared streaming and operating
-system limits; they may not put paths or bytes in checkpoints, logs, errors,
+Normal success and every handled failure remove that exact directory. Startup
+reaping removes only worker-named, validly marker-bound directories whose
+renewed lease has expired. Symlinks, malformed markers, active leases,
+replaced directory entries, and unrelated paths are preserved.
+
+The exact-object-store adapter receives local paths only in process. The
+transformer is serialized into a fresh forkserver child and receives only the
+exact input path, output path, and validated job. It must remain serializable
+and reviewed; the worker independently enforces and measures the declared
+limits. Neither adapter may put paths or bytes in checkpoints, logs, errors,
 issues, evidence, or manifests.
 
 ## Durable records
@@ -115,9 +126,9 @@ in `docs/full-corpus-object-storage.md`.
 
 The portable implementation needs no human input. A future live pairing must
 separately review outbound HTTPS transport, short-lived least-privilege
-credentials, the laptop cache root, the concrete tool sandbox, and the first
-asset-specific derivative authority. Until then, there is no claim that a
-trusted laptop or hosted pairing UI is deployed.
+credentials, the laptop cache root, the concrete serializable tool adapter and
+host sandbox, and the first asset-specific derivative authority. Until then,
+there is no claim that a trusted laptop or hosted pairing UI is deployed.
 
 Rights, consent, privacy, retention, deletion, immutable-object conflicts, and
 nondeterministic-resume conflicts require corpus-operator authority. Provider

@@ -8,11 +8,19 @@ bytes exist only in a marker-bound disposable cache owned by one job.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import math
+import multiprocessing
+import os
 import re
-import shutil
+import resource
+import signal
+import stat
+import subprocess
+import sys
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -196,8 +204,6 @@ _RESULT_KEYS = {
     "schema_version",
     "record_type",
     "result_id",
-    "pairing_id",
-    "lease_id",
     "job_id",
     "job_contract_sha256",
     "source_id",
@@ -531,10 +537,9 @@ def _finite_number(value: object, label: str) -> float:
 
 
 def _media_type(value: object, label: str) -> str:
-    normalized = str(value).partition(";")[0].strip().lower()
-    if not _MEDIA_TYPE.fullmatch(normalized):
+    if not isinstance(value, str) or not _MEDIA_TYPE.fullmatch(value):
         raise TrustedLaptopWorkerError(f"invalid {label}")
-    return normalized
+    return value
 
 
 def _string_list(
@@ -553,8 +558,8 @@ def _string_list(
         _require_pattern(child, pattern, label)
         for child in value
     ]
-    if result != sorted(set(result)):
-        raise TrustedLaptopWorkerError(f"{label} must be sorted and unique")
+    if len(result) != len(set(result)):
+        raise TrustedLaptopWorkerError(f"{label} must be unique")
     return result
 
 
@@ -959,8 +964,6 @@ def _validate_result(value: Mapping[str, object]) -> dict[str, object]:
         raise TrustedLaptopWorkerError("invalid result contract")
     for field in (
         "result_id",
-        "pairing_id",
-        "lease_id",
         "job_id",
         "input_receipt_id",
         "output_receipt_id",
@@ -1185,6 +1188,252 @@ def _cache_marker(
     }
 
 
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+
+
+def _open_directory(path: Path) -> int:
+    return os.open(path, _directory_flags())
+
+
+def _same_directory_entry(
+    parent_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> bool:
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(observed.st_mode)
+        and observed.st_dev == expected.st_dev
+        and observed.st_ino == expected.st_ino
+    )
+
+
+def _read_json_at(directory_fd: int, name: str) -> object:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    file_fd = os.open(name, flags, dir_fd=directory_fd)
+    try:
+        file_stat = os.fstat(file_fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise OSError("marker is not a regular file")
+        chunks: list[bytes] = []
+        while chunk := os.read(file_fd, _CHUNK_SIZE):
+            chunks.append(chunk)
+            if sum(map(len, chunks)) > _MANIFEST_MAX_BYTES:
+                raise OSError("marker is unbounded")
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    finally:
+        os.close(file_fd)
+
+
+def _write_exclusive_at(directory_fd: int, name: str, payload: bytes) -> None:
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_fd = os.open(name, flags, 0o600, dir_fd=directory_fd)
+    try:
+        view = memoryview(payload)
+        while view:
+            written = os.write(file_fd, view)
+            if written <= 0:
+                raise OSError("short cache write")
+            view = view[written:]
+    finally:
+        os.close(file_fd)
+
+
+def _remove_directory_contents(directory_fd: int) -> None:
+    """Remove entries relative to one already-open, non-symlink directory."""
+
+    for name in os.listdir(directory_fd):
+        child_stat = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISDIR(child_stat.st_mode):
+            child_fd = os.open(name, _directory_flags(), dir_fd=directory_fd)
+            try:
+                _remove_directory_contents(child_fd)
+            finally:
+                os.close(child_fd)
+            os.rmdir(name, dir_fd=directory_fd)
+        else:
+            os.unlink(name, dir_fd=directory_fd)
+
+
+def _directory_size(directory_fd: int) -> int:
+    total = 0
+    for name in os.listdir(directory_fd):
+        child_stat = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISDIR(child_stat.st_mode):
+            child_fd = os.open(name, _directory_flags(), dir_fd=directory_fd)
+            try:
+                total += _directory_size(child_fd)
+            finally:
+                os.close(child_fd)
+        else:
+            total += child_stat.st_size
+    return total
+
+
+def _virtual_memory_bytes() -> int:
+    if sys.platform.startswith("linux"):
+        try:
+            pages = int(
+                Path("/proc/self/statm").read_text(encoding="ascii").split()[0]
+            )
+            return pages * os.sysconf("SC_PAGE_SIZE")
+        except (OSError, ValueError, IndexError):
+            pass
+    try:
+        value = subprocess.run(
+            ["ps", "-o", "vsz=", "-p", str(os.getpid())],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return int(value) * 1024
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0
+
+
+def _resident_memory_bytes(pid: int) -> int | None:
+    if sys.platform.startswith("linux"):
+        try:
+            pages = int(
+                Path(f"/proc/{pid}/statm")
+                .read_text(encoding="ascii")
+                .split()[1]
+            )
+            return pages * os.sysconf("SC_PAGE_SIZE")
+        except (OSError, ValueError, IndexError):
+            return None
+    try:
+        value = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return int(value) * 1024
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _maximum_rss_bytes(usage: Any) -> int:
+    observed = int(usage.ru_maxrss)
+    return observed if sys.platform == "darwin" else observed * 1024
+
+
+def _set_hard_resource_limit(resource_kind: int, requested: int) -> None:
+    _, inherited_hard = resource.getrlimit(resource_kind)
+    target = (
+        requested
+        if inherited_hard == resource.RLIM_INFINITY
+        else min(requested, inherited_hard)
+    )
+    resource.setrlimit(resource_kind, (target, target))
+
+
+def _stop_transform_process(process: Any) -> None:
+    pid = process.pid
+    if pid is None:
+        return
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        process.terminate()
+    process.join(timeout=0.5)
+    if not process.is_alive():
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        process.kill()
+    process.join()
+
+
+def _run_transform_child(
+    transformer: TrustedLaptopTransformer,
+    input_path: Path,
+    output_path: Path,
+    job: dict[str, object],
+    connection: Any,
+) -> None:
+    """Run one reviewed transformer in a fresh forkserver child."""
+
+    try:
+        os.setsid()
+        cpu_limit = int(job["maximum_cpu_seconds"])
+        output_limit = int(job["maximum_output_bytes"])
+        memory_limit = int(job["maximum_memory_bytes"])
+        baseline_vms = _virtual_memory_bytes()
+        baseline_rss = _maximum_rss_bytes(
+            resource.getrusage(resource.RUSAGE_SELF)
+        )
+        _set_hard_resource_limit(resource.RLIMIT_CPU, cpu_limit)
+        _set_hard_resource_limit(resource.RLIMIT_FSIZE, output_limit)
+        if baseline_vms > 0:
+            address_limit = baseline_vms + memory_limit
+            try:
+                _set_hard_resource_limit(
+                    resource.RLIMIT_AS, address_limit
+                )
+            except (OSError, ValueError):
+                # Parent-side RSS supervision remains authoritative when the
+                # host refuses to lower an address-space hard limit.
+                pass
+        try:
+            outcome = transformer.transform(
+                input_path=input_path,
+                output_path=output_path,
+                job=job,
+            )
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            payload: dict[str, object] = {
+                "state": "ok",
+                "outcome": dict(outcome),
+                "observed_cpu_seconds": float(
+                    usage.ru_utime + usage.ru_stime
+                ),
+                "observed_memory_bytes": max(
+                    0, _maximum_rss_bytes(usage) - baseline_rss
+                ),
+            }
+        except MemoryError:
+            payload = {"state": "memory_limit_exceeded"}
+        except OSError as exc:
+            payload = {
+                "state": (
+                    "output_limit_exceeded"
+                    if exc.errno == errno.EFBIG
+                    else "transformer_failed"
+                )
+            }
+        except BaseException:
+            payload = {"state": "transformer_failed"}
+        try:
+            encoded = _canonical(payload)
+            if len(encoded) > _MANIFEST_MAX_BYTES:
+                encoded = _canonical(
+                    {"state": "transformer_metrics_invalid"}
+                )
+        except BaseException:
+            encoded = _canonical(
+                {"state": "transformer_metrics_invalid"}
+            )
+        connection.send_bytes(encoded)
+    finally:
+        connection.close()
+
+
 def reap_stale_disposable_caches(
     cache_root: Path,
     *,
@@ -1215,47 +1464,68 @@ def reap_stale_disposable_caches(
     if not root.is_dir():
         raise TrustedLaptopWorkerError("cache root must be a directory")
     removed = 0
-    for candidate in tuple(root.iterdir()):
-        if (
-            candidate.is_symlink()
-            or not candidate.is_dir()
-            or not _CACHE_DIR.fullmatch(candidate.name)
-        ):
-            continue
-        marker_path = candidate / ".disposable-v1"
-        try:
-            marker = json.loads(marker_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            continue
-        if (
-            not isinstance(marker, Mapping)
-            or set(marker)
-            != {
-                "schema_version",
-                "record_type",
-                "cache_id",
-                "lease_expires_at",
-            }
-            or marker.get("schema_version") != 1
-            or marker.get("record_type")
-            != "disposable_trusted_laptop_cache"
-            or not isinstance(marker.get("cache_id"), str)
-            or not _CACHE_ID.fullmatch(str(marker["cache_id"]))
-            or candidate.name
-            != ".performing-fire-laptop-cache-"
-            + str(marker["cache_id"]).removeprefix("cache_")
-        ):
-            continue
-        try:
-            lease_expires_at = _time(
-                marker["lease_expires_at"], "lease_expires_at"
-            )
-        except TrustedLaptopWorkerError:
-            continue
-        if lease_expires_at > current_time:
-            continue
-        shutil.rmtree(candidate)
-        removed += 1
+    root_fd = _open_directory(root)
+    try:
+        for name in tuple(os.listdir(root_fd)):
+            if not _CACHE_DIR.fullmatch(name):
+                continue
+            try:
+                candidate_fd = os.open(
+                    name, _directory_flags(), dir_fd=root_fd
+                )
+            except OSError:
+                continue
+            try:
+                candidate_stat = os.fstat(candidate_fd)
+                marker = _read_json_at(candidate_fd, ".disposable-v1")
+                if (
+                    not isinstance(marker, Mapping)
+                    or set(marker)
+                    != {
+                        "schema_version",
+                        "record_type",
+                        "cache_id",
+                        "lease_expires_at",
+                    }
+                    or marker.get("schema_version") != 1
+                    or marker.get("record_type")
+                    != "disposable_trusted_laptop_cache"
+                    or not isinstance(marker.get("cache_id"), str)
+                    or not _CACHE_ID.fullmatch(str(marker["cache_id"]))
+                    or name
+                    != ".performing-fire-laptop-cache-"
+                    + str(marker["cache_id"]).removeprefix("cache_")
+                ):
+                    continue
+                lease_expires_at = _time(
+                    marker["lease_expires_at"], "lease_expires_at"
+                )
+                if (
+                    lease_expires_at > current_time
+                    or not _same_directory_entry(
+                        root_fd, name, candidate_stat
+                    )
+                ):
+                    continue
+                _remove_directory_contents(candidate_fd)
+                if not _same_directory_entry(
+                    root_fd, name, candidate_stat
+                ):
+                    continue
+                os.rmdir(name, dir_fd=root_fd)
+                removed += 1
+            except (
+                OSError,
+                UnicodeError,
+                ValueError,
+                TypeError,
+                TrustedLaptopWorkerError,
+            ):
+                continue
+            finally:
+                os.close(candidate_fd)
+    finally:
+        os.close(root_fd)
     return removed
 
 
@@ -1276,58 +1546,110 @@ class _DisposableCache:
                 "job_id": job_id,
             }
         )[:32]
+        root.mkdir(parents=True, exist_ok=True)
+        self._root_fd = _open_directory(root)
         self.path = root / (
             ".performing-fire-laptop-cache-"
             + cache_id.removeprefix("cache_")
         )
         if self.path.exists():
-            marker_path = self.path / ".disposable-v1"
-            try:
-                existing_marker = json.loads(
-                    marker_path.read_text(encoding="utf-8")
-                )
-            except (OSError, ValueError, TypeError) as exc:
-                raise TrustedLaptopWorkerError(
-                    "existing cache has no valid ownership marker"
-                ) from exc
-            if existing_marker != _cache_marker(
-                cache_id,
-                lease_expires_at=lease_expires_at,
-            ):
-                raise TrustedLaptopWorkerError(
-                    "existing cache ownership does not match this lease"
-                )
-            if self.path.is_symlink():
-                raise TrustedLaptopWorkerError(
-                    "existing cache must not be a symlink"
-                )
-            shutil.rmtree(self.path)
-        self.path.mkdir(mode=0o700)
-        (self.path / ".disposable-v1").write_text(
-            json.dumps(
+            os.close(self._root_fd)
+            raise TrustedLaptopWorkerError(
+                "existing cache must be reaped before reuse"
+            )
+        os.mkdir(self.path.name, mode=0o700, dir_fd=self._root_fd)
+        self._directory_fd = os.open(
+            self.path.name, _directory_flags(), dir_fd=self._root_fd
+        )
+        self._directory_stat = os.fstat(self._directory_fd)
+        self._cache_id = cache_id
+        _write_exclusive_at(
+            self._directory_fd,
+            ".disposable-v1",
+            _canonical(
                 _cache_marker(
                     cache_id,
                     lease_expires_at=lease_expires_at,
-                ),
-                ensure_ascii=True,
-                sort_keys=True,
-                separators=(",", ":"),
+                )
             ),
-            encoding="utf-8",
         )
         self.input_path = self.path / "input.bin"
         self.output_path = self.path / "output.bin"
         self.manifest_path = self.path / "manifest.json"
 
+    def _assert_identity(self) -> None:
+        if not _same_directory_entry(
+            self._root_fd, self.path.name, self._directory_stat
+        ):
+            raise TrustedLaptopWorkerError(
+                "disposable cache directory identity changed"
+            )
+
+    def refresh_lease_expires_at(self, lease_expires_at: str) -> None:
+        self._assert_identity()
+        _time(lease_expires_at, "lease_expires_at")
+        temporary_name = ".disposable-v1.next"
+        try:
+            os.unlink(temporary_name, dir_fd=self._directory_fd)
+        except FileNotFoundError:
+            pass
+        _write_exclusive_at(
+            self._directory_fd,
+            temporary_name,
+            _canonical(
+                _cache_marker(
+                    self._cache_id,
+                    lease_expires_at=lease_expires_at,
+                )
+            ),
+        )
+        os.rename(
+            temporary_name,
+            ".disposable-v1",
+            src_dir_fd=self._directory_fd,
+            dst_dir_fd=self._directory_fd,
+        )
+
+    def write_manifest(self, payload: bytes) -> None:
+        self._assert_identity()
+        _write_exclusive_at(self._directory_fd, "manifest.json", payload)
+
     def close(self) -> None:
-        if not self.path.exists():
-            return
-        marker = self.path / ".disposable-v1"
-        if self.path.is_symlink() or not marker.is_file() or marker.is_symlink():
+        try:
+            self._assert_identity()
+        except TrustedLaptopWorkerError:
+            os.close(self._directory_fd)
+            os.close(self._root_fd)
+            raise
+        try:
+            marker = _read_json_at(self._directory_fd, ".disposable-v1")
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+            os.close(self._directory_fd)
+            os.close(self._root_fd)
+            raise TrustedLaptopWorkerError(
+                "disposable cache ownership marker changed"
+            ) from exc
+        if (
+            not isinstance(marker, Mapping)
+            or marker.get("cache_id") != self._cache_id
+        ):
+            os.close(self._directory_fd)
+            os.close(self._root_fd)
             raise TrustedLaptopWorkerError(
                 "disposable cache ownership marker changed"
             )
-        shutil.rmtree(self.path)
+        try:
+            _remove_directory_contents(self._directory_fd)
+            if not _same_directory_entry(
+                self._root_fd, self.path.name, self._directory_stat
+            ):
+                raise TrustedLaptopWorkerError(
+                    "disposable cache directory identity changed"
+                )
+            os.rmdir(self.path.name, dir_fd=self._root_fd)
+        finally:
+            os.close(self._directory_fd)
+            os.close(self._root_fd)
 
 
 def _result_id(value: Mapping[str, object]) -> str:
@@ -1338,8 +1660,6 @@ def _result_id(value: Mapping[str, object]) -> str:
             if key
             not in {
                 "result_id",
-                "pairing_id",
-                "lease_id",
                 "completed_at",
             }
         }
@@ -1522,6 +1842,7 @@ class BoundedTrustedLaptopWorker:
         self.transformer = transformer
         self.cache_root = cache_root
         self.clock = clock
+        self._active_cache: _DisposableCache | None = None
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -1537,7 +1858,7 @@ class BoundedTrustedLaptopWorker:
         pairing: Mapping[str, object],
         lease: Mapping[str, object],
         job: Mapping[str, object],
-    ) -> None:
+    ) -> dict[str, object]:
         now = self._now()
         if _time(pairing["expires_at"], "expires_at") <= now:
             raise TrustedLaptopExecutionError(
@@ -1551,13 +1872,18 @@ class BoundedTrustedLaptopWorker:
                 str(pairing["pairing_id"]),
                 now=now,
             )
-            _validate_heartbeat(
+            validated = _validate_heartbeat(
                 heartbeat,
                 pairing=pairing,
                 lease=lease,
                 job=job,
                 now=now,
             )
+            if self._active_cache is not None:
+                self._active_cache.refresh_lease_expires_at(
+                    str(validated["expires_at"])
+                )
+            return validated
         except TrustedLaptopExecutionError:
             raise
         except Exception as exc:
@@ -1871,17 +2197,161 @@ class BoundedTrustedLaptopWorker:
         started_at: datetime,
     ) -> tuple[int, str, dict[str, float]]:
         try:
-            outcome = self.transformer.transform(
-                input_path=cache.input_path,
-                output_path=cache.output_path,
-                job=dict(job),
-            )
-        except Exception as exc:
+            context = multiprocessing.get_context("forkserver")
+        except ValueError as exc:
             raise TrustedLaptopExecutionError(
-                "transformer_failed",
-                "transform",
-                "Retry the same bounded transformation without persisting cache.",
+                "transformer_isolation_unavailable",
+                "resource",
+                "Use a trusted laptop with forkserver process isolation.",
             ) from exc
+        receive_connection, send_connection = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_run_transform_child,
+            args=(
+                self.transformer,
+                cache.input_path,
+                cache.output_path,
+                dict(job),
+                send_connection,
+            ),
+        )
+        try:
+            process.start()
+        except Exception as exc:
+            receive_connection.close()
+            send_connection.close()
+            raise TrustedLaptopExecutionError(
+                "transformer_isolation_unavailable",
+                "resource",
+                "Use a serializable reviewed transformer in the isolated lane.",
+            ) from exc
+        send_connection.close()
+        process_started = time.monotonic()
+        limit_code: str | None = None
+        baseline_child_rss = (
+            None
+            if process.pid is None
+            else _resident_memory_bytes(process.pid)
+        )
+        try:
+            deadline = (
+                process_started + float(job["maximum_elapsed_seconds"])
+            )
+            while process.is_alive():
+                observed_rss = (
+                    None
+                    if process.pid is None
+                    else _resident_memory_bytes(process.pid)
+                )
+                if baseline_child_rss is None and observed_rss is not None:
+                    baseline_child_rss = observed_rss
+                if (
+                    baseline_child_rss is not None
+                    and observed_rss is not None
+                    and observed_rss - baseline_child_rss
+                    > int(job["maximum_memory_bytes"])
+                ):
+                    limit_code = "memory_limit_exceeded"
+                    _stop_transform_process(process)
+                    break
+                if _directory_size(cache._directory_fd) > int(
+                    job["maximum_disk_bytes"]
+                ):
+                    limit_code = "disk_limit_exceeded"
+                    _stop_transform_process(process)
+                    break
+                if time.monotonic() >= deadline:
+                    limit_code = "elapsed_limit_exceeded"
+                    _stop_transform_process(process)
+                    break
+                time.sleep(0.01)
+            process.join()
+            if process.pid is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if limit_code is not None:
+                raise TrustedLaptopExecutionError(
+                    limit_code,
+                    "resource",
+                    "Discard the cache and keep this job within reviewed bounds.",
+                )
+            if process.exitcode is not None and process.exitcode < 0:
+                child_signal = -process.exitcode
+                code = (
+                    "cpu_limit_exceeded"
+                    if child_signal == signal.SIGXCPU
+                    else (
+                        "output_limit_exceeded"
+                        if child_signal == signal.SIGXFSZ
+                        else "transformer_failed"
+                    )
+                )
+                raise TrustedLaptopExecutionError(
+                    code,
+                    "resource" if code != "transformer_failed" else "transform",
+                    "Discard the cache and keep this job within reviewed bounds."
+                    if code != "transformer_failed"
+                    else "Retry the same bounded transformation without persisting cache.",
+                )
+            if not receive_connection.poll():
+                raise TrustedLaptopExecutionError(
+                    "transformer_failed",
+                    "transform",
+                    "Retry the same bounded transformation without persisting cache.",
+                )
+            encoded = receive_connection.recv_bytes(
+                maxlength=_MANIFEST_MAX_BYTES
+            )
+            try:
+                payload = json.loads(encoded.decode("ascii"))
+            except (UnicodeError, ValueError, TypeError) as exc:
+                raise TrustedLaptopExecutionError(
+                    "transformer_metrics_invalid",
+                    "resource",
+                    "Use a transformer that reports the reviewed resource metrics.",
+                ) from exc
+        finally:
+            if process.is_alive():
+                _stop_transform_process(process)
+            receive_connection.close()
+        if (
+            not isinstance(payload, Mapping)
+            or set(payload) not in (
+                {"state"},
+                {
+                    "state",
+                    "outcome",
+                    "observed_cpu_seconds",
+                    "observed_memory_bytes",
+                },
+            )
+            or payload.get("state") != "ok"
+        ):
+            state = (
+                str(payload.get("state"))
+                if isinstance(payload, Mapping)
+                else "transformer_failed"
+            )
+            code = (
+                state
+                if state
+                in {
+                    "memory_limit_exceeded",
+                    "output_limit_exceeded",
+                    "transformer_metrics_invalid",
+                }
+                else "transformer_failed"
+            )
+            raise TrustedLaptopExecutionError(
+                code,
+                "resource" if code != "transformer_failed" else "transform",
+                "Discard the cache and keep this job within reviewed bounds."
+                if code != "transformer_failed"
+                else "Retry the same bounded transformation without persisting cache.",
+            )
+        outcome = payload["outcome"]
         if not isinstance(outcome, Mapping) or set(outcome) != {
             "cpu_seconds",
             "peak_memory_bytes",
@@ -1901,7 +2371,28 @@ class BoundedTrustedLaptopWorker:
             )
         }
         output_size, output_sha256 = _file_digest(cache.output_path)
-        elapsed = (self._now() - started_at).total_seconds()
+        elapsed = max(
+            (self._now() - started_at).total_seconds(),
+            time.monotonic() - process_started,
+        )
+        metrics["cpu_seconds"] = max(
+            metrics["cpu_seconds"],
+            _finite_number(
+                payload["observed_cpu_seconds"],
+                "observed_cpu_seconds",
+            ),
+        )
+        metrics["peak_memory_bytes"] = max(
+            metrics["peak_memory_bytes"],
+            _finite_number(
+                payload["observed_memory_bytes"],
+                "observed_memory_bytes",
+            ),
+        )
+        metrics["working_disk_bytes"] = max(
+            metrics["working_disk_bytes"],
+            float(_directory_size(cache._directory_fd)),
+        )
         metrics["elapsed_seconds"] = elapsed
         checks = (
             (
@@ -1949,11 +2440,22 @@ class BoundedTrustedLaptopWorker:
         operation_id: str,
     ) -> dict[str, object]:
         try:
+            requested = validate_object_receipt(receipt)
             persisted = self.receipt_authority.upsert(
-                receipt,
+                requested,
                 operation_id=operation_id,
             )
-            return validate_object_receipt(persisted)
+            observed = validate_object_receipt(persisted)
+            if observed != requested:
+                raise TrustedLaptopExecutionError(
+                    "receipt_commit_conflict",
+                    "receipt",
+                    "Hold the exact object and reconcile its durable receipt.",
+                    required_authority_class="corpus_operator",
+                )
+            return observed
+        except TrustedLaptopExecutionError:
+            raise
         except Exception as exc:
             raise TrustedLaptopExecutionError(
                 "receipt_commit_failed",
@@ -2077,7 +2579,7 @@ class BoundedTrustedLaptopWorker:
                     "resource",
                     "Keep the sanitized manifest within the reviewed disk bound.",
                 )
-            cache.manifest_path.write_bytes(payload)
+            cache.write_manifest(payload)
             manifest_sha256 = hashlib.sha256(payload).hexdigest()
             key = manifest_object_key(
                 str(job["namespace_prefix"]),
@@ -2143,8 +2645,6 @@ class BoundedTrustedLaptopWorker:
     def _result(
         self,
         *,
-        pairing: Mapping[str, object],
-        lease: Mapping[str, object],
         job: Mapping[str, object],
         output_receipt: Mapping[str, object],
         manifest_receipt: Mapping[str, object],
@@ -2153,13 +2653,12 @@ class BoundedTrustedLaptopWorker:
         output_sha256: str,
         output_size: int,
         metrics: Mapping[str, float],
+        completed_at: str | None = None,
     ) -> dict[str, object]:
         value: dict[str, object] = {
             "schema_version": 1,
             "record_type": "trusted_laptop_result",
             "result_id": "result_placeholder",
-            "pairing_id": pairing["pairing_id"],
-            "lease_id": lease["lease_id"],
             "job_id": job["job_id"],
             "job_contract_sha256": _job_contract_sha256(job),
             "source_id": job["source_id"],
@@ -2184,7 +2683,11 @@ class BoundedTrustedLaptopWorker:
             "working_disk_bytes": metrics["working_disk_bytes"],
             "elapsed_seconds": metrics["elapsed_seconds"],
             "evidence_ref": job["evidence_ref"],
-            "completed_at": _utc_text(self._now()),
+            "completed_at": (
+                _utc_text(self._now())
+                if completed_at is None
+                else completed_at
+            ),
         }
         value["result_id"] = _result_id(value)
         return _validate_result(value)
@@ -2395,8 +2898,6 @@ class BoundedTrustedLaptopWorker:
                     required_authority_class="corpus_operator",
                 )
             return self._result(
-                pairing=pairing,
-                lease=lease,
                 job=job,
                 output_receipt=output_receipt,
                 manifest_receipt=manifest_receipt,
@@ -2413,6 +2914,7 @@ class BoundedTrustedLaptopWorker:
                         "elapsed_seconds",
                     )
                 },
+                completed_at=str(result["completed_at"]),
             )
 
         resume = self._latest_checkpoint(job=job)
@@ -2501,8 +3003,6 @@ class BoundedTrustedLaptopWorker:
                     "Keep this job blocked until its exact resume facts are complete.",
                 )
             return self._result(
-                pairing=pairing,
-                lease=lease,
                 job=job,
                 output_receipt=output_receipt,
                 manifest_receipt=manifest_receipt,
@@ -2519,6 +3019,7 @@ class BoundedTrustedLaptopWorker:
             job_id=str(job["job_id"]),
             lease_expires_at=str(lease["expires_at"]),
         )
+        self._active_cache = cache
         try:
             if output_receipt is None:
                 self._heartbeat_only(
@@ -2713,8 +3214,6 @@ class BoundedTrustedLaptopWorker:
                 progress=manifest_progress,
             )
             return self._result(
-                pairing=pairing,
-                lease=lease,
                 job=job,
                 output_receipt=output_receipt,
                 manifest_receipt=manifest_receipt,
@@ -2725,6 +3224,7 @@ class BoundedTrustedLaptopWorker:
                 metrics=metrics,
             )
         finally:
+            self._active_cache = None
             cache.close()
 
     def run_once(

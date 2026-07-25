@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import multiprocessing
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -286,6 +288,8 @@ class FakeReceiptAuthority:
         self.receipts_by_key = {INPUT_KEY: receipt}
         self.tombstones: set[str] = set()
         self.upserts: list[dict[str, object]] = []
+        self.upsert_override: dict[str, object] | None = None
+        self.tombstone_probe: Path | None = None
 
     def get_corpus_receipt(
         self, receipt_id: str
@@ -302,6 +306,12 @@ class FakeReceiptAuthority:
     def get_cleanup_tombstone_by_key(
         self, object_key: str
     ) -> dict[str, object] | None:
+        if (
+            self.tombstone_probe is not None
+            and self.tombstone_probe.exists()
+            and object_key == INPUT_KEY
+        ):
+            self.tombstones.add(object_key)
         if object_key not in self.tombstones:
             return None
         return {
@@ -319,6 +329,8 @@ class FakeReceiptAuthority:
         del operation_id
         value = copy.deepcopy(record)
         self.upserts.append(value)
+        if self.upsert_override is not None:
+            return copy.deepcopy(self.upsert_override)
         if value.get("record_type") == "object_receipt":
             self.receipts_by_id[str(value["receipt_id"])] = value
             self.receipts_by_key[str(value["object_key"])] = value
@@ -350,13 +362,26 @@ class FakeAuthorityResolver:
 class FakeTransformer:
     def __init__(self, clock: FakeClock) -> None:
         self.clock = clock
-        self.calls = 0
+        self._calls = multiprocessing.Value("i", 0)
         self.output = OUTPUT
         self.cpu_seconds = 2
         self.memory_bytes = 1024
         self.disk_bytes = len(INPUT) + len(OUTPUT)
         self.advance_seconds = 3
+        self.sleep_seconds = 0.0
+        self.busy_seconds = 0.0
+        self.allocate_bytes = 0
         self.failure: Exception | None = None
+        self.tombstone_marker_path: Path | None = None
+        self.manifest_symlink_target: Path | None = None
+        self.replace_cache_root: Path | None = None
+        self.replacement_file: Path | None = None
+        self.reap_root: Path | None = None
+        self.reap_at: datetime | None = None
+
+    @property
+    def calls(self) -> int:
+        return self._calls.value
 
     def transform(
         self,
@@ -366,12 +391,61 @@ class FakeTransformer:
         job: dict[str, object],
     ) -> dict[str, object]:
         del job
-        self.calls += 1
+        with self._calls.get_lock():
+            self._calls.value += 1
         if self.failure is not None:
             raise self.failure
-        if input_path.read_bytes() != INPUT:
+        allocation = (
+            bytearray(self.allocate_bytes)
+            if self.allocate_bytes
+            else None
+        )
+        if allocation is not None:
+            allocation[0] = 1
+        if self.busy_seconds:
+            busy_until = time.monotonic() + self.busy_seconds
+            while time.monotonic() < busy_until:
+                pass
+        effective_input_path = input_path
+        effective_output_path = output_path
+        if self.replace_cache_root is not None:
+            cache_path = output_path.parent
+            owned_path = self.replace_cache_root / "renamed-owned-cache"
+            cache_path.rename(owned_path)
+            cache_path.mkdir()
+            marker = json.loads(
+                (owned_path / ".disposable-v1").read_text(encoding="utf-8")
+            )
+            (cache_path / ".disposable-v1").write_text(
+                json.dumps(marker), encoding="utf-8"
+            )
+            if self.replacement_file is not None:
+                self.replacement_file.write_text(
+                    "preserve", encoding="utf-8"
+                )
+                (cache_path / "replacement-link").symlink_to(
+                    self.replacement_file
+                )
+            effective_input_path = owned_path / "input.bin"
+            effective_output_path = owned_path / "output.bin"
+        if self.manifest_symlink_target is not None:
+            (effective_output_path.parent / "manifest.json").symlink_to(
+                self.manifest_symlink_target
+            )
+        if effective_input_path.read_bytes() != INPUT:
             raise AssertionError("input was not verified before transform")
-        output_path.write_bytes(self.output)
+        effective_output_path.write_bytes(self.output)
+        if self.tombstone_marker_path is not None:
+            self.tombstone_marker_path.write_text(
+                "arrived", encoding="utf-8"
+            )
+        if self.reap_root is not None and self.reap_at is not None:
+            if reap_stale_disposable_caches(
+                self.reap_root, now=self.reap_at
+            ):
+                raise AssertionError("active cache was reaped")
+        if self.sleep_seconds:
+            time.sleep(self.sleep_seconds)
         self.clock.advance(self.advance_seconds)
         return {
             "cpu_seconds": self.cpu_seconds,
@@ -389,6 +463,7 @@ class FakeControlPlane:
         self.heartbeat_calls = 0
         self.fail_heartbeat_number: int | None = None
         self.fail_checkpoint_stage_after_store: str | None = None
+        self.heartbeat_extension_minutes = 5
         self.job_value: dict[str, object] | None = job()
 
     def pair_outbound(
@@ -466,7 +541,9 @@ class FakeControlPlane:
             "pairing_id": pairing_id,
             "job_id": "job_synthetic_laptop_001",
             "heartbeat_at": utc(now),
-            "expires_at": utc(now + timedelta(minutes=5)),
+            "expires_at": utc(
+                now + timedelta(minutes=self.heartbeat_extension_minutes)
+            ),
         }
         self.events.append({"event": "heartbeat", "lease_id": lease_id})
         return value
@@ -590,6 +667,19 @@ class TrustedLaptopSchemaTests(unittest.TestCase):
             ),
         )
 
+    def test_schema_and_runtime_share_capability_and_media_type_grammar(self) -> None:
+        unordered = capability(capabilities=["transcription", "ocr"])
+        self.validator.validate(unordered)
+        self.assertEqual(validate_trusted_laptop_record(unordered), unordered)
+
+        parameterized_media_type = job(
+            input_media_type="VIDEO/MP4; charset=binary"
+        )
+        with self.assertRaises(ValidationError):
+            self.validator.validate(parameterized_media_type)
+        with self.assertRaises(TrustedLaptopWorkerError):
+            validate_trusted_laptop_record(parameterized_media_type)
+
 
 class TrustedLaptopWorkerTests(unittest.TestCase):
     def test_outbound_pairing_exact_download_transform_and_two_immutable_writes(self) -> None:
@@ -701,14 +791,9 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
 
             during = Harness(Path(directory))
-            original_transform = during.transformer.transform
-
-            def transform_and_tombstone(**kwargs: object) -> dict[str, object]:
-                result = original_transform(**kwargs)
-                during.receipts.tombstones.add(INPUT_KEY)
-                return result
-
-            during.transformer.transform = transform_and_tombstone  # type: ignore[method-assign]
+            during_marker = Path(directory) / "during-transform.marker"
+            during.receipts.tombstone_probe = during_marker
+            during.transformer.tombstone_marker_path = during_marker
             self.assertIsNone(during.worker.run_once(capability()))
             self.assertEqual(during.storage.created, [])
             self.assertEqual(
@@ -789,7 +874,8 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             elapsed = Harness(Path(directory))
-            elapsed.transformer.advance_seconds = 121
+            elapsed.transformer.sleep_seconds = 2
+            elapsed.control.job_value = job(maximum_elapsed_seconds=1)
             self.assertIsNone(elapsed.worker.run_once(capability()))
             self.assertEqual(elapsed.storage.created, [])
             self.assertEqual(
@@ -807,6 +893,19 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             expired_capability = Harness(Path(directory))
+            expected_output_key = derived_object_key(
+                "performing-fire/",
+                SOURCE_ID,
+                ASSET_ID,
+                transformation_id(),
+                OUTPUT_SHA256,
+            )
+
+            def expire_during_output_head(key: str, call: int) -> None:
+                if key == expected_output_key and call == 1:
+                    expired_capability.clock.advance(2)
+
+            expired_capability.storage.before_head = expire_during_output_head
             self.assertIsNone(
                 expired_capability.worker.run_once(
                     capability(
@@ -819,6 +918,112 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 expired_capability.control.blockers[0]["code"],
                 "capability_expired",
             )
+
+    def test_transformer_elapsed_limit_is_enforced_before_it_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.transformer.sleep_seconds = 5
+            harness.control.job_value = job(maximum_elapsed_seconds=1)
+            started = time.monotonic()
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertEqual(
+                harness.control.blockers[0]["code"],
+                "elapsed_limit_exceeded",
+            )
+            self.assertEqual(harness.storage.created, [])
+
+    def test_transformer_cpu_and_memory_limits_do_not_trust_self_report(self) -> None:
+        cases = (
+            (
+                "cpu_limit_exceeded",
+                {"maximum_cpu_seconds": 1, "maximum_elapsed_seconds": 10},
+                {"busy_seconds": 5.0},
+            ),
+            (
+                "memory_limit_exceeded",
+                {
+                    "maximum_memory_bytes": 8 * 1024 * 1024,
+                    "maximum_elapsed_seconds": 10,
+                },
+                {"allocate_bytes": 32 * 1024 * 1024, "sleep_seconds": 5.0},
+            ),
+        )
+        for code, job_overrides, transformer_overrides in cases:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
+                harness = Harness(Path(directory))
+                harness.control.job_value = job(**job_overrides)
+                for field, value in transformer_overrides.items():
+                    setattr(harness.transformer, field, value)
+                started = time.monotonic()
+                self.assertIsNone(harness.worker.run_once(capability()))
+                self.assertLess(time.monotonic() - started, 4)
+                self.assertEqual(
+                    harness.control.blockers[0]["code"], code
+                )
+                self.assertEqual(harness.storage.created, [])
+
+    def test_manifest_symlink_cannot_overwrite_an_unrelated_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            unrelated = root / "unrelated.txt"
+            unrelated.write_text("preserve", encoding="utf-8")
+            harness = Harness(root)
+            harness.transformer.manifest_symlink_target = unrelated
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(unrelated.read_text(encoding="utf-8"), "preserve")
+            self.assertEqual(len(harness.storage.created), 1)
+            self.assertFalse(
+                any(
+                    "/manifests/" in key
+                    for key in harness.storage.created
+                )
+            )
+            self.assertEqual(
+                harness.control.blockers[0]["code"], "manifest_build_failed"
+            )
+
+    def test_replaced_cache_path_is_never_deleted_by_worker_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            harness = Harness(root)
+            replacement_file = root / "replacement-file-location.txt"
+            harness.transformer.replace_cache_root = root
+            harness.transformer.replacement_file = replacement_file
+            self.assertIsNone(harness.worker.run_once(capability()))
+            replacement_cache = next(
+                root.glob(".performing-fire-laptop-cache-*")
+            )
+            self.assertTrue(replacement_cache.is_dir())
+            self.assertEqual(
+                replacement_file.read_text(encoding="utf-8"), "preserve"
+            )
+
+    def test_receipt_commit_must_return_the_exact_requested_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.receipts.upsert_override = input_receipt()
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(len(harness.storage.created), 1)
+            self.assertEqual(
+                harness.control.blockers[0]["code"],
+                "receipt_commit_conflict",
+            )
+            self.assertFalse(
+                any(
+                    "/manifests/" in key
+                    for key in harness.storage.created
+                )
+            )
+
+    def test_renewed_lease_updates_active_cache_before_reaping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            harness = Harness(root)
+            harness.control.heartbeat_extension_minutes = 10
+            harness.transformer.reap_root = root
+            harness.transformer.reap_at = NOW + timedelta(minutes=6)
+            self.assertIsNotNone(harness.worker.run_once(capability()))
 
     def test_lost_create_response_recovers_only_from_matching_exact_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
