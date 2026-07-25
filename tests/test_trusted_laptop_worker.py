@@ -297,6 +297,7 @@ class FakeReceiptAuthority:
         self.tombstones: set[str] = set()
         self.upserts: list[dict[str, object]] = []
         self.upsert_override: dict[str, object] | None = None
+        self.before_upsert: Callable[[dict[str, object]], None] | None = None
         self.tombstone_probe: Path | None = None
 
     def get_corpus_receipt(
@@ -336,6 +337,8 @@ class FakeReceiptAuthority:
     ) -> dict[str, object]:
         del operation_id
         value = copy.deepcopy(record)
+        if self.before_upsert is not None:
+            self.before_upsert(value)
         self.upserts.append(value)
         if self.upsert_override is not None:
             return copy.deepcopy(self.upsert_override)
@@ -1198,6 +1201,65 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
             self.assertEqual(harness.transformer.calls, first_transform_count)
 
+    def test_result_identifier_binds_every_validated_result_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            result = harness.worker.run_once(capability())
+            self.assertIsNotNone(result)
+            assert result is not None
+            corrupted = copy.deepcopy(result)
+            corrupted["cpu_seconds"] = float(corrupted["cpu_seconds"]) + 1
+
+            with self.assertRaises(TrustedLaptopWorkerError):
+                validate_trusted_laptop_record(corrupted)
+
+    def test_final_metrics_include_manifest_work_and_recheck_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+
+            def advance_after_manifest_receipt(
+                record: dict[str, object],
+            ) -> None:
+                if record.get("object_kind") == "manifest":
+                    harness.clock.advance(2)
+
+            harness.receipts.before_upsert = advance_after_manifest_receipt
+            result = harness.worker.run_once(capability())
+            self.assertIsNotNone(result)
+            assert result is not None
+            transform_checkpoint = next(
+                event
+                for event in harness.control.events
+                if event.get("record_type") == "trusted_laptop_checkpoint"
+                and event.get("stage") == "transform_verified"
+            )
+            self.assertGreaterEqual(float(result["elapsed_seconds"]), 2)
+            self.assertGreater(
+                float(result["elapsed_seconds"]),
+                float(transform_checkpoint["elapsed_seconds"]),
+            )
+            self.assertGreater(
+                float(result["working_disk_bytes"]),
+                float(transform_checkpoint["working_disk_bytes"]),
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            exceeded = Harness(Path(directory))
+            exceeded.control.job_value = job(maximum_elapsed_seconds=1)
+
+            def exceed_after_manifest_receipt(
+                record: dict[str, object],
+            ) -> None:
+                if record.get("object_kind") == "manifest":
+                    exceeded.clock.advance(2)
+
+            exceeded.receipts.before_upsert = exceed_after_manifest_receipt
+            self.assertIsNone(exceeded.worker.run_once(capability()))
+            self.assertEqual(
+                exceeded.control.blockers[-1]["code"],
+                "elapsed_limit_exceeded",
+            )
+
     def test_interrupted_output_checkpoint_resumes_without_duplicate_transform_or_create(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
@@ -1408,6 +1470,27 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 disk.control.blockers[0]["code"],
                 "job_disk_bound_inconsistent",
             )
+
+            long_prefix = "p" * 199 + "/"
+            long_source = "source_" + "s" * 100
+            long_asset = "asset_" + "a" * 100
+            long_raw_key = raw_object_key(
+                long_prefix,
+                long_source,
+                long_asset,
+                INPUT_SHA256,
+            )
+            key_capacity = Harness(Path(directory))
+            key_capacity.control.job_value = job(
+                source_id=long_source,
+                asset_id=long_asset,
+                namespace_prefix=long_prefix,
+                input_object_key=long_raw_key,
+            )
+            with self.assertRaises(TrustedLaptopWorkerError):
+                key_capacity.worker.run_once(capability())
+            self.assertEqual(key_capacity.storage.downloads, [])
+            self.assertEqual(key_capacity.storage.head_counts, {})
 
     def test_worker_rejects_a_concurrent_run_on_the_same_instance(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -33,6 +33,7 @@ from performing_fire_corpus.corpus_objects import (
     derived_object_key,
     immutable_create_and_verify,
     manifest_object_key,
+    tombstone_object_key,
     validate_object_receipt,
 )
 from performing_fire_corpus.redaction import sanitize
@@ -755,6 +756,33 @@ def _validate_job(value: Mapping[str, object]) -> dict[str, object]:
         _positive_int(record[field], field)
     if int(record["input_byte_size"]) > int(record["maximum_input_bytes"]):
         raise TrustedLaptopWorkerError("declared input exceeds the job bound")
+    try:
+        capacity_hash = "0" * 64
+        derived_object_key(
+            str(record["namespace_prefix"]),
+            str(record["source_id"]),
+            str(record["asset_id"]),
+            str(record["transformation_id"]),
+            capacity_hash,
+        )
+        manifest_object_key(
+            str(record["namespace_prefix"]),
+            str(record["source_id"]),
+            str(record["asset_id"]),
+            "manifest_" + capacity_hash,
+            capacity_hash,
+        )
+        tombstone_object_key(
+            str(record["namespace_prefix"]),
+            str(record["source_id"]),
+            str(record["asset_id"]),
+            "tombstone_" + capacity_hash,
+            capacity_hash,
+        )
+    except CorpusObjectError as exc:
+        raise TrustedLaptopWorkerError(
+            "job object namespaces exceed the supported key capacity"
+        ) from exc
     if attempt > maximum_attempts:
         # This remains a valid durable job shape; execution records the stable
         # retry blocker rather than treating it as malformed transit.
@@ -1005,6 +1033,8 @@ def _validate_result(value: Mapping[str, object]) -> dict[str, object]:
         _finite_number(record[field], field)
     _require_pattern(record["evidence_ref"], _EVIDENCE_REF, "evidence_ref")
     _time(record["completed_at"], "completed_at")
+    if record["result_id"] != _result_id(record):
+        raise TrustedLaptopWorkerError("result identifier mismatch")
     return record
 
 
@@ -2069,6 +2099,50 @@ class BoundedTrustedLaptopWorker:
                 "resource",
                 "Discard the cache and keep this job within reviewed bounds.",
             )
+
+    def _refresh_final_metrics(
+        self,
+        *,
+        job: Mapping[str, object],
+        cache: _DisposableCache,
+        started_at: datetime,
+        metrics: Mapping[str, float],
+    ) -> dict[str, float]:
+        refreshed = dict(metrics)
+        refreshed["elapsed_seconds"] = max(
+            float(metrics["elapsed_seconds"]),
+            max(0.0, (self._now() - started_at).total_seconds()),
+        )
+        try:
+            refreshed["working_disk_bytes"] = max(
+                float(metrics["working_disk_bytes"]),
+                float(_directory_size(cache._directory_fd)),
+            )
+        except (OSError, TrustedLaptopWorkerError) as exc:
+            raise TrustedLaptopExecutionError(
+                "working_disk_measurement_failed",
+                "resource",
+                "Keep the job held until its disposable cache can be measured.",
+            ) from exc
+        for field, maximum, code in (
+            (
+                "elapsed_seconds",
+                float(job["maximum_elapsed_seconds"]),
+                "elapsed_limit_exceeded",
+            ),
+            (
+                "working_disk_bytes",
+                float(job["maximum_disk_bytes"]),
+                "disk_limit_exceeded",
+            ),
+        ):
+            if refreshed[field] > maximum:
+                raise TrustedLaptopExecutionError(
+                    code,
+                    "resource",
+                    "Discard the cache and keep this job within reviewed bounds.",
+                )
+        return refreshed
 
     def _assert_capability_current(
         self,
@@ -3396,6 +3470,12 @@ class BoundedTrustedLaptopWorker:
                 output_receipt=output_receipt,
                 boundary_guard_factory=manifest_guard_factory,
             )
+            metrics = self._refresh_final_metrics(
+                job=job,
+                cache=cache,
+                started_at=started_at,
+                metrics=metrics,
+            )
             manifest_progress = {
                 "output_object_key": output_key,
                 "output_receipt_id": output_receipt["receipt_id"],
@@ -3414,6 +3494,12 @@ class BoundedTrustedLaptopWorker:
                 job=job,
                 stage="manifest_verified",
                 progress=manifest_progress,
+            )
+            metrics = self._refresh_final_metrics(
+                job=job,
+                cache=cache,
+                started_at=started_at,
+                metrics=metrics,
             )
             return self._result(
                 job=job,

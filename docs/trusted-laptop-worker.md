@@ -32,7 +32,8 @@ identifiers and exact object keys, never media or local paths.
 
 For each claim, the worker:
 
-1. validates the current pairing, capability, job, retry budget, and lease;
+1. validates the current pairing, capability, job, retry budget, lease, and
+   capacity for every derived, manifest, and lifecycle object key before I/O;
 2. resolves current derivative-rights, consent, privacy, retention, deletion,
    and capability authority;
 3. verifies the durable input receipt and exact-key `HEAD`;
@@ -55,7 +56,8 @@ For each claim, the worker:
    manifest; and
 10. completes with a content-free result containing exact object/receipt IDs,
     hashes, sizes, inherited rights/privacy/retention facts, and aggregate
-    resource use.
+    resource use refreshed after manifest persistence and rechecked against
+    the final elapsed-time and cache-disk bounds.
 
 There is no list operation and no object delete operation in this worker.
 Deletion propagation is checked before input access, after transformation,
@@ -69,6 +71,8 @@ Checkpoints are hash-bound and monotonic by stage:
 - every checkpoint and terminal result binds the immutable job contract
   (authority, input, tool/version, parameters, bounds, and retention), while
   excluding only the retry ordinal so an identical safe retry can resume;
+- every result ID binds all stable validated result facts; a stale ID on a
+  modified durable result fails closed;
 - `transform_verified` fixes the only output hash/key the job may create;
 - `output_verified` fixes the durable derived-object receipt; and
 - `manifest_verified` fixes both exact object receipts.
