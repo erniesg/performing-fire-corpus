@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m unittest:*)",
+      "Bash(python3 -m unittest discover -s tests)",
+      "Bash(scripts/agent-evidence)",
+      "Bash(scripts/agent-evidence:*)"
+    ]
+  }
+}
