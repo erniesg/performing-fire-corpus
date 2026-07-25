@@ -1,0 +1,626 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/trusted-laptop-worker.json",
+  "title": "Outbound trusted-laptop worker records v1",
+  "oneOf": [
+    {"$ref": "#/$defs/capability"},
+    {"$ref": "#/$defs/pairing"},
+    {"$ref": "#/$defs/job"},
+    {"$ref": "#/$defs/lease"},
+    {"$ref": "#/$defs/heartbeat"},
+    {"$ref": "#/$defs/checkpoint"},
+    {"$ref": "#/$defs/result"},
+    {"$ref": "#/$defs/blocker"}
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$"
+    },
+    "asset_id": {
+      "type": "string",
+      "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "transformation_id": {
+      "type": "string",
+      "pattern": "^transform_[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utc_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "safe_label": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    },
+    "evidence_ref": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$"
+    },
+    "object_key": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[a-z0-9][a-z0-9._/-]{0,511}$"
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+    },
+    "positive_integer": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "capability_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$"
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "confidence_threshold_milli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}$"
+        },
+        "model_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$"
+        },
+        "output_format": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$"
+        },
+        "profile_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$"
+        },
+        "sample_rate_hz": {
+          "type": "integer",
+          "minimum": 8000,
+          "maximum": 192000
+        },
+        "segment_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "task": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]{0,63}$"
+        },
+        "temperature_milli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "pairing_protocol",
+        "capabilities",
+        "max_concurrency",
+        "maximum_input_bytes",
+        "maximum_output_bytes",
+        "maximum_cpu_seconds",
+        "maximum_memory_bytes",
+        "maximum_disk_bytes",
+        "maximum_elapsed_seconds",
+        "issued_at",
+        "expires_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_capability"},
+        "pairing_protocol": {"const": "outbound-https-v1"},
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capability_name"}
+        },
+        "max_concurrency": {"const": 1},
+        "maximum_input_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_output_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_cpu_seconds": {"$ref": "#/$defs/positive_integer"},
+        "maximum_memory_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_disk_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_elapsed_seconds": {"$ref": "#/$defs/positive_integer"},
+        "issued_at": {"$ref": "#/$defs/utc_time"},
+        "expires_at": {"$ref": "#/$defs/utc_time"}
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "pairing_id",
+        "transport",
+        "direction",
+        "paired_at",
+        "expires_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_pairing"},
+        "pairing_id": {"$ref": "#/$defs/identifier"},
+        "transport": {"const": "outbound_https"},
+        "direction": {"const": "laptop_initiated"},
+        "paired_at": {"$ref": "#/$defs/utc_time"},
+        "expires_at": {"$ref": "#/$defs/utc_time"}
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "job_id",
+        "source_id",
+        "asset_id",
+        "rights_id",
+        "transformation_id",
+        "input_receipt_id",
+        "input_object_key",
+        "input_sha256",
+        "input_byte_size",
+        "input_media_type",
+        "input_rights_snapshot_sha256",
+        "derivation_authority_sha256",
+        "privacy_snapshot_sha256",
+        "retention_class",
+        "retrieval_decision",
+        "required_capability",
+        "tool_id",
+        "tool_version",
+        "contract_version",
+        "parameters",
+        "parameters_sha256",
+        "output_media_type",
+        "redaction_state",
+        "namespace_prefix",
+        "creation_run_id",
+        "evidence_ref",
+        "attempt",
+        "maximum_attempts",
+        "maximum_input_bytes",
+        "maximum_output_bytes",
+        "maximum_cpu_seconds",
+        "maximum_memory_bytes",
+        "maximum_disk_bytes",
+        "maximum_elapsed_seconds"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_transformation_job"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "asset_id": {"$ref": "#/$defs/asset_id"},
+        "rights_id": {"$ref": "#/$defs/identifier"},
+        "transformation_id": {"$ref": "#/$defs/transformation_id"},
+        "input_receipt_id": {"$ref": "#/$defs/identifier"},
+        "input_object_key": {"$ref": "#/$defs/object_key"},
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "input_byte_size": {"type": "integer", "minimum": 0},
+        "input_media_type": {"$ref": "#/$defs/media_type"},
+        "input_rights_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "derivation_authority_sha256": {"$ref": "#/$defs/sha256"},
+        "privacy_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "retention_class": {"$ref": "#/$defs/safe_label"},
+        "retrieval_decision": {"const": "approved"},
+        "required_capability": {"$ref": "#/$defs/capability_name"},
+        "tool_id": {
+          "type": "string",
+          "pattern": "^tool_[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "tool_version": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+){0,3}(?:[-+][a-z0-9.-]+)?$"
+        },
+        "contract_version": {"$ref": "#/$defs/positive_integer"},
+        "parameters": {"$ref": "#/$defs/parameters"},
+        "parameters_sha256": {"$ref": "#/$defs/sha256"},
+        "output_media_type": {"$ref": "#/$defs/media_type"},
+        "redaction_state": {"$ref": "#/$defs/safe_label"},
+        "namespace_prefix": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[a-z0-9][a-z0-9._/-]{2,255}/$"
+        },
+        "creation_run_id": {
+          "type": "string",
+          "pattern": "^run_[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "evidence_ref": {"$ref": "#/$defs/evidence_ref"},
+        "attempt": {"$ref": "#/$defs/positive_integer"},
+        "maximum_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "maximum_input_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_output_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_cpu_seconds": {"$ref": "#/$defs/positive_integer"},
+        "maximum_memory_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_disk_bytes": {"$ref": "#/$defs/positive_integer"},
+        "maximum_elapsed_seconds": {"$ref": "#/$defs/positive_integer"}
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "lease_id",
+        "pairing_id",
+        "job_id",
+        "acquired_at",
+        "expires_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_lease"},
+        "lease_id": {"$ref": "#/$defs/identifier"},
+        "pairing_id": {"$ref": "#/$defs/identifier"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "acquired_at": {"$ref": "#/$defs/utc_time"},
+        "expires_at": {"$ref": "#/$defs/utc_time"}
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "lease_id",
+        "pairing_id",
+        "job_id",
+        "heartbeat_at",
+        "expires_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_heartbeat"},
+        "lease_id": {"$ref": "#/$defs/identifier"},
+        "pairing_id": {"$ref": "#/$defs/identifier"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "heartbeat_at": {"$ref": "#/$defs/utc_time"},
+        "expires_at": {"$ref": "#/$defs/utc_time"}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "checkpoint_id",
+        "pairing_id",
+        "lease_id",
+        "job_id",
+        "job_contract_sha256",
+        "stage",
+        "attempt_open",
+        "input_object_key",
+        "output_object_key",
+        "output_receipt_id",
+        "manifest_object_key",
+        "manifest_receipt_id",
+        "output_sha256",
+        "output_byte_size",
+        "cpu_seconds",
+        "peak_memory_bytes",
+        "working_disk_bytes",
+        "elapsed_seconds",
+        "resume_state_sha256",
+        "recorded_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_checkpoint"},
+        "checkpoint_id": {"$ref": "#/$defs/identifier"},
+        "pairing_id": {"$ref": "#/$defs/identifier"},
+        "lease_id": {"$ref": "#/$defs/identifier"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "job_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "stage": {
+          "enum": [
+            "claimed",
+            "input_verified",
+            "transform_started",
+            "attempt_failed",
+            "transform_verified",
+            "output_verified",
+            "manifest_verified"
+          ]
+        },
+        "attempt_open": {"type": "boolean"},
+        "input_object_key": {"$ref": "#/$defs/object_key"},
+        "output_object_key": {
+          "oneOf": [
+            {"$ref": "#/$defs/object_key"},
+            {"type": "null"}
+          ]
+        },
+        "output_receipt_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/identifier"},
+            {"type": "null"}
+          ]
+        },
+        "manifest_object_key": {
+          "oneOf": [
+            {"$ref": "#/$defs/object_key"},
+            {"type": "null"}
+          ]
+        },
+        "manifest_receipt_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/identifier"},
+            {"type": "null"}
+          ]
+        },
+        "output_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "output_byte_size": {
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "cpu_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "peak_memory_bytes": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "working_disk_bytes": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "elapsed_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "resume_state_sha256": {"$ref": "#/$defs/sha256"},
+        "recorded_at": {"$ref": "#/$defs/utc_time"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "enum": ["claimed", "input_verified", "transform_started"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"type": "null"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"type": "null"},
+              "output_byte_size": {"type": "null"},
+              "cpu_seconds": {"type": "null"},
+              "peak_memory_bytes": {"type": "null"},
+              "working_disk_bytes": {"type": "null"},
+              "elapsed_seconds": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "attempt_failed"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"type": "null"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"type": "null"},
+              "output_byte_size": {"type": "null"},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "transform_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "output_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"$ref": "#/$defs/identifier"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "manifest_verified"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"$ref": "#/$defs/object_key"},
+              "output_receipt_id": {"$ref": "#/$defs/identifier"},
+              "manifest_object_key": {"$ref": "#/$defs/object_key"},
+              "manifest_receipt_id": {"$ref": "#/$defs/identifier"},
+              "output_sha256": {"$ref": "#/$defs/sha256"},
+              "output_byte_size": {"type": "integer", "minimum": 0},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "result_id",
+        "job_id",
+        "job_contract_sha256",
+        "source_id",
+        "asset_id",
+        "transformation_id",
+        "input_receipt_id",
+        "output_receipt_id",
+        "manifest_receipt_id",
+        "output_object_key",
+        "manifest_object_key",
+        "output_sha256",
+        "output_byte_size",
+        "rights_snapshot_sha256",
+        "privacy_snapshot_sha256",
+        "retention_class",
+        "retrieval_decision",
+        "redaction_state",
+        "cpu_seconds",
+        "peak_memory_bytes",
+        "working_disk_bytes",
+        "elapsed_seconds",
+        "evidence_ref",
+        "completed_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_result"},
+        "result_id": {"$ref": "#/$defs/identifier"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "job_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "source_id": {"$ref": "#/$defs/source_id"},
+        "asset_id": {"$ref": "#/$defs/asset_id"},
+        "transformation_id": {"$ref": "#/$defs/transformation_id"},
+        "input_receipt_id": {"$ref": "#/$defs/identifier"},
+        "output_receipt_id": {"$ref": "#/$defs/identifier"},
+        "manifest_receipt_id": {"$ref": "#/$defs/identifier"},
+        "output_object_key": {"$ref": "#/$defs/object_key"},
+        "manifest_object_key": {"$ref": "#/$defs/object_key"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "output_byte_size": {"type": "integer", "minimum": 0},
+        "rights_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "privacy_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "retention_class": {"$ref": "#/$defs/safe_label"},
+        "retrieval_decision": {"const": "approved"},
+        "redaction_state": {"$ref": "#/$defs/safe_label"},
+        "cpu_seconds": {"type": "number", "minimum": 0},
+        "peak_memory_bytes": {"type": "number", "minimum": 0},
+        "working_disk_bytes": {"type": "number", "minimum": 0},
+        "elapsed_seconds": {"type": "number", "minimum": 0},
+        "evidence_ref": {"$ref": "#/$defs/evidence_ref"},
+        "completed_at": {"$ref": "#/$defs/utc_time"}
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "record_type",
+        "blocker_id",
+        "pairing_id",
+        "lease_id",
+        "job_id",
+        "code",
+        "gate",
+        "required_authority_class",
+        "next_safe_action",
+        "resume_state_sha256",
+        "recorded_at"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "trusted_laptop_blocker"},
+        "blocker_id": {"$ref": "#/$defs/identifier"},
+        "pairing_id": {"$ref": "#/$defs/identifier"},
+        "lease_id": {"$ref": "#/$defs/identifier"},
+        "job_id": {"$ref": "#/$defs/identifier"},
+        "code": {"$ref": "#/$defs/safe_label"},
+        "gate": {"$ref": "#/$defs/safe_label"},
+        "required_authority_class": {
+          "enum": ["none", "corpus_operator"]
+        },
+        "next_safe_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "resume_state_sha256": {"$ref": "#/$defs/sha256"},
+        "recorded_at": {"$ref": "#/$defs/utc_time"}
+      }
+    }
+  }
+}
