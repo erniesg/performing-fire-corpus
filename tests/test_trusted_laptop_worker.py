@@ -1301,11 +1301,13 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 pairing_id: str,
                 *,
                 now: datetime,
+                timeout_seconds: float,
             ) -> dict[str, object]:
                 value = original_heartbeat(
                     lease_id,
                     pairing_id,
                     now=now,
+                    timeout_seconds=timeout_seconds,
                 )
                 if harness.control.heartbeat_calls == 6:
                     harness.clock.advance(2)
