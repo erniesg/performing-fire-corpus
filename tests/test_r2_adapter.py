@@ -23,6 +23,7 @@ from performing_fire_corpus.cli import main
 from performing_fire_corpus.r2 import (
     R2StorageClient,
     UrllibHTTPClient,
+    UrllibHTTPResponse,
     _isolated_botocore_session,
     build_r2_client,
 )
@@ -391,6 +392,23 @@ class R2AdapterTests(OfflineTestCase):
                 "http://127.0.0.1/private",
             )
         )
+
+    def test_production_http_response_exposes_exact_status(self) -> None:
+        class Response:
+            status = 206
+            headers = {
+                "Content-Type": "video/mp4",
+                "Content-Length": "4",
+            }
+
+            def geturl(self) -> str:
+                return "https://antiegg.kr/media/synthetic.mp4"
+
+            def getcode(self) -> int:
+                return self.status
+
+        wrapped = UrllibHTTPResponse(Response())
+        self.assertEqual(206, wrapped.status)
 
 
 class FakeHTTPResponse:

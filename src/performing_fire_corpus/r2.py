@@ -409,6 +409,13 @@ class UrllibHTTPResponse:
     def __init__(self, response: Any) -> None:
         self._response = response
         self.final_url = response.geturl()
+        status = getattr(response, "status", None)
+        if not isinstance(status, int) or isinstance(status, bool):
+            try:
+                status = response.getcode()
+            except Exception:
+                status = None
+        self.status = status
         self.media_type = response.headers.get("Content-Type", "")
         raw_length = response.headers.get("Content-Length")
         try:

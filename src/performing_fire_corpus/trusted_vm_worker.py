@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from performing_fire_corpus.corpus_objects import (
+    CorpusObjectError,
     bind_object_receipt,
     immutable_create_and_verify,
     raw_object_key,
@@ -112,6 +113,15 @@ _RECEIPT_KEYS = {
     "provenance_receipt_id",
     "downstream_job_ids",
 }
+_SOURCE_ATTEMPT_KEYS = {
+    "schema_version",
+    "record_type",
+    "reservation_id",
+    "job_id",
+    "source_id",
+    "state",
+    "recorded_at",
+}
 _EXECUTION_CONTEXT_KEYS = {
     "public_url",
     "source_locator_id",
@@ -133,6 +143,22 @@ _SAFE_LABEL = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 _RUN_ID = re.compile(r"^run_[a-z0-9][a-z0-9._-]{0,127}$")
 _EVIDENCE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
 _CHUNK_SIZE = 64 * 1024
+_HUMAN_EXECUTION_CODES = frozenset(
+    {
+        "exact_key_recovery_failed",
+        "durable_receipt_conflict",
+        "durable_receipt_object_absent",
+        "immutable_object_conflict",
+        "object_receipt_conflict",
+        "object_tombstoned",
+        "source_access_denied",
+        "source_hash_mismatch",
+        "source_mime_mismatch",
+        "source_size_exceeded",
+        "source_size_mismatch",
+        "source_url_mismatch",
+    }
+)
 
 
 class TrustedVMWorkerError(ValueError):
@@ -146,11 +172,15 @@ class TrustedVMExecutionError(RuntimeError):
         self.code = code
         self.gate = gate
         self.next_safe_action = next_safe_action
+        self.required_authority_class = (
+            "corpus_operator" if code in _HUMAN_EXECUTION_CODES else "none"
+        )
         _safe(
             {
                 "code": code,
                 "gate": gate,
                 "next_safe_action": next_safe_action,
+                "required_authority_class": self.required_authority_class,
             }
         )
         super().__init__(f"{code}: {next_safe_action}")
@@ -209,7 +239,23 @@ class TrustedVMBoundedHTTPClient(Protocol):
 
 
 class TrustedVMRatePermit(Protocol):
-    def allow(self, *, job_id: str, source_id: str, now: datetime) -> bool: ...
+    def reserve_once(
+        self,
+        *,
+        job_id: str,
+        source_id: str,
+        now: datetime,
+    ) -> Mapping[str, object]: ...
+
+
+class TrustedVMLeaseGuard(Protocol):
+    def maintain(
+        self,
+        *,
+        lease_id: str,
+        job_id: str,
+        now: datetime,
+    ) -> bool: ...
 
 
 class TrustedVMReceiptAuthority(Protocol):
@@ -470,11 +516,16 @@ def _blocker(
     code: str,
     gate: str,
     next_safe_action: str = "Repair only the named gate, then resume this exact job.",
+    required_authority_class: str = "none",
 ) -> dict[str, object]:
+    if required_authority_class not in {"none", "corpus_operator"}:
+        raise TrustedVMWorkerError("blocker authority class is invalid")
     resume_payload = {
         "job_id": job["job_id"],
         "policy_snapshot_sha256": job["policy_snapshot_sha256"],
         "outcome_code": code,
+        "affected_gate": gate,
+        "required_authority_class": required_authority_class,
     }
     resume_token = "resume_" + hashlib.sha256(_canonical(resume_payload)).hexdigest()[:24]
     return {
@@ -485,7 +536,7 @@ def _blocker(
         "lease_id": lease["lease_id"],
         "outcome_code": code,
         "affected_gate": gate,
-        "required_authority_class": "corpus_operator",
+        "required_authority_class": required_authority_class,
         "next_safe_action": next_safe_action,
         "resume_token": resume_token,
     }
@@ -511,6 +562,28 @@ def _validate_receipt(
     ):
         raise TrustedVMWorkerError("acquisition receipt is not exact")
     record["downstream_job_ids"] = downstream
+    return record
+
+
+def _validate_source_attempt(
+    value: Mapping[str, object],
+    *,
+    job: Mapping[str, object],
+    now: datetime,
+) -> dict[str, object]:
+    record = _exact(value, _SOURCE_ATTEMPT_KEYS, "source attempt reservation")
+    if (
+        record["schema_version"] != 1
+        or record["record_type"] != "trusted_vm_source_attempt_reservation"
+        or record["job_id"] != job["job_id"]
+        or record["source_id"] != job["source_id"]
+        or not isinstance(record["reservation_id"], str)
+        or not str(record["reservation_id"]).startswith("source_attempt_")
+        or record["state"]
+        not in {"reserved", "already_reserved", "rate_not_ready"}
+        or _time(record["recorded_at"], "source_attempt.recorded_at") != now
+    ):
+        raise TrustedVMWorkerError("source attempt reservation is not exact")
     return record
 
 
@@ -700,6 +773,7 @@ class BoundedTrustedVMAcquisitionExecutor:
         cache_directory: str | Path,
         clock: Callable[[], datetime],
         rate_permit: TrustedVMRatePermit,
+        lease_guard: TrustedVMLeaseGuard,
     ) -> None:
         self._context_resolver = context_resolver
         self._http_client = http_client
@@ -708,6 +782,7 @@ class BoundedTrustedVMAcquisitionExecutor:
         self._cache_directory = Path(cache_directory)
         self._clock = clock
         self._rate_permit = rate_permit
+        self._lease_guard = lease_guard
 
     def _elapsed(
         self,
@@ -767,15 +842,35 @@ class BoundedTrustedVMAcquisitionExecutor:
         }
         return _validate_receipt(value, job=job)
 
-    def _recover_existing(
+    def _maintain_lease(
+        self,
+        *,
+        lease_id: str,
+        job: Mapping[str, object],
+        now: datetime,
+    ) -> None:
+        try:
+            current = self._lease_guard.maintain(
+                lease_id=lease_id,
+                job_id=str(job["job_id"]),
+                now=now,
+            )
+        except Exception:
+            current = False
+        if current is not True:
+            _execution_failure(
+                "lease_lost_during_acquisition",
+                "lease",
+                "Release this attempt and resume only from its durable exact state.",
+            )
+
+    def _current_tombstone(
         self,
         *,
         job: Mapping[str, object],
-        context: _ExecutionContext,
-        metadata: Mapping[str, object],
-    ) -> dict[str, object]:
+    ) -> Mapping[str, object] | None:
         try:
-            tombstone = self._receipts.get_cleanup_tombstone_by_key(
+            return self._receipts.get_cleanup_tombstone_by_key(
                 str(job["target_object_key"])
             )
         except Exception:
@@ -784,7 +879,15 @@ class BoundedTrustedVMAcquisitionExecutor:
                 "retention",
                 "Restore current exact-key retention authority before resuming.",
             )
-        if tombstone is not None:
+
+    def _recover_existing(
+        self,
+        *,
+        job: Mapping[str, object],
+        context: _ExecutionContext,
+        metadata: Mapping[str, object],
+    ) -> dict[str, object]:
+        if self._current_tombstone(job=job) is not None:
             _execution_failure(
                 "object_tombstoned",
                 "retention",
@@ -851,7 +954,6 @@ class BoundedTrustedVMAcquisitionExecutor:
         authority: dict[str, object],
         lease_id: str,
     ) -> Mapping[str, object]:
-        del lease_id
         checked_job = _validate_job(job)
         started = _clock_time(self._clock)
         _, authority_error = _validate_authority(
@@ -879,7 +981,18 @@ class BoundedTrustedVMAcquisitionExecutor:
         if not isinstance(raw_context, Mapping):
             raise TrustedVMWorkerError("execution context resolver returned invalid data")
         context = _validate_execution_context(raw_context, job=checked_job)
-        self._elapsed(started=started, context=context)
+        current = self._elapsed(started=started, context=context)
+        self._maintain_lease(
+            lease_id=lease_id,
+            job=checked_job,
+            now=current,
+        )
+        if self._current_tombstone(job=checked_job) is not None:
+            _execution_failure(
+                "object_tombstoned",
+                "retention",
+                "Keep this exact object held and review authority before reacquisition.",
+            )
 
         try:
             existing = self._storage.head_object(
@@ -899,15 +1012,36 @@ class BoundedTrustedVMAcquisitionExecutor:
             )
 
         current = self._elapsed(started=started, context=context)
+        self._maintain_lease(
+            lease_id=lease_id,
+            job=checked_job,
+            now=current,
+        )
         try:
-            permitted = self._rate_permit.allow(
-                job_id=str(checked_job["job_id"]),
-                source_id=str(checked_job["source_id"]),
+            reservation = _validate_source_attempt(
+                self._rate_permit.reserve_once(
+                    job_id=str(checked_job["job_id"]),
+                    source_id=str(checked_job["source_id"]),
+                    now=current,
+                ),
+                job=checked_job,
                 now=current,
             )
+        except TrustedVMWorkerError:
+            raise
         except Exception:
-            permitted = False
-        if permitted is not True:
+            _execution_failure(
+                "source_attempt_authority_unavailable",
+                "access",
+                "Restore the durable one-shot source-attempt authority.",
+            )
+        if reservation["state"] == "already_reserved":
+            _execution_failure(
+                "source_attempt_already_reserved",
+                "access",
+                "Reconcile this exact attempt; issue a separately reviewed retry job if needed.",
+            )
+        if reservation["state"] == "rate_not_ready":
             _execution_failure(
                 "source_rate_not_ready",
                 "access",
@@ -916,6 +1050,12 @@ class BoundedTrustedVMAcquisitionExecutor:
 
         temporary_path: Path | None = None
         try:
+            current = self._elapsed(started=started, context=context)
+            self._maintain_lease(
+                lease_id=lease_id,
+                job=checked_job,
+                now=current,
+            )
             try:
                 response = self._http_client.open(
                     context.public_url,
@@ -927,7 +1067,13 @@ class BoundedTrustedVMAcquisitionExecutor:
                     "access",
                     "Retry this exact bounded source request after the access gate recovers.",
                 )
-            status = getattr(response, "status", 200)
+            status = getattr(response, "status", None)
+            if not isinstance(status, int) or isinstance(status, bool):
+                _execution_failure(
+                    "source_status_unavailable",
+                    "access",
+                    "Use a bounded HTTP client that exposes the exact response status.",
+                )
             if status in {401, 403}:
                 _execution_failure(
                     "source_access_denied",
@@ -995,7 +1141,30 @@ class BoundedTrustedVMAcquisitionExecutor:
             byte_size = 0
             try:
                 with handle:
-                    for chunk in response.iter_bytes(_CHUNK_SIZE):
+                    iterator = iter(response.iter_bytes(_CHUNK_SIZE))
+                    while True:
+                        current = self._elapsed(
+                            started=started,
+                            context=context,
+                        )
+                        self._maintain_lease(
+                            lease_id=lease_id,
+                            job=checked_job,
+                            now=current,
+                        )
+                        try:
+                            chunk = next(iterator)
+                        except StopIteration:
+                            break
+                        current = self._elapsed(
+                            started=started,
+                            context=context,
+                        )
+                        self._maintain_lease(
+                            lease_id=lease_id,
+                            job=checked_job,
+                            now=current,
+                        )
                         if not isinstance(chunk, bytes):
                             _execution_failure(
                                 "source_stream_invalid",
@@ -1011,7 +1180,6 @@ class BoundedTrustedVMAcquisitionExecutor:
                             )
                         hasher.update(chunk)
                         handle.write(chunk)
-                        self._elapsed(started=started, context=context)
             except TrustedVMExecutionError:
                 raise
             except Exception:
@@ -1037,6 +1205,11 @@ class BoundedTrustedVMAcquisitionExecutor:
                     "Requalify this changed source asset before any new object create.",
                 )
             create_time = self._elapsed(started=started, context=context)
+            self._maintain_lease(
+                lease_id=lease_id,
+                job=checked_job,
+                now=create_time,
+            )
             _, create_authority_error = _validate_authority(
                 authority,
                 job=checked_job,
@@ -1047,6 +1220,12 @@ class BoundedTrustedVMAcquisitionExecutor:
                     "authority_expired_before_create",
                     "policy_snapshot",
                     "Refresh every acquisition authority gate before any object create.",
+                )
+            if self._current_tombstone(job=checked_job) is not None:
+                _execution_failure(
+                    "object_tombstoned",
+                    "retention",
+                    "Keep this exact object held and review authority before reacquisition.",
                 )
             try:
                 receipt = immutable_create_and_verify(
@@ -1068,6 +1247,13 @@ class BoundedTrustedVMAcquisitionExecutor:
                 )
             except TrustedVMExecutionError:
                 raise
+            except CorpusObjectError as error:
+                gate = (
+                    "retention"
+                    if "tombstone" in error.code or "retention" in error.code
+                    else "storage_scope"
+                )
+                _execution_failure(error.code, gate, error.next_action)
             except Exception:
                 _execution_failure(
                     "immutable_create_or_verify_failed",
@@ -1145,6 +1331,7 @@ def run_trusted_vm_worker_once(
             lease=lease,
             code="authority_unavailable",
             gate="policy_snapshot",
+            required_authority_class="corpus_operator",
         )
         control_plane.block(blocker)
         return blocker
@@ -1161,6 +1348,7 @@ def run_trusted_vm_worker_once(
             gate=authority_error.removeprefix("gate_").removesuffix(
                 "_not_approved"
             ),
+            required_authority_class="corpus_operator",
         )
         control_plane.block(blocker)
         return blocker
@@ -1188,6 +1376,7 @@ def run_trusted_vm_worker_once(
             lease=lease,
             code="authority_unavailable_before_acquisition",
             gate="policy_snapshot",
+            required_authority_class="corpus_operator",
         )
         control_plane.block(blocker)
         return blocker
@@ -1204,6 +1393,7 @@ def run_trusted_vm_worker_once(
             gate=current_authority_error.removeprefix("gate_").removesuffix(
                 "_not_approved"
             ),
+            required_authority_class="corpus_operator",
         )
         control_plane.block(blocker)
         return blocker
@@ -1247,6 +1437,7 @@ def run_trusted_vm_worker_once(
             code=error.code,
             gate=error.gate,
             next_safe_action=error.next_safe_action,
+            required_authority_class=error.required_authority_class,
         )
         control_plane.block(blocker)
         return blocker

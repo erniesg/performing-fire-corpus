@@ -56,7 +56,7 @@
       "properties": {
         "asset_id": {"pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$", "type": "string"},
         "evidence_id": {"$ref": "#/$defs/id"},
-        "expected_mime_type": {"pattern": "^[a-z0-9.+-]+/[a-z0-9.+-]+$", "type": "string"},
+        "expected_mime_type": {"pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$", "type": "string"},
         "job_id": {"$ref": "#/$defs/jobId"},
         "maximum_bytes": {"minimum": 1, "type": "integer"},
         "policy_expires_at": {"format": "date-time", "pattern": "Z$", "type": "string"},
@@ -131,12 +131,26 @@
         "next_safe_action": {"maxLength": 256, "minLength": 1, "type": "string"},
         "outcome_code": {"pattern": "^[a-z][a-z0-9_]{0,63}$", "type": "string"},
         "record_type": {"const": "trusted_vm_worker_blocker"},
-        "required_authority_class": {"const": "corpus_operator"},
+        "required_authority_class": {"enum": ["none", "corpus_operator"]},
         "resume_token": {"pattern": "^resume_[0-9a-f]{24}$", "type": "string"},
         "schema_version": {"const": 1},
         "status": {"const": "blocked"}
       },
       "required": ["affected_gate", "job_id", "lease_id", "next_safe_action", "outcome_code", "record_type", "required_authority_class", "resume_token", "schema_version", "status"],
+      "type": "object"
+    },
+    "sourceAttemptReservation": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {"$ref": "#/$defs/jobId"},
+        "record_type": {"const": "trusted_vm_source_attempt_reservation"},
+        "recorded_at": {"format": "date-time", "pattern": "Z$", "type": "string"},
+        "reservation_id": {"pattern": "^source_attempt_[a-z0-9][a-z0-9._-]{0,127}$", "type": "string"},
+        "schema_version": {"const": 1},
+        "source_id": {"pattern": "^[a-z][a-z0-9-]{2,127}$", "type": "string"},
+        "state": {"enum": ["reserved", "already_reserved", "rate_not_ready"]}
+      },
+      "required": ["job_id", "record_type", "recorded_at", "reservation_id", "schema_version", "source_id", "state"],
       "type": "object"
     },
     "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
@@ -146,6 +160,7 @@
     {"$ref": "#/$defs/job"},
     {"$ref": "#/$defs/lease"},
     {"$ref": "#/$defs/heartbeat"},
+    {"$ref": "#/$defs/sourceAttemptReservation"},
     {"$ref": "#/$defs/checkpoint"},
     {"$ref": "#/$defs/result"},
     {"$ref": "#/$defs/blocker"}

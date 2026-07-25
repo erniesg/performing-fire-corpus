@@ -197,6 +197,8 @@ class FakeExecutionResponse:
         content_length: int | None = None,
         failure: Exception | None = None,
         clock: "FakeClock | None" = None,
+        status: int | None = 200,
+        advance_seconds: int = 10,
     ) -> None:
         self.body = body
         self.media_type = media_type
@@ -204,13 +206,16 @@ class FakeExecutionResponse:
         self.content_length = len(body) if content_length is None else content_length
         self.failure = failure
         self.clock = clock
+        if status is not None:
+            self.status = status
+        self.advance_seconds = advance_seconds
 
     def iter_bytes(self, chunk_size: int):
         del chunk_size
         midpoint = max(1, len(self.body) // 2)
         yield self.body[:midpoint]
         if self.clock is not None:
-            self.clock.advance(seconds=10)
+            self.clock.advance(seconds=self.advance_seconds)
         if self.failure is not None:
             raise self.failure
         yield self.body[midpoint:]
@@ -284,10 +289,51 @@ class FakeRatePermit:
     def __init__(self, allowed: bool = True) -> None:
         self.allowed = allowed
         self.calls: list[tuple[str, str, datetime]] = []
+        self.reserved_jobs: set[str] = set()
+        self.records: list[dict[str, object]] = []
 
-    def allow(self, *, job_id: str, source_id: str, now: datetime) -> bool:
+    def reserve_once(
+        self,
+        *,
+        job_id: str,
+        source_id: str,
+        now: datetime,
+    ) -> dict[str, object]:
         self.calls.append((job_id, source_id, now))
-        return self.allowed
+        if not self.allowed:
+            state = "rate_not_ready"
+        elif job_id in self.reserved_jobs:
+            state = "already_reserved"
+        else:
+            self.reserved_jobs.add(job_id)
+            state = "reserved"
+        record = {
+            "schema_version": 1,
+            "record_type": "trusted_vm_source_attempt_reservation",
+            "reservation_id": "source_attempt_synthetic_worker_001",
+            "job_id": job_id,
+            "source_id": source_id,
+            "state": state,
+            "recorded_at": now.isoformat().replace("+00:00", "Z"),
+        }
+        self.records.append(record)
+        return copy.deepcopy(record)
+
+
+class FakeLeaseGuard:
+    def __init__(self, *, expires_at: datetime | None = None) -> None:
+        self.expires_at = expires_at or NOW + timedelta(hours=1)
+        self.calls: list[tuple[str, str, datetime]] = []
+
+    def maintain(
+        self,
+        *,
+        lease_id: str,
+        job_id: str,
+        now: datetime,
+    ) -> bool:
+        self.calls.append((lease_id, job_id, now))
+        return now < self.expires_at
 
 
 class FakeExecutionContextResolver:
@@ -445,6 +491,7 @@ class TrustedVMWorkerTests(unittest.TestCase):
         )
         self.assertEqual("blocked", result["status"])
         self.assertEqual("gate_rights_not_approved", result["outcome_code"])
+        self.assertEqual("corpus_operator", result["required_authority_class"])
         self.assertEqual(0, executor.calls)
         self.assertEqual(result, control.blockers[0])
         self.assertIn("resume_token", result)
@@ -588,6 +635,7 @@ class TrustedVMWorkerTests(unittest.TestCase):
             "lease_lost_before_acquisition",
             blocked_before["outcome_code"],
         )
+        self.assertEqual("none", blocked_before["required_authority_class"])
         self.assertEqual(0, executor.calls)
 
         after = FakeControlPlane(job())
@@ -603,9 +651,22 @@ class TrustedVMWorkerTests(unittest.TestCase):
             "lease_lost_after_verification",
             blocked_after["outcome_code"],
         )
+        self.assertEqual("none", blocked_after["required_authority_class"])
         self.assertEqual("exact_key_verified", after.checkpoints[-1]["stage"])
         self.assertEqual(OBJECT_KEY, after.checkpoints[-1]["object_key"])
         self.assertNotIn("provider lease", json.dumps(blocked_after))
+
+    def test_transient_executor_blocker_never_claims_human_authority(self) -> None:
+        control = FakeControlPlane(job())
+        result = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=control,
+            authority_resolver=FakeAuthorityResolver(),
+            executor=FakeExecutor(failure=RuntimeError("transient provider detail")),
+            now=NOW,
+        )
+        self.assertEqual("bounded_executor_failed", result["outcome_code"])
+        self.assertEqual("none", result["required_authority_class"])
 
 
 class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
@@ -646,6 +707,7 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
         rate: FakeRatePermit | None = None,
         context: FakeExecutionContextResolver | None = None,
         receipt_authority: object | None = None,
+        lease_guard: FakeLeaseGuard | None = None,
     ) -> tuple[
         BoundedTrustedVMAcquisitionExecutor,
         FakeExecutionHTTP,
@@ -667,6 +729,7 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
                 cache_directory=self.cache,
                 clock=selected_clock,
                 rate_permit=selected_rate,
+                lease_guard=lease_guard or FakeLeaseGuard(),
             ),
             selected_http,
             selected_storage,
@@ -702,6 +765,15 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
             http.calls,
         )
         self.assertEqual(1, len(rate.calls))
+        schema = json.loads(
+            (ROOT / "schemas" / "v1" / "trusted-vm-worker.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+        ).validate(rate.records[0])
         self.assertEqual(content, storage.uploaded)
         self.assertEqual(
             first["object_receipt_id"],
@@ -711,6 +783,33 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
         )
         self.assertTrue(str(first["provenance_receipt_id"]).startswith("provenance_"))
         self.assert_cache_empty()
+
+    def test_runtime_and_schema_accept_the_same_normalized_mime(self) -> None:
+        content = b"mime-contract"
+        item = execution_job(content)
+        item["expected_mime_type"] = "application/vnd_test"
+        schema = json.loads(
+            (ROOT / "schemas" / "v1" / "trusted-vm-worker.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+        ).validate(item)
+        executor, _, _, _ = self.executor(
+            content=content,
+            response=FakeExecutionResponse(
+                content,
+                media_type="application/vnd_test",
+            ),
+        )
+        result = executor.acquire_one(
+            job=item,
+            authority=authority(),
+            lease_id="lease_synthetic_worker_001",
+        )
+        self.assertEqual(item["target_object_key"], result["object_key"])
 
     def test_lost_create_response_recovers_by_exact_head_without_retry(self) -> None:
         content = b"ambiguous-create"
@@ -733,6 +832,45 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
         self.assertEqual("reused_after_ambiguous_create", durable["create_disposition"])
         self.assertEqual(1, len(http.calls))
         self.assertEqual(1, len(storage.creates))
+        self.assert_cache_empty()
+
+    def test_interrupted_attempt_is_durable_and_never_rerequests_same_job(self) -> None:
+        content = b"interrupted-attempt"
+        rate = FakeRatePermit()
+        first_response = FakeExecutionResponse(
+            content,
+            failure=KeyboardInterrupt(),
+        )
+        first, first_http, storage, _ = self.executor(
+            content=content,
+            response=first_response,
+            rate=rate,
+        )
+        with self.assertRaises(KeyboardInterrupt):
+            first.acquire_one(
+                job=execution_job(content),
+                authority=authority(),
+                lease_id="lease_synthetic_worker_001",
+            )
+        self.assertEqual(1, len(first_http.calls))
+        self.assert_cache_empty()
+
+        retry, retry_http, _, _ = self.executor(
+            content=content,
+            storage=storage,
+            rate=rate,
+        )
+        with self.assertRaisesRegex(
+            TrustedVMExecutionError,
+            "source_attempt_already_reserved",
+        ):
+            retry.acquire_one(
+                job=execution_job(content),
+                authority=authority(),
+                lease_id="lease_synthetic_worker_002",
+            )
+        self.assertEqual([], retry_http.calls)
+        self.assertEqual(2, len(rate.calls))
         self.assert_cache_empty()
 
     def test_restart_recovers_preexisting_exact_object_without_source_request(self) -> None:
@@ -790,6 +928,40 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
                 lease_id="lease_synthetic_worker_003",
             )
         self.assertEqual([], held_http.calls)
+
+    def test_absent_tombstoned_object_blocks_before_source_request(self) -> None:
+        content = b"absent-tombstone"
+
+        class TombstonedAuthority:
+            def get_corpus_receipt_by_key(self, object_key: str):
+                return self.ledger.get_corpus_receipt_by_key(object_key)
+
+            def get_cleanup_tombstone_by_key(self, object_key: str):
+                del object_key
+                return {"tombstone_id": "tombstone_synthetic_worker_002"}
+
+            def upsert(self, record, *, operation_id=None):
+                return self.ledger.upsert(record, operation_id=operation_id)
+
+            def __init__(self, ledger: Ledger) -> None:
+                self.ledger = ledger
+
+        executor, http, storage, rate = self.executor(
+            content=content,
+            receipt_authority=TombstonedAuthority(self.ledger),
+        )
+        with self.assertRaisesRegex(
+            TrustedVMExecutionError,
+            "object_tombstoned",
+        ):
+            executor.acquire_one(
+                job=execution_job(content),
+                authority=authority(),
+                lease_id="lease_synthetic_worker_001",
+            )
+        self.assertEqual([], http.calls)
+        self.assertEqual([], storage.creates)
+        self.assertEqual([], rate.calls)
 
     def test_rate_elapsed_stream_and_shape_failures_clean_disposable_cache(self) -> None:
         content = b"bounded-failure"
@@ -850,6 +1022,14 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
                 ),
                 "source_stream_failed",
             ),
+            (
+                FakeExecutionResponse(content, status=None),
+                "source_status_unavailable",
+            ),
+            (
+                FakeExecutionResponse(content, status=206),
+                "source_request_failed",
+            ),
         ):
             with self.subTest(code=code):
                 executor, _, _, _ = self.executor(
@@ -903,6 +1083,43 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
             )
         self.assertEqual(1, len(http.calls))
         self.assertEqual([], storage.creates)
+        self.assert_cache_empty()
+
+    def test_lease_loss_during_stream_blocks_before_object_create(self) -> None:
+        content = b"lease-window"
+        clock = FakeClock()
+        response = FakeExecutionResponse(
+            content,
+            clock=clock,
+            advance_seconds=360,
+        )
+        context = FakeExecutionContextResolver(
+            content,
+            maximum_elapsed_seconds=600,
+            request_timeout_seconds=30,
+        )
+        guard = FakeLeaseGuard(expires_at=NOW + timedelta(minutes=5))
+        executor, http, storage, _ = self.executor(
+            content=content,
+            response=response,
+            clock=clock,
+            context=context,
+            lease_guard=guard,
+        )
+
+        with self.assertRaisesRegex(
+            TrustedVMExecutionError,
+            "lease_lost_during_acquisition",
+        ):
+            executor.acquire_one(
+                job=execution_job(content),
+                authority=authority(),
+                lease_id="lease_synthetic_worker_001",
+            )
+
+        self.assertEqual(1, len(http.calls))
+        self.assertEqual([], storage.creates)
+        self.assertGreaterEqual(len(guard.calls), 2)
         self.assert_cache_empty()
 
     def test_authority_expiry_after_stream_blocks_before_object_create(self) -> None:

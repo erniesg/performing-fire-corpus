@@ -21,11 +21,11 @@ control plane. A VM restart, disconnect, or lease expiry must leave the remote
 checkpoint authoritative and make the job safely claimable again.
 
 `schemas/v1/trusted-vm-worker.json` publishes strict v1 capability, job, lease,
-heartbeat, checkpoint, result, and blocker contracts. Queue jobs carry stable
-source, asset, locator, rights, selection, run-plan, evidence and policy IDs,
-plus one exact immutable R2 key. They never carry a URL response body, media
-bytes, signed URL, credential, header, cookie, device identifier, or local
-path.
+heartbeat, one-shot source-attempt reservation, checkpoint, result, and
+blocker contracts. Queue jobs carry stable source, asset, locator, rights,
+selection, run-plan, evidence and policy IDs, plus one exact immutable R2 key.
+They never carry a URL response body, media bytes, signed URL, credential,
+header, cookie, device identifier, or local path.
 
 ## Execution boundary
 
@@ -45,7 +45,13 @@ one elapsed budget, and a source-request budget fixed at one. It:
 
 - checks for a matching exact object before any source request, enabling
   restart recovery without reacquisition;
-- obtains one explicit rate permit and requests at most one asset;
+- checks current exact-key tombstone authority before source access and again
+  before create;
+- durably reserves one source attempt before opening HTTP; reclaiming the same
+  interrupted job cannot issue another request, while an explicitly reviewed
+  retry uses a distinct job;
+- maintains the current lease before source open, before and after each stream
+  read, and immediately before immutable create;
 - enforces exact final URL, HTTP status, MIME, declared and observed bytes,
   content hash, elapsed time, and the reviewed raw target key;
 - uses a disposable cache and removes its partial file after success, failure,
@@ -73,6 +79,12 @@ unrelated queue node. An unexpected provider or executor exception is reduced
 to `bounded_executor_failed`; provider bodies and exception text are not
 persisted.
 
+`required_authority_class` is `corpus_operator` only for a genuine policy,
+rights, access-decision, retention, changed-content, or immutable-conflict
+boundary. Lease loss, rate waiting, source-attempt reconciliation, provider
+startup, elapsed bounds, and transient executor failures use `none`; they must
+not become a human gate or pause unrelated work.
+
 The generic Rucksack VM launcher is not part of this reference implementation.
 Until its startup transport issue is resolved, this worker remains portable
 and offline-tested and must not be represented as a running hosted service.
@@ -87,7 +99,8 @@ The trusted-VM composition root must inject:
 - durable receipt authority backed by the corpus ledger;
 - an ignored disposable cache directory;
 - an aware monotonic wall-clock adapter; and
-- a source-scoped rate-permit adapter.
+- a durable source-scoped one-shot attempt/rate authority; and
+- a renewable lease guard backed by the same durable control plane.
 
 The composition root may read the four reviewed R2 secret names. No secret
 value, provider response, account identifier, signed URL, cookie, header,
