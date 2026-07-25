@@ -1,5 +1,18 @@
 # Verification
 
+Select a supported runtime first. `pyproject.toml` declares
+`requires-python = ">=3.11"`, and an unsupported interpreter produces a
+misleading partial result rather than an honest failure.
+
+```bash
+sh scripts/preflight-python
+sh scripts/preflight-python -m unittest discover -s tests
+```
+
+The preflight prints the selected interpreter, or exits `2` with the exact
+versions it found when none satisfies the floor. Pin one interpreter with
+`PERFORMING_FIRE_PYTHON`.
+
 Before claiming completion, run the evidence command and attach the manifest.
 
 ```bash
@@ -16,7 +29,11 @@ scripts/agent-evidence --only=lint,type-check
 
 Validation lanes discovered:
 
-- No standard validation command was detected. Fill this in manually.
+- `python-test` (required): `python3 -m unittest discover -s tests`.
+
+Only `portable` lanes run here. `network-acquisition`, `trusted-vm`,
+`trusted-laptop`, `object-storage`, and `deploy` commands are held and are
+listed with their gates in `docs/product-readiness-matrix.md`.
 
 Deploy contract:
 
