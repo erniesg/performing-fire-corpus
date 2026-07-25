@@ -4,6 +4,30 @@ This records the sanitized result of the issue 7 trusted-VM proof. The clean
 checkout was `900e63b` on `codex/issue-7-rucksack`. Generated manifests, the
 SQLite ledger, command output, and response bodies remain outside Git.
 
+## Revalidation status
+
+Issue 11 rechecks this proof. Everything recorded below is historical evidence
+from the issue 7 run, not a current source fact. Robots rules, response sizes,
+and metadata structure may have changed since, so these rows are expired
+hypotheses until a current bounded run confirms them.
+
+The issue 11 revalidation has not yet produced a current observation. The
+bounded run is a `trusted-vm` `network-acquisition` lane command, and the
+headless agent sandbox permits only the portable validation lanes, so no
+request was made and no live ledger, manifest, or blocker was created. That is
+an environment gate rather than a source observation: it neither supersedes nor
+reconfirms the table below. No interruption-and-resume proof was applicable,
+because a durable nonterminal checkpoint exists only once a bounded run has
+made its first request.
+
+Next safe action: an operator runs the unchanged command in
+`docs/network-acquisition-smoke.md` on the trusted VM at the documented bounds,
+writing a new ledger and sanitized manifest under the now-ignored
+`.local/network-smoke/` live-state root, then updates only sanitized aggregate
+rows here when the current observations differ. Do not raise a bound, switch
+endpoints mid-run, or reuse an earlier ledger, cookie, token, cache, or
+response to obtain a result.
+
 ## Bounded run
 
 The selected source was the public `antiegg-fluxus` adapter. The documented
@@ -26,7 +50,7 @@ no request and emitted a byte-identical manifest. Resume authorization now
 requires that robots observation to be no more than 24 hours old and linked to
 its matching sanitized request evidence; otherwise robots is fetched again.
 
-## Sanitized observations
+## Sanitized observations (issue 7, historical)
 
 | Request | Robots observation | Status | MIME type | Bytes | Safe SHA-256 | Retry outcome |
 |---|---|---:|---|---:|---|---|

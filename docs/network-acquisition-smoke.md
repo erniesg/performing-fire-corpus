@@ -4,7 +4,9 @@ This opt-in metadata-only check runs manually on a trusted VM. It is unauthentic
 uses two public `GET` requests at most, consults robots metadata first, and
 writes only a SQLite ledger plus a sanitized manifest. It must not be added to portable CI.
 
-Create an ignored local output directory, then run:
+The live-state root `.local/network-smoke/` is ignored by an exact `.gitignore`
+rule, so its ledger and manifest never become repository content. Create that
+directory, then run:
 
 ```bash
 mkdir -p .local/network-smoke
