@@ -449,6 +449,40 @@ class TrustedVMWorkerTests(unittest.TestCase):
         self.assertEqual(result, control.blockers[0])
         self.assertIn("resume_token", result)
 
+    def test_authority_is_reresolved_immediately_before_executor(self) -> None:
+        class RevokingResolver(FakeAuthorityResolver):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls = 0
+
+            def resolve_current_acquisition_authority(
+                self,
+                *,
+                job: dict[str, object],
+                now: datetime,
+            ) -> dict[str, object]:
+                del job, now
+                self.calls += 1
+                value = authority()
+                if self.calls == 2:
+                    value["gates"]["rights"] = False
+                return value
+
+        resolver = RevokingResolver()
+        control = FakeControlPlane(job())
+        executor = FakeExecutor()
+        result = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=control,
+            authority_resolver=resolver,
+            executor=executor,
+            now=NOW,
+        )
+
+        self.assertEqual(2, resolver.calls)
+        self.assertEqual("gate_rights_not_approved", result["outcome_code"])
+        self.assertEqual(0, executor.calls)
+
     def test_payload_paths_bytes_and_stale_authority_fail_closed(self) -> None:
         for field, value in (
             ("machine_path", "/tmp/source.bin"),

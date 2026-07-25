@@ -1173,8 +1173,26 @@ def run_trusted_vm_worker_once(
         )
     )
     heartbeat_time = _clock_time(current_time)
-    _, current_authority_error = _validate_authority(
-        authority,
+    try:
+        refreshed_authority_value = (
+            authority_resolver.resolve_current_acquisition_authority(
+                job=job,
+                now=heartbeat_time,
+            )
+        )
+    except Exception:
+        refreshed_authority_value = None
+    if not isinstance(refreshed_authority_value, Mapping):
+        blocker = _blocker(
+            job=job,
+            lease=lease,
+            code="authority_unavailable_before_acquisition",
+            gate="policy_snapshot",
+        )
+        control_plane.block(blocker)
+        return blocker
+    authority, current_authority_error = _validate_authority(
+        refreshed_authority_value,
         job=job,
         now=heartbeat_time,
     )
