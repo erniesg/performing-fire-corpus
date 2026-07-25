@@ -32,10 +32,12 @@ identifiers and exact object keys, never media or local paths.
 
 For each claim, the worker:
 
-1. validates the current pairing, capability, job, retry budget, lease, and
-   capacity for every derived, manifest, and lifecycle object key before I/O;
+1. starts the job elapsed clock at the validated claim, then validates the
+   current pairing, capability, job, retry budget, lease, and capacity for
+   every derived, manifest, and lifecycle object key before I/O;
 2. resolves current derivative-rights, consent, privacy, retention, deletion,
-   and capability authority;
+   and capability authority and validates it against a fresh post-resolver
+   clock sample;
 3. verifies the durable input receipt and exact-key `HEAD`;
 4. downloads only that approved key into a marker-bound disposable cache and
    verifies its exact hash and size before the transformer runs;
@@ -77,6 +79,8 @@ Checkpoints are hash-bound and monotonic by stage:
   excluding only the retry ordinal so an identical safe retry can resume;
 - every result ID binds all stable validated result facts; a stale ID on a
   modified durable result fails closed;
+- `transform_failed` preserves measured cumulative CPU, memory, disk, and
+  elapsed consumption without claiming an output;
 - `transform_verified` fixes the only output hash/key the job may create;
 - `output_verified` fixes the durable derived-object receipt; and
 - `manifest_verified` fixes both exact object receipts.
@@ -94,7 +98,11 @@ contradictory checkpoint is held for operator reconciliation. Resource facts
 from an interrupted `transform_verified` attempt are carried into the retry,
 so retries cannot reset CPU or elapsed consumption. Post-transform resume work
 adds the new attempt's elapsed time to the durable checkpoint rather than
-taking the larger of two disjoint intervals.
+taking the larger of two disjoint intervals. If failed-attempt metrics cannot
+be committed, the durable `transform_started` checkpoint is held for explicit
+reconciliation instead of granting a fresh budget. Every resumed output size
+and resource fact is checked against the immutable job contract before receipt
+or manifest work.
 
 A lost conditional-create response is accepted only when immediate exact-key
 `HEAD` matches the declared size, MIME type, and hash. Lease or outbound
@@ -110,9 +118,11 @@ file descriptors, writes internal files without following symlinks, and
 performs cleanup relative to those descriptors. If a transformer renames the
 owned directory and installs an untrusted replacement at the original name,
 the worker wipes corpus bytes from the still-pinned owned directory but
-refuses to unlink the replacement. Validated heartbeats atomically refresh
-the marker expiry, so an active renewed cache cannot be reaped using the
-claim's original expiry.
+refuses to unlink the replacement. A damaged or missing marker likewise cannot
+prevent wiping bytes from the descriptor-pinned owned directory; it only
+prevents unlinking the pathname. Validated heartbeats atomically refresh the
+marker expiry, so an active renewed cache cannot be reaped using the claim's
+original expiry.
 
 Normal success and every handled failure remove that exact directory. Startup
 reaping removes only worker-named, validly marker-bound directories whose
@@ -141,9 +151,10 @@ in checkpoints, logs, errors, issues, evidence, or manifests.
 - sanitized blockers.
 
 Checkpoint stage conditionals encode the same fact invariants as runtime:
-pre-transform stages carry no output facts, `transform_verified` carries exact
-output facts without receipts, `output_verified` adds only the output receipt,
-and `manifest_verified` requires both exact receipts.
+pre-transform stages carry no output facts, `transform_failed` carries only
+measured resource facts, `transform_verified` carries exact output facts
+without receipts, `output_verified` adds only the output receipt, and
+`manifest_verified` requires both exact receipts.
 
 Derived-object and derivation-manifest records continue to use
 `schemas/v1/derived-object.json`,

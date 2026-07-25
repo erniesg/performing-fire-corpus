@@ -349,6 +349,7 @@
             "claimed",
             "input_verified",
             "transform_started",
+            "transform_failed",
             "transform_verified",
             "output_verified",
             "manifest_verified"
@@ -439,6 +440,25 @@
               "peak_memory_bytes": {"type": "null"},
               "working_disk_bytes": {"type": "null"},
               "elapsed_seconds": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"stage": {"const": "transform_failed"}}
+          },
+          "then": {
+            "properties": {
+              "output_object_key": {"type": "null"},
+              "output_receipt_id": {"type": "null"},
+              "manifest_object_key": {"type": "null"},
+              "manifest_receipt_id": {"type": "null"},
+              "output_sha256": {"type": "null"},
+              "output_byte_size": {"type": "null"},
+              "cpu_seconds": {"type": "number", "minimum": 0},
+              "peak_memory_bytes": {"type": "number", "minimum": 0},
+              "working_disk_bytes": {"type": "number", "minimum": 0},
+              "elapsed_seconds": {"type": "number", "minimum": 0}
             }
           }
         },

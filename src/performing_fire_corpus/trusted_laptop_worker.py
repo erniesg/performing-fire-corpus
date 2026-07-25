@@ -276,6 +276,7 @@ _STAGES = frozenset(
         "claimed",
         "input_verified",
         "transform_started",
+        "transform_failed",
         "transform_verified",
         "output_verified",
         "manifest_verified",
@@ -903,10 +904,12 @@ def _validate_checkpoint(value: Mapping[str, object]) -> dict[str, object]:
     ):
         if record[field] is not None:
             _finite_number(record[field], field)
-    output_facts = (
+    output_identity_facts = (
         "output_object_key",
         "output_sha256",
         "output_byte_size",
+    )
+    resource_facts = (
         "cpu_seconds",
         "peak_memory_bytes",
         "working_disk_bytes",
@@ -914,7 +917,10 @@ def _validate_checkpoint(value: Mapping[str, object]) -> dict[str, object]:
     )
     stage = str(record["stage"])
     if stage in {"claimed", "input_verified", "transform_started"}:
-        if any(record[field] is not None for field in output_facts):
+        if any(
+            record[field] is not None
+            for field in output_identity_facts + resource_facts
+        ):
             raise TrustedLaptopWorkerError(
                 "pre-transform checkpoint cannot carry output facts"
             )
@@ -926,8 +932,26 @@ def _validate_checkpoint(value: Mapping[str, object]) -> dict[str, object]:
             raise TrustedLaptopWorkerError(
                 "pre-transform checkpoint cannot carry receipts"
             )
+    elif stage == "transform_failed":
+        if any(
+            record[field] is not None for field in output_identity_facts
+        ) or any(record[field] is None for field in resource_facts):
+            raise TrustedLaptopWorkerError(
+                "failed transform checkpoint requires only resource facts"
+            )
+        if (
+            record["output_receipt_id"] is not None
+            or record["manifest_object_key"] is not None
+            or record["manifest_receipt_id"] is not None
+        ):
+            raise TrustedLaptopWorkerError(
+                "failed transform checkpoint cannot carry receipts"
+            )
     else:
-        if any(record[field] is None for field in output_facts):
+        if any(
+            record[field] is None
+            for field in output_identity_facts + resource_facts
+        ):
             raise TrustedLaptopWorkerError(
                 "post-transform checkpoint requires exact output facts"
             )
@@ -1756,25 +1780,33 @@ class _DisposableCache:
 
     def close(self) -> None:
         try:
+            marker_error: TrustedLaptopWorkerError | None = None
+            marker_cause: Exception | None = None
             try:
                 marker = _read_json_at(
                     self._directory_fd, ".disposable-v1"
                 )
             except (OSError, UnicodeError, ValueError, TypeError) as exc:
-                raise TrustedLaptopWorkerError(
-                    "disposable cache ownership marker changed"
-                ) from exc
-            if (
-                not isinstance(marker, Mapping)
-                or marker.get("cache_id") != self._cache_id
-            ):
-                raise TrustedLaptopWorkerError(
+                marker_error = TrustedLaptopWorkerError(
                     "disposable cache ownership marker changed"
                 )
-            # The descriptor still pins the owned directory even if a
-            # transformer renamed it. Wipe its corpus bytes before refusing
-            # to unlink an untrusted replacement at the original name.
+                marker_cause = exc
+            else:
+                if (
+                    not isinstance(marker, Mapping)
+                    or marker.get("cache_id") != self._cache_id
+                ):
+                    marker_error = TrustedLaptopWorkerError(
+                        "disposable cache ownership marker changed"
+                    )
+            # The descriptor pins the directory created for this job. Wipe its
+            # corpus bytes even when a transformer damaged the marker or
+            # renamed the directory; marker/name checks only authorize unlink.
             _remove_directory_contents(self._directory_fd)
+            if marker_error is not None:
+                if marker_cause is not None:
+                    raise marker_error from marker_cause
+                raise marker_error
             if not _same_directory_entry(
                 self._root_fd, self.path.name, self._directory_stat
             ):
@@ -1980,6 +2012,7 @@ class BoundedTrustedLaptopWorker:
         self._active_cache: _DisposableCache | None = None
         self._run_lock = threading.Lock()
         self._latest_lease_expires_at: datetime | None = None
+        self._last_transform_attempt_metrics: dict[str, float] | None = None
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -2071,17 +2104,49 @@ class BoundedTrustedLaptopWorker:
                 "Resume this exact lease after outbound pairing is restored.",
             ) from exc
 
+    def _record_failed_transform(
+        self,
+        *,
+        pairing: Mapping[str, object],
+        lease: Mapping[str, object],
+        job: Mapping[str, object],
+        metrics: Mapping[str, float],
+    ) -> None:
+        checkpoint = _checkpoint(
+            pairing=pairing,
+            lease=lease,
+            job=job,
+            stage="transform_failed",
+            now=self._now(),
+            progress={
+                field: float(metrics[field])
+                for field in (
+                    "cpu_seconds",
+                    "peak_memory_bytes",
+                    "working_disk_bytes",
+                    "elapsed_seconds",
+                )
+            },
+        )
+        try:
+            self.control_plane.checkpoint(checkpoint)
+        except Exception:
+            # The preceding transform_started checkpoint remains a fail-closed
+            # unresolved attempt if the control plane cannot durably accept
+            # measured consumption.
+            return
+
     def _current_authority(
         self,
         *,
         job: Mapping[str, object],
         stage: str,
     ) -> dict[str, object]:
-        now = self._now()
+        request_at = self._now()
         try:
             value = self.authority_resolver.resolve_current_derivation_authority(
                 job=dict(job),
-                now=now,
+                now=request_at,
             )
         except Exception as exc:
             raise TrustedLaptopExecutionError(
@@ -2089,7 +2154,12 @@ class BoundedTrustedLaptopWorker:
                 "authority",
                 "Retry current authority resolution without weakening any gate.",
             ) from exc
-        return _validate_authority(value, job=job, now=now, stage=stage)
+        return _validate_authority(
+            value,
+            job=job,
+            now=self._now(),
+            stage=stage,
+        )
 
     def _cumulative_elapsed(
         self,
@@ -2403,6 +2473,109 @@ class BoundedTrustedLaptopWorker:
                 required_authority_class="corpus_operator",
             )
 
+    def _capture_transform_attempt_metrics(
+        self,
+        *,
+        cache: _DisposableCache,
+        started_at: datetime,
+        process_started: float | None,
+        prior_metrics: Mapping[str, float] | None,
+        current_cpu_seconds: float,
+        current_peak_memory_bytes: float,
+    ) -> None:
+        prior_cpu_seconds = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["cpu_seconds"])
+        )
+        prior_peak_memory_bytes = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["peak_memory_bytes"])
+        )
+        prior_working_disk_bytes = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["working_disk_bytes"])
+        )
+        prior_elapsed_seconds = (
+            0.0
+            if prior_metrics is None
+            else float(prior_metrics["elapsed_seconds"])
+        )
+        elapsed_seconds = max(
+            0.0,
+            (self._now() - started_at).total_seconds(),
+            (
+                0.0
+                if process_started is None
+                else time.monotonic() - process_started
+            ),
+        )
+        try:
+            working_disk_bytes = float(
+                _directory_size(cache._directory_fd)
+            )
+        except (OSError, TrustedLaptopWorkerError):
+            working_disk_bytes = prior_working_disk_bytes
+        self._last_transform_attempt_metrics = {
+            "cpu_seconds": prior_cpu_seconds + current_cpu_seconds,
+            "peak_memory_bytes": max(
+                prior_peak_memory_bytes,
+                current_peak_memory_bytes,
+            ),
+            "working_disk_bytes": max(
+                prior_working_disk_bytes,
+                working_disk_bytes,
+            ),
+            "elapsed_seconds": prior_elapsed_seconds + elapsed_seconds,
+        }
+
+    def _assert_output_resource_bounds(
+        self,
+        *,
+        job: Mapping[str, object],
+        metrics: Mapping[str, float],
+        output_size: int,
+    ) -> None:
+        checks = (
+            (
+                float(metrics["cpu_seconds"]),
+                float(job["maximum_cpu_seconds"]),
+                "cpu_limit_exceeded",
+            ),
+            (
+                float(metrics["peak_memory_bytes"]),
+                float(job["maximum_memory_bytes"]),
+                "memory_limit_exceeded",
+            ),
+            (
+                max(
+                    float(metrics["working_disk_bytes"]),
+                    float(int(job["input_byte_size"]) + output_size),
+                ),
+                float(job["maximum_disk_bytes"]),
+                "disk_limit_exceeded",
+            ),
+            (
+                float(metrics["elapsed_seconds"]),
+                float(job["maximum_elapsed_seconds"]),
+                "elapsed_limit_exceeded",
+            ),
+            (
+                float(output_size),
+                float(job["maximum_output_bytes"]),
+                "output_limit_exceeded",
+            ),
+        )
+        for observed, maximum, code in checks:
+            if observed > maximum:
+                raise TrustedLaptopExecutionError(
+                    code,
+                    "resource",
+                    "Discard the cache and keep this job within reviewed bounds.",
+                )
+
     def _transform(
         self,
         *,
@@ -2413,6 +2586,7 @@ class BoundedTrustedLaptopWorker:
         started_at: datetime,
         prior_metrics: Mapping[str, float] | None = None,
     ) -> tuple[int, str, dict[str, float]]:
+        self._last_transform_attempt_metrics = None
         prior_cpu_seconds = (
             0.0
             if prior_metrics is None
@@ -2446,6 +2620,14 @@ class BoundedTrustedLaptopWorker:
                 "resource",
                 "Discard the cache and keep this job within reviewed bounds.",
             )
+        self._capture_transform_attempt_metrics(
+            cache=cache,
+            started_at=started_at,
+            process_started=None,
+            prior_metrics=prior_metrics,
+            current_cpu_seconds=0.0,
+            current_peak_memory_bytes=0.0,
+        )
         try:
             context = multiprocessing.get_context("forkserver")
         except ValueError as exc:
@@ -2666,6 +2848,14 @@ class BoundedTrustedLaptopWorker:
                     "Use a transformer that reports the reviewed resource metrics.",
                 ) from exc
         finally:
+            self._capture_transform_attempt_metrics(
+                cache=cache,
+                started_at=started_at,
+                process_started=process_started,
+                prior_metrics=prior_metrics,
+                current_cpu_seconds=peak_group_cpu,
+                current_peak_memory_bytes=float(peak_group_memory),
+            )
             if process.is_alive():
                 _stop_transform_process(process)
             receive_connection.close()
@@ -2766,43 +2956,12 @@ class BoundedTrustedLaptopWorker:
             ),
             "elapsed_seconds": prior_elapsed_seconds + elapsed,
         }
-        checks = (
-            (
-                metrics["cpu_seconds"],
-                float(job["maximum_cpu_seconds"]),
-                "cpu_limit_exceeded",
-            ),
-            (
-                metrics["peak_memory_bytes"],
-                float(job["maximum_memory_bytes"]),
-                "memory_limit_exceeded",
-            ),
-            (
-                max(
-                    metrics["working_disk_bytes"],
-                    float(int(job["input_byte_size"]) + output_size),
-                ),
-                float(job["maximum_disk_bytes"]),
-                "disk_limit_exceeded",
-            ),
-            (
-                metrics["elapsed_seconds"],
-                float(job["maximum_elapsed_seconds"]),
-                "elapsed_limit_exceeded",
-            ),
-            (
-                float(output_size),
-                float(job["maximum_output_bytes"]),
-                "output_limit_exceeded",
-            ),
+        self._last_transform_attempt_metrics = dict(metrics)
+        self._assert_output_resource_bounds(
+            job=job,
+            metrics=metrics,
+            output_size=output_size,
         )
-        for observed, maximum, code in checks:
-            if observed > maximum:
-                raise TrustedLaptopExecutionError(
-                    code,
-                    "resource",
-                    "Discard the cache and keep this job within reviewed bounds.",
-                )
         return output_size, output_sha256, metrics
 
     def _persist_receipt(
@@ -3262,6 +3421,7 @@ class BoundedTrustedLaptopWorker:
         lease: Mapping[str, object],
         job: Mapping[str, object],
     ) -> dict[str, object]:
+        started_at = self._now()
         self._latest_lease_expires_at = _time(
             lease["expires_at"], "expires_at"
         )
@@ -3376,6 +3536,13 @@ class BoundedTrustedLaptopWorker:
                 lease=lease,
                 job=job,
             )
+            if resume["stage"] == "transform_started":
+                raise TrustedLaptopExecutionError(
+                    "transform_attempt_unreconciled",
+                    "checkpoint",
+                    "Hold this exact attempt until its resource consumption is reconciled.",
+                    required_authority_class="corpus_operator",
+                )
         self._current_authority(job=job, stage="after_claim")
         self._current_authority(job=job, stage="before_input")
         self._assert_not_tombstoned(
@@ -3384,7 +3551,6 @@ class BoundedTrustedLaptopWorker:
         )
         input_receipt = self._input_receipt(job)
         self._verify_input_head(job=job)
-        started_at = self._now()
         metrics: dict[str, float] | None = None
         output_size: int | None = None
         output_sha256: str | None = None
@@ -3393,6 +3559,22 @@ class BoundedTrustedLaptopWorker:
         manifest_key: str | None = None
         manifest_receipt: dict[str, object] | None = None
         prior_elapsed_seconds = 0.0
+        if resume is not None and resume["stage"] == "transform_failed":
+            metrics = {
+                field: float(resume[field])
+                for field in (
+                    "cpu_seconds",
+                    "peak_memory_bytes",
+                    "working_disk_bytes",
+                    "elapsed_seconds",
+                )
+            }
+            prior_elapsed_seconds = metrics["elapsed_seconds"]
+            self._assert_output_resource_bounds(
+                job=job,
+                metrics=metrics,
+                output_size=0,
+            )
         if resume is not None and resume["stage"] in {
             "transform_verified",
             "output_verified",
@@ -3411,6 +3593,11 @@ class BoundedTrustedLaptopWorker:
                 )
             }
             prior_elapsed_seconds = metrics["elapsed_seconds"]
+            self._assert_output_resource_bounds(
+                job=job,
+                metrics=metrics,
+                output_size=output_size,
+            )
         if resume is not None and resume["stage"] in {
             "output_verified",
             "manifest_verified",
@@ -3546,23 +3733,34 @@ class BoundedTrustedLaptopWorker:
                     str(job["input_object_key"]),
                     code="input_object_tombstoned",
                 )
-                (
-                    observed_output_size,
-                    observed_output_sha256,
-                    observed_metrics,
-                ) = self._transform(
-                    pairing=pairing,
-                    lease=lease,
-                    job=job,
-                    cache=cache,
-                    started_at=started_at,
-                    prior_metrics=(
-                        metrics
-                        if resume is not None
-                        and resume["stage"] == "transform_verified"
-                        else None
-                    ),
-                )
+                try:
+                    (
+                        observed_output_size,
+                        observed_output_sha256,
+                        observed_metrics,
+                    ) = self._transform(
+                        pairing=pairing,
+                        lease=lease,
+                        job=job,
+                        cache=cache,
+                        started_at=started_at,
+                        prior_metrics=(
+                            metrics
+                            if resume is not None
+                            and resume["stage"]
+                            in {"transform_failed", "transform_verified"}
+                            else None
+                        ),
+                    )
+                except TrustedLaptopExecutionError:
+                    if self._last_transform_attempt_metrics is not None:
+                        self._record_failed_transform(
+                            pairing=pairing,
+                            lease=lease,
+                            job=job,
+                            metrics=self._last_transform_attempt_metrics,
+                        )
+                    raise
                 observed_output_key = derived_object_key(
                     str(job["namespace_prefix"]),
                     str(job["source_id"]),

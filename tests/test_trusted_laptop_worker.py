@@ -392,6 +392,7 @@ class FakeTransformer:
         self.heartbeat_counter: object | None = None
         self.require_heartbeat_during_sleep = False
         self.failure: Exception | None = None
+        self.failure_after_work: Exception | None = None
         self.tombstone_marker_path: Path | None = None
         self.manifest_symlink_target: Path | None = None
         self.replace_cache_root: Path | None = None
@@ -502,6 +503,8 @@ class FakeTransformer:
         ):
             raise AssertionError("transform lease was not renewed")
         self.clock.advance(self.advance_seconds)
+        if self.failure_after_work is not None:
+            raise self.failure_after_work
         return {
             "cpu_seconds": self.cpu_seconds,
             "peak_memory_bytes": self.memory_bytes,
@@ -889,6 +892,63 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "authority_expired_before_input",
             )
 
+    def test_authority_is_validated_against_the_post_resolver_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            expiring = authority(
+                expires_at=utc(NOW + timedelta(seconds=1))
+            )
+
+            def delayed_authority(
+                *,
+                job: dict[str, object],
+                now: datetime,
+            ) -> dict[str, object]:
+                del job, now
+                harness.clock.advance(2)
+                return copy.deepcopy(expiring)
+
+            harness.authority.resolve_current_derivation_authority = (
+                delayed_authority  # type: ignore[method-assign]
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.storage.downloads, [])
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "authority_expired_after_claim",
+            )
+
+    def test_claim_setup_consumes_the_job_elapsed_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(maximum_elapsed_seconds=1)
+            original_authority = (
+                harness.authority.resolve_current_derivation_authority
+            )
+
+            def delayed_authority(
+                *,
+                job: dict[str, object],
+                now: datetime,
+            ) -> dict[str, object] | None:
+                value = original_authority(job=job, now=now)
+                harness.clock.advance(2)
+                return value
+
+            harness.authority.resolve_current_derivation_authority = (
+                delayed_authority  # type: ignore[method-assign]
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.storage.downloads, [])
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "elapsed_limit_exceeded",
+            )
+
     def test_missing_derivative_rights_blocks_before_any_object_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
@@ -1229,6 +1289,33 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 replacement_file.read_text(encoding="utf-8"), "preserve"
             )
 
+    def test_damaged_cache_marker_cannot_preserve_corpus_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            harness = Harness(root)
+            original_checkpoint = harness.control.checkpoint
+
+            def damage_after_final_heartbeat(
+                value: dict[str, object],
+            ) -> None:
+                original_checkpoint(value)
+                if value["stage"] == "manifest_verified":
+                    cache = next(
+                        root.glob(".performing-fire-laptop-cache-*")
+                    )
+                    (cache / ".disposable-v1").write_text(
+                        "invalid", encoding="ascii"
+                    )
+
+            harness.control.checkpoint = (
+                damage_after_final_heartbeat  # type: ignore[method-assign]
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            cache = next(root.glob(".performing-fire-laptop-cache-*"))
+            self.assertTrue(cache.is_dir())
+            self.assertEqual(list(cache.iterdir()), [])
+
     def test_cache_root_is_expanded_once_for_reaping_and_creation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             sandbox = Path(directory)
@@ -1466,6 +1553,52 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "elapsed_limit_exceeded",
             )
 
+    def test_resumed_checkpoint_metrics_must_fit_the_job_bounds(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.fail_checkpoint_stage_after_store = (
+                "output_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            checkpoint = next(
+                event
+                for event in reversed(harness.control.events)
+                if event.get("record_type") == "trusted_laptop_checkpoint"
+                and event.get("stage") == "output_verified"
+            )
+            checkpoint["cpu_seconds"] = 61
+            resume_state = {
+                key: value
+                for key, value in checkpoint.items()
+                if key
+                not in {
+                    "schema_version",
+                    "record_type",
+                    "checkpoint_id",
+                    "resume_state_sha256",
+                    "recorded_at",
+                }
+            }
+            resume_hash = trusted_laptop_worker._digest(resume_state)
+            checkpoint["resume_state_sha256"] = resume_hash
+            checkpoint["checkpoint_id"] = (
+                "checkpoint_"
+                + trusted_laptop_worker._digest(
+                    {"resume_state_sha256": resume_hash}
+                )
+            )
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(attempt=2)
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(len(harness.storage.created), 1)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "cpu_limit_exceeded",
+            )
+
     def test_resumed_output_receipt_must_match_checkpoint_hash_and_size(self) -> None:
         from performing_fire_corpus import trusted_laptop_worker
 
@@ -1654,6 +1787,101 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(
                 elapsed_exhausted.control.blockers[-1]["code"],
                 "elapsed_limit_exceeded",
+            )
+
+    def test_failed_transform_consumption_is_durable_across_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(
+                maximum_output_bytes=10,
+                maximum_elapsed_seconds=1,
+            )
+            harness.transformer.output = b"ok"
+            harness.transformer.advance_seconds = 0
+            harness.transformer.sleep_seconds = 0.6
+            harness.transformer.failure_after_work = RuntimeError(
+                "synthetic transform failure"
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "transformer_failed",
+            )
+            failed_checkpoint = next(
+                event
+                for event in reversed(harness.control.events)
+                if event.get("record_type")
+                == "trusted_laptop_checkpoint"
+                and event.get("stage") == "transform_failed"
+            )
+            schema = json.loads(
+                (
+                    ROOT
+                    / "schemas"
+                    / "v1"
+                    / "trusted-laptop-worker.json"
+                ).read_text(encoding="utf-8")
+            )
+            Draft202012Validator(schema).validate(failed_checkpoint)
+            self.assertEqual(
+                validate_trusted_laptop_record(failed_checkpoint),
+                failed_checkpoint,
+            )
+            self.assertGreater(
+                float(failed_checkpoint["elapsed_seconds"]),
+                0.5,
+            )
+
+            harness.control.job_value = job(
+                attempt=2,
+                maximum_output_bytes=10,
+                maximum_elapsed_seconds=1,
+            )
+            harness.transformer.output = b"ok"
+            harness.transformer.failure_after_work = None
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 2)
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "elapsed_limit_exceeded",
+            )
+
+    def test_unrecorded_transform_failure_cannot_reset_retry_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.transformer.failure_after_work = RuntimeError(
+                "synthetic transform failure"
+            )
+            original_checkpoint = harness.control.checkpoint
+
+            def drop_failure_checkpoint(value: dict[str, object]) -> None:
+                if value["stage"] == "transform_failed":
+                    raise ConnectionError("synthetic disconnect")
+                original_checkpoint(value)
+
+            harness.control.checkpoint = (
+                drop_failure_checkpoint  # type: ignore[method-assign]
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 1)
+            harness.control.job_value = job(attempt=2)
+            harness.transformer.failure_after_work = None
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 1)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "transform_attempt_unreconciled",
+            )
+            self.assertEqual(
+                harness.control.blockers[-1][
+                    "required_authority_class"
+                ],
+                "corpus_operator",
             )
 
     def test_resume_checkpoint_is_bound_to_the_entire_job_contract(self) -> None:
