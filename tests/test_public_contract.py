@@ -391,6 +391,55 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, normalized)
 
+    def test_safe_observability_contract_is_allowlisted_and_fail_closed(self) -> None:
+        contract = (
+            ROOT / "docs" / "safe-observability-and-evidence.md"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(contract.split())
+        for value in (
+            "`safe_serialize` is an allowlist, not a filter",
+            "exception objects are refused, not `str()`-ed",
+            "unknown fields are refused by `additionalProperties: false`",
+            "There is no code path that turns an unrecognized input into a "
+            "diagnostic string",
+            "reports only the name and `present` or `missing`",
+            "never carry content or a high-cardinality identifier",
+            "assembles invented canaries at run time from fragments",
+            "a drifted or unestablished head raises instead of producing evidence",
+            "Held is not passed",
+            "held CI is not run evidence",
+            "may satisfy only the lane it actually ran",
+            "Red/green/refactor TDD",
+            "Small focused PRs",
+            "run `scripts/agent-evidence` and attach the manifest",
+            "No merge bypass",
+            "separate privacy-safe issue in `erniesg/rucksack`",
+        ):
+            self.assertIn(value, normalized)
+
+    def test_operator_gates_contract_is_actionable_and_resumable(self) -> None:
+        contract = (ROOT / "docs" / "operator-gates.md").read_text(encoding="utf-8")
+        normalized = " ".join(contract.split())
+        for value in (
+            "A blocker is first-class durable state, not a stalled process",
+            "the missing authority class",
+            "one privacy-safe question",
+            "the exact next safe action",
+            "the unblocking command class",
+            "a review trigger",
+            "an expiry",
+            "a durable resumable checkpoint",
+            "every field in it is fixed literal text",
+            "One blocked job does not hold unrelated work",
+            "blocks that endpoint only",
+            "A grant must name exactly the missing authority class and must expire",
+            "An expired blocker cannot be granted",
+            "never request secret values or protected material",
+            "Resolving a human gate is not merge approval",
+            "separate privacy-safe issue in `erniesg/rucksack`",
+        ):
+            self.assertIn(value, normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

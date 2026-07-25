@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/observability-event.json",
+  "title": "Sanitized observability event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "event_id",
+    "operation",
+    "subject_ids",
+    "lane",
+    "policy_version",
+    "attempt",
+    "bound_consumption",
+    "outcome_code",
+    "severity",
+    "secret_states",
+    "evidence_time"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "observability_event"},
+    "event_id": {"type": "string", "pattern": "^observability_event_[0-9a-f]{24}$"},
+    "operation": {"$ref": "#/$defs/operation"},
+    "subject_ids": {"$ref": "#/$defs/subjectIds"},
+    "lane": {"$ref": "#/$defs/lane"},
+    "policy_version": {"$ref": "#/$defs/policyVersion"},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 1024},
+    "bound_consumption": {"$ref": "#/$defs/boundConsumption"},
+    "outcome_code": {"$ref": "#/$defs/outcomeCode"},
+    "severity": {"enum": ["info", "warning", "blocked", "error"]},
+    "secret_states": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["secret_name", "state"],
+        "properties": {
+          "secret_name": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
+          "state": {"enum": ["present", "missing"]}
+        }
+      }
+    },
+    "evidence_time": {"$ref": "#/$defs/instant"}
+  },
+  "$defs": {
+    "instant": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "operation": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "policyVersion": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+    "lane": {
+      "enum": [
+        "portable",
+        "network-acquisition",
+        "trusted-vm",
+        "trusted-laptop",
+        "object-storage",
+        "deploy",
+        "sandbox"
+      ]
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^(?:(?:asset|contribution|discovery_run|job|lease|object|rights|run|source|worker)_[a-z0-9][a-z0-9._-]{0,127}|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$"
+    },
+    "subjectIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/stableId"}
+    },
+    "boundConsumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "bytes", "pages", "retries", "elapsed_seconds"],
+      "properties": {
+        "requests": {"type": "integer", "minimum": 0},
+        "bytes": {"type": "integer", "minimum": 0},
+        "pages": {"type": "integer", "minimum": 0},
+        "retries": {"type": "integer", "minimum": 0},
+        "elapsed_seconds": {"type": "number", "minimum": 0}
+      }
+    },
+    "outcomeCode": {
+      "enum": [
+        "succeeded",
+        "checkpoint_committed",
+        "blocked_on_human",
+        "bound_exhausted",
+        "rate_limited",
+        "retry_scheduled",
+        "lease_expired",
+        "failed_closed",
+        "held_by_billing",
+        "skipped_not_run"
+      ]
+    }
+  }
+}
