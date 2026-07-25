@@ -91,6 +91,7 @@ class FakeControlPlane:
         self.heartbeats: list[dict[str, object]] = []
         self.released: list[str] = []
         self.blockers: list[dict[str, object]] = []
+        self.fail_heartbeat_number: int | None = None
 
     def claim_one(self, worker: dict[str, object], *, now: datetime):
         if self.job is None or self.terminal is not None:
@@ -113,6 +114,8 @@ class FakeControlPlane:
     def heartbeat(
         self, lease_id: str, *, now: datetime
     ) -> dict[str, object]:
+        if self.fail_heartbeat_number == len(self.heartbeats) + 1:
+            raise RuntimeError("provider lease payload must not persist")
         value = {
             "schema_version": 1,
             "record_type": "trusted_vm_worker_heartbeat",
@@ -344,6 +347,40 @@ class TrustedVMWorkerTests(unittest.TestCase):
             ],
             conflict_control.released,
         )
+
+    def test_lease_loss_holds_only_the_job_with_exact_resume_state(self) -> None:
+        before = FakeControlPlane(job())
+        before.fail_heartbeat_number = 1
+        executor = FakeExecutor()
+        blocked_before = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=before,
+            authority_resolver=FakeAuthorityResolver(),
+            executor=executor,
+            now=NOW,
+        )
+        self.assertEqual(
+            "lease_lost_before_acquisition",
+            blocked_before["outcome_code"],
+        )
+        self.assertEqual(0, executor.calls)
+
+        after = FakeControlPlane(job())
+        after.fail_heartbeat_number = 2
+        blocked_after = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=after,
+            authority_resolver=FakeAuthorityResolver(),
+            executor=FakeExecutor(),
+            now=NOW,
+        )
+        self.assertEqual(
+            "lease_lost_after_verification",
+            blocked_after["outcome_code"],
+        )
+        self.assertEqual("exact_key_verified", after.checkpoints[-1]["stage"])
+        self.assertEqual(OBJECT_KEY, after.checkpoints[-1]["object_key"])
+        self.assertNotIn("provider lease", json.dumps(blocked_after))
 
 
 if __name__ == "__main__":

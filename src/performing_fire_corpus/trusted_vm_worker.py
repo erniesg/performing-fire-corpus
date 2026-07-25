@@ -482,12 +482,22 @@ def run_trusted_vm_worker_once(
             stage="authority_confirmed",
         )
     )
-    heartbeat = _validate_heartbeat(
-        control_plane.heartbeat(str(lease["lease_id"]), now=current),
-        lease=lease,
-        worker=worker,
-        now=current,
-    )
+    try:
+        heartbeat = _validate_heartbeat(
+            control_plane.heartbeat(str(lease["lease_id"]), now=current),
+            lease=lease,
+            worker=worker,
+            now=current,
+        )
+    except Exception:
+        blocker = _blocker(
+            job=job,
+            lease=lease,
+            code="lease_lost_before_acquisition",
+            gate="lease",
+        )
+        control_plane.block(blocker)
+        return blocker
     _safe(heartbeat)
     try:
         receipt_value = executor.acquire_one(
@@ -520,6 +530,26 @@ def run_trusted_vm_worker_once(
             object_key=str(receipt["object_key"]),
         )
     )
+    try:
+        final_heartbeat = _validate_heartbeat(
+            control_plane.heartbeat(
+                str(lease["lease_id"]),
+                now=current,
+            ),
+            lease=lease,
+            worker=worker,
+            now=current,
+        )
+    except Exception:
+        blocker = _blocker(
+            job=job,
+            lease=lease,
+            code="lease_lost_after_verification",
+            gate="lease",
+        )
+        control_plane.block(blocker)
+        return blocker
+    _safe(final_heartbeat)
     result = {
         "schema_version": 1,
         "record_type": "trusted_vm_worker_result",
