@@ -286,6 +286,25 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, contract)
 
+    def test_search_surface_is_local_rights_filtered_and_leak_aware(self) -> None:
+        surface = (
+            ROOT / "docs" / "rights-filtered-search-surface.md"
+        ).read_text(encoding="utf-8")
+        for value in (
+            "hosted operator UI",
+            "exact manifest keys only",
+            "No prefix listing",
+            "Deterministic upsert and restart",
+            "ranked or serialized",
+            "empty facets for every",
+            "answer-independent",
+            "never a signed URL",
+            "cache and never a grant",
+            "Reviewer replay",
+            "Loopback API",
+        ):
+            self.assertIn(value, surface)
+
     def test_full_corpus_object_contract_is_explicit_and_fake_only(self) -> None:
         contract = (
             ROOT / "docs" / "full-corpus-object-storage.md"

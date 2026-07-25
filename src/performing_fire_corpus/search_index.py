@@ -112,6 +112,14 @@ def _validate(name: str, value: Mapping[str, Any]) -> dict[str, Any]:
     return record
 
 
+def validate_schema_record(
+    name: str, value: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Validate one strict versioned record and reject private data."""
+
+    return _validate(name, value)
+
+
 def _parse_time(value: str, field: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -131,6 +139,30 @@ def _canonical(value: Mapping[str, Any]) -> bytes:
 
 def _field_value_sha256(value: str) -> str:
     return hashlib.sha256((value + "\n").encode("utf-8")).hexdigest()
+
+
+def canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
+    """Return the one canonical byte encoding used for every index hash."""
+
+    return _canonical(value)
+
+
+def record_sha256(value: Mapping[str, Any]) -> str:
+    """Return the canonical digest of one complete record."""
+
+    return _record_hash(value)
+
+
+def field_value_sha256(value: str) -> str:
+    """Return the canonical digest of one indexed field value."""
+
+    return _field_value_sha256(value)
+
+
+def parse_index_timestamp(value: str, field: str) -> datetime:
+    """Parse one required timezone-aware index timestamp."""
+
+    return _parse_time(value, field)
 
 
 def validate_provenance_edge(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -239,6 +271,18 @@ def _policy_authorizes_field(
             policy["evidence_expires_at"], "evidence_expires_at"
         )
     )
+
+
+def policy_authorizes_field(
+    document: Mapping[str, Any],
+    field: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    evaluated: datetime,
+) -> bool:
+    """Report whether one current policy authorizes one exact indexed field."""
+
+    return _policy_authorizes_field(document, field, policy, evaluated=evaluated)
 
 
 def validate_visibility_policy(value: Mapping[str, Any]) -> dict[str, Any]:
