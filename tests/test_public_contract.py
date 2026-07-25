@@ -227,6 +227,25 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, contract)
 
+    def test_rights_qualification_is_operation_specific_and_content_free(
+        self,
+    ) -> None:
+        contract = (ROOT / "docs" / "rights-qualification.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "An approval for one operation does not imply another",
+            "exactly nine operations",
+            "public visibility is never sufficient",
+            "current platform authority",
+            "401/403",
+            "Counts are deliberately reported as unknown",
+            "only the qualification ID, source ID",
+            "exact immutable R2 object key",
+            "grants no acquisition or deletion authority",
+        ):
+            self.assertIn(value, contract)
+
 
 if __name__ == "__main__":
     unittest.main()

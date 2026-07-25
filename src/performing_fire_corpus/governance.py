@@ -211,6 +211,23 @@ def load_source_governance_registry(
     source_ids = {item["source_id"] for item in records}
     if source_ids != set(canonical_sources):
         raise GovernanceError("governance must cover the canonical source registry exactly")
+    expected_unscoped_targets = {
+        (source_id, None)
+        for source_id in canonical_sources
+    } | {
+        (source_id, endpoint["endpoint_id"])
+        for source_id, source in canonical_sources.items()
+        for endpoint in source.get("endpoints", [])
+    }
+    actual_unscoped_targets = {
+        (item["source_id"], item["endpoint_id"])
+        for item in records
+        if item.get("asset_id") is None
+    }
+    if actual_unscoped_targets != expected_unscoped_targets:
+        raise GovernanceError(
+            "governance must cover every canonical source and endpoint layer"
+        )
     for record in records:
         endpoint_id = record["endpoint_id"]
         endpoint_ids = {
@@ -271,6 +288,36 @@ def _validate_governance_registry(value: Any) -> list[dict[str, Any]]:
     if len(target_keys) != len(set(target_keys)):
         raise GovernanceError("a governance target may have only one current record")
     return records
+
+
+def validate_source_governance_registry(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate and copy a complete current source-governance registry."""
+
+    records = _validate_governance_registry(value)
+    expected_unscoped_targets = {
+        (source_id, None)
+        for source_id in CANONICAL_ENDPOINT_IDS
+    } | {
+        (source_id, endpoint_id)
+        for source_id, endpoint_ids in CANONICAL_ENDPOINT_IDS.items()
+        for endpoint_id in endpoint_ids
+    }
+    actual_unscoped_targets = {
+        (record["source_id"], record["endpoint_id"])
+        for record in records
+        if record.get("asset_id") is None
+    }
+    if actual_unscoped_targets != expected_unscoped_targets:
+        raise GovernanceError(
+            "source governance registry is not canonically complete"
+        )
+    return {
+        "schema_version": 1,
+        "registry_id": "performing-fire-source-governance",
+        "records": copy.deepcopy(records),
+    }
 
 
 def canonical_governance_registry_bytes(value: Mapping[str, Any]) -> bytes:

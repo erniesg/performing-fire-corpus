@@ -30,11 +30,79 @@ class AcquisitionPolicyTests(unittest.TestCase):
                 self.assertEqual(expected_host, validated.hostname)
                 self.assertEqual(443, validated.port)
 
+    def test_ordinary_metadata_query_keys_remain_allowed(self) -> None:
+        for url in (
+            "https://antiegg.kr/wp-json/wp/v2/posts?author=1",
+            "https://antiegg.kr/wp-json/wp/v2/posts?authority=synthetic",
+            "https://antiegg.kr/wp-json/wp/v2/posts?authentication=none",
+            "https://antiegg.kr/wp-json/wp/v2/posts?page=1&per_page=10",
+            "https://antiegg.kr/wp-json/wp/v2/posts?signature_style=plain",
+            "https://antiegg.kr/wp-json/wp/v2/posts?signature_style_version=1",
+            "https://antiegg.kr/wp-json/wp/v2/posts?signatureStyleVersion=1",
+            "https://antiegg.kr/wp-json/wp/v2/posts?signature_status=reviewed",
+            "https://antiegg.kr/wp-json/wp/v2/posts?digital_signature_algorithm=plain",
+            "https://antiegg.kr/wp-json/wp/v2/posts?tokenizer=standard",
+            "https://njpvideo.ggcf.kr/item?id=synthetic",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(url, validate_public_url(url).url)
+
     def test_url_confusion_and_credentials_fail_closed(self) -> None:
         userinfo_url = "https://" + "user:pass@" + "njp.ggcf.kr/"
         signed_query_url = "https://njp.ggcf.kr/?" + "signature=synthetic-secret"
         credential_query_url = (
             "https://njp.ggcf.kr/?" + "X-Amz-Credential=synthetic-account"
+        )
+        credential_alias_urls = (
+            "https://njp.ggcf.kr/?session=synthetic",
+            "https://njp.ggcf.kr/?auth=synthetic",
+            "https://njp.ggcf.kr/?accessToken=synthetic",
+            "https://njp.ggcf.kr/?JSESSIONID=synthetic",
+            "https://njp.ggcf.kr/?xSessionId=synthetic",
+            "https://njp.ggcf.kr/?myAccessTokenValue=synthetic",
+            "https://njp.ggcf.kr/?xApiKey=synthetic",
+            "https://njp.ggcf.kr/?clientApiKey=synthetic",
+            "https://njp.ggcf.kr/?apiKeyValue=synthetic",
+            "https://njp.ggcf.kr/?requestSignature=synthetic",
+            "https://njp.ggcf.kr/?hmacSignatureValue=synthetic",
+            "https://njp.ggcf.kr/?xapikey=synthetic",
+            "https://njp.ggcf.kr/?clientapikey=synthetic",
+            "https://njp.ggcf.kr/?apikeyvalue=synthetic",
+            "https://njp.ggcf.kr/?requestsignature=synthetic",
+            "https://njp.ggcf.kr/?hmacsignaturevalue=synthetic",
+            "https://njp.ggcf.kr/?accesskey=synthetic",
+            "https://njp.ggcf.kr/?access_key=synthetic",
+            "https://njp.ggcf.kr/?AccessKey=synthetic",
+            "https://njp.ggcf.kr/?xAccessKey=synthetic",
+            "https://njp.ggcf.kr/?xaccesskey=synthetic",
+            "https://njp.ggcf.kr/?secretkey=synthetic",
+            "https://njp.ggcf.kr/?privatekey=synthetic",
+            "https://njp.ggcf.kr/?private_key=synthetic",
+            "https://njp.ggcf.kr/?bearertoken=synthetic",
+            "https://njp.ggcf.kr/?idtoken=synthetic",
+            "https://njp.ggcf.kr/?sessiontoken=synthetic",
+            "https://njp.ggcf.kr/?securitytoken=synthetic",
+            "https://njp.ggcf.kr/?authtoken=synthetic",
+            "https://njp.ggcf.kr/?credentialvalue=synthetic",
+            "https://njp.ggcf.kr/?passwordvalue=synthetic",
+            "https://njp.ggcf.kr/?secretvalue=synthetic",
+            "https://njp.ggcf.kr/?cookievalue=synthetic",
+            "https://njp.ggcf.kr/?authorizationvalue=synthetic",
+            "https://njp.ggcf.kr/?signedurl=synthetic",
+            "https://njp.ggcf.kr/?presignedurl=synthetic",
+            "https://njp.ggcf.kr/?signaturecredential=synthetic",
+            "https://njp.ggcf.kr/?mybearertoken=synthetic",
+            "https://njp.ggcf.kr/?bearertokenvalue=synthetic",
+            "https://njp.ggcf.kr/?mysessiontokenvalue=synthetic",
+            "https://njp.ggcf.kr/?requestcredentialvalue=synthetic",
+            "https://njp.ggcf.kr/?clientpasswordvalue=synthetic",
+            "https://njp.ggcf.kr/?xsecretvalue=synthetic",
+            "https://njp.ggcf.kr/?cookieheadervalue=synthetic",
+            "https://njp.ggcf.kr/object;jsessionid=synthetic",
+            "https://njp.ggcf.kr/object%3Bjsessionid=synthetic",
+            "https://njp.ggcf.kr/object%253Bjsessionid=synthetic",
+            "https://njp.ggcf.kr/object%252Fchild",
+            "https://njp.ggcf.kr/?x%2561pikey=synthetic",
         )
         rejected = (
             "http://njp.ggcf.kr/",
@@ -50,6 +118,7 @@ class AcquisitionPolicyTests(unittest.TestCase):
             "https://www.googleapis.com/drive/v3/files/arbitrary",
             signed_query_url,
             credential_query_url,
+            *credential_alias_urls,
         )
         for url in rejected:
             with self.subTest(url=url):
