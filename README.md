@@ -21,6 +21,11 @@ The shared [bounded discovery contract](docs/bounded-discovery.md) defines
 governance binding, hard limits, atomic resume, and evidence-scoped
 completeness for later source adapters.
 
+The [safe observability and evidence contract](docs/safe-observability-and-evidence.md)
+and the [operator gate contract](docs/operator-gates.md) apply across every lane:
+allowlisted content-free records, exact-head evidence, held-not-passed CI, and
+human blockers that always carry an exact next safe action and resumable state.
+
 ## Status
 
 Rucksack created this repository and installed its reversible agent harness.
