@@ -30,7 +30,8 @@ from performing_fire_corpus.storage import StorageClient
 _ID = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 _OBJECT_KEY = re.compile(
-    r"^performing-fire/v1/raw/[a-z0-9-]+/"
+    r"^performing-fire/v1/raw/"
+    r"(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)/"
     r"asset_[a-z0-9][a-z0-9._-]{0,127}/[0-9a-f]{64}$"
 )
 _CAPABILITY = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
@@ -145,7 +146,6 @@ _EVIDENCE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
 _CHUNK_SIZE = 64 * 1024
 _HUMAN_EXECUTION_CODES = frozenset(
     {
-        "exact_key_recovery_failed",
         "durable_receipt_conflict",
         "durable_receipt_object_absent",
         "immutable_object_conflict",
@@ -864,6 +864,26 @@ class BoundedTrustedVMAcquisitionExecutor:
                 "Release this attempt and resume only from its durable exact state.",
             )
 
+    def _require_current_authority(
+        self,
+        *,
+        job: Mapping[str, object],
+        authority: Mapping[str, object],
+        now: datetime,
+        code: str,
+    ) -> None:
+        _, authority_error = _validate_authority(
+            authority,
+            job=job,
+            now=now,
+        )
+        if authority_error is not None:
+            _execution_failure(
+                code,
+                "policy_snapshot",
+                "Refresh every acquisition authority gate before source access.",
+            )
+
     def _current_tombstone(
         self,
         *,
@@ -939,6 +959,13 @@ class BoundedTrustedVMAcquisitionExecutor:
                 receipt_artifact=receipt if durable is not None else None,
                 ledger_record=durable,
             )
+        except CorpusObjectError as error:
+            gate = (
+                "retention"
+                if "tombstone" in error.code or "retention" in error.code
+                else "storage_scope"
+            )
+            _execution_failure(error.code, gate, error.next_action)
         except Exception:
             _execution_failure(
                 "exact_key_recovery_failed",
@@ -982,6 +1009,12 @@ class BoundedTrustedVMAcquisitionExecutor:
             raise TrustedVMWorkerError("execution context resolver returned invalid data")
         context = _validate_execution_context(raw_context, job=checked_job)
         current = self._elapsed(started=started, context=context)
+        self._require_current_authority(
+            job=checked_job,
+            authority=authority,
+            now=current,
+            code="authority_expired_before_source",
+        )
         self._maintain_lease(
             lease_id=lease_id,
             job=checked_job,
@@ -1056,6 +1089,18 @@ class BoundedTrustedVMAcquisitionExecutor:
                 job=checked_job,
                 now=current,
             )
+            self._require_current_authority(
+                job=checked_job,
+                authority=authority,
+                now=current,
+                code="authority_expired_before_source",
+            )
+            if self._current_tombstone(job=checked_job) is not None:
+                _execution_failure(
+                    "object_tombstoned",
+                    "retention",
+                    "Keep this exact object held and review authority before reacquisition.",
+                )
             try:
                 response = self._http_client.open(
                     context.public_url,
@@ -1324,12 +1369,22 @@ def run_trusted_vm_worker_once(
             now=current,
         )
     except Exception:
-        authority_value = None
+        blocker = _blocker(
+            job=job,
+            lease=lease,
+            code="authority_resolver_unavailable",
+            gate="policy_snapshot",
+            next_safe_action=(
+                "Retry this exact job after the authority resolver recovers."
+            ),
+        )
+        control_plane.block(blocker)
+        return blocker
     if not isinstance(authority_value, Mapping):
         blocker = _blocker(
             job=job,
             lease=lease,
-            code="authority_unavailable",
+            code="authority_missing",
             gate="policy_snapshot",
             required_authority_class="corpus_operator",
         )
@@ -1369,12 +1424,22 @@ def run_trusted_vm_worker_once(
             )
         )
     except Exception:
-        refreshed_authority_value = None
+        blocker = _blocker(
+            job=job,
+            lease=lease,
+            code="authority_resolver_unavailable_before_acquisition",
+            gate="policy_snapshot",
+            next_safe_action=(
+                "Retry this exact job after the authority resolver recovers."
+            ),
+        )
+        control_plane.block(blocker)
+        return blocker
     if not isinstance(refreshed_authority_value, Mapping):
         blocker = _blocker(
             job=job,
             lease=lease,
-            code="authority_unavailable_before_acquisition",
+            code="authority_missing_before_acquisition",
             gate="policy_snapshot",
             required_authority_class="corpus_operator",
         )

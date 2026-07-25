@@ -72,7 +72,7 @@
         "run_plan_id": {"$ref": "#/$defs/id"},
         "schema_version": {"const": 1},
         "selection_id": {"$ref": "#/$defs/id"},
-        "source_id": {"pattern": "^[a-z][a-z0-9-]{2,127}$", "type": "string"},
+        "source_id": {"pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$", "type": "string"},
         "source_locator_id": {"$ref": "#/$defs/id"},
         "target_object_key": {"$ref": "#/$defs/objectKey"}
       },
@@ -96,7 +96,7 @@
     },
     "leaseId": {"pattern": "^lease_[a-z0-9][a-z0-9._-]{0,127}$", "type": "string"},
     "objectKey": {
-      "pattern": "^performing-fire/v1/raw/[a-z0-9-]+/asset_[a-z0-9][a-z0-9._-]{0,127}/[0-9a-f]{64}$",
+      "pattern": "^performing-fire/v1/raw/(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)/asset_[a-z0-9][a-z0-9._-]{0,127}/[0-9a-f]{64}$",
       "type": "string"
     },
     "result": {
@@ -147,7 +147,7 @@
         "recorded_at": {"format": "date-time", "pattern": "Z$", "type": "string"},
         "reservation_id": {"pattern": "^source_attempt_[a-z0-9][a-z0-9._-]{0,127}$", "type": "string"},
         "schema_version": {"const": 1},
-        "source_id": {"pattern": "^[a-z][a-z0-9-]{2,127}$", "type": "string"},
+        "source_id": {"pattern": "^(?:source_[a-z0-9][a-z0-9._-]{0,127}|[a-z]+(?:-[a-z]+)*)$", "type": "string"},
         "state": {"enum": ["reserved", "already_reserved", "rate_not_ready"]}
       },
       "required": ["job_id", "record_type", "recorded_at", "reservation_id", "schema_version", "source_id", "state"],

@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -496,6 +497,40 @@ class TrustedVMWorkerTests(unittest.TestCase):
         self.assertEqual(result, control.blockers[0])
         self.assertIn("resume_token", result)
 
+        class UnavailableResolver:
+            def resolve_current_acquisition_authority(self, *, job, now):
+                del job, now
+                raise ConnectionError("transient resolver detail")
+
+        unavailable = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=FakeControlPlane(job()),
+            authority_resolver=UnavailableResolver(),
+            executor=FakeExecutor(),
+            now=NOW,
+        )
+        self.assertEqual(
+            "authority_resolver_unavailable",
+            unavailable["outcome_code"],
+        )
+        self.assertEqual("none", unavailable["required_authority_class"])
+        self.assertNotIn("resolver detail", json.dumps(unavailable))
+
+        class MissingResolver:
+            def resolve_current_acquisition_authority(self, *, job, now):
+                del job, now
+                return None
+
+        missing = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=FakeControlPlane(job()),
+            authority_resolver=MissingResolver(),
+            executor=FakeExecutor(),
+            now=NOW,
+        )
+        self.assertEqual("authority_missing", missing["outcome_code"])
+        self.assertEqual("corpus_operator", missing["required_authority_class"])
+
     def test_authority_is_reresolved_immediately_before_executor(self) -> None:
         class RevokingResolver(FakeAuthorityResolver):
             def __init__(self) -> None:
@@ -556,6 +591,59 @@ class TrustedVMWorkerTests(unittest.TestCase):
             now=NOW,
         )
         self.assertEqual("authority_not_current", result["outcome_code"])
+
+    def test_runtime_and_schema_share_the_canonical_source_id_grammar(self) -> None:
+        schema = json.loads(
+            (ROOT / "schemas" / "v1" / "trusted-vm-worker.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validator = Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+        )
+        canonical = job()
+        canonical["source_id"] = "source_synthetic_001"
+        canonical["target_object_key"] = (
+            "performing-fire/v1/raw/source_synthetic_001/"
+            "asset_synthetic_worker_001/" + "a" * 64
+        )
+        validator.validate(canonical)
+
+        class MatchingExecutor(FakeExecutor):
+            def acquire_one(self, *, job, authority, lease_id):
+                value = super().acquire_one(
+                    job=job,
+                    authority=authority,
+                    lease_id=lease_id,
+                )
+                value["object_key"] = job["target_object_key"]
+                return value
+
+        completed = run_trusted_vm_worker_once(
+            capability(),
+            control_plane=FakeControlPlane(canonical),
+            authority_resolver=FakeAuthorityResolver(),
+            executor=MatchingExecutor(),
+            now=NOW,
+        )
+        self.assertEqual("completed", completed["status"])
+
+        noncanonical = job()
+        noncanonical["source_id"] = "antiegg-2"
+        noncanonical["target_object_key"] = str(
+            noncanonical["target_object_key"]
+        ).replace("antiegg-fluxus", "antiegg-2")
+        with self.assertRaises(ValidationError):
+            validator.validate(noncanonical)
+        with self.assertRaises(TrustedVMWorkerError):
+            run_trusted_vm_worker_once(
+                capability(),
+                control_plane=FakeControlPlane(noncanonical),
+                authority_resolver=FakeAuthorityResolver(),
+                executor=FakeExecutor(),
+                now=NOW,
+            )
 
     def test_terminal_resume_and_no_work_do_not_repeat_acquisition(self) -> None:
         control = FakeControlPlane(job())
@@ -929,6 +1017,36 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
             )
         self.assertEqual([], held_http.calls)
 
+    def test_transient_recovery_head_failure_is_not_a_human_gate(self) -> None:
+        content = b"recovery-head"
+        item = execution_job(content)
+
+        class FailingRecoveryHead(FakeExecutionStorage):
+            def head_object(self, key: str):
+                if self.heads:
+                    raise ConnectionError("transient exact head detail")
+                return super().head_object(key)
+
+        storage = FailingRecoveryHead()
+        storage.objects[str(item["target_object_key"])] = {
+            "byte_size": len(content),
+            "media_type": "video/mp4",
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+        executor, http, _, _ = self.executor(
+            content=content,
+            storage=storage,
+        )
+        with self.assertRaises(TrustedVMExecutionError) as raised:
+            executor.acquire_one(
+                job=item,
+                authority=authority(),
+                lease_id="lease_synthetic_worker_001",
+            )
+        self.assertEqual("exact_head_failed", raised.exception.code)
+        self.assertEqual("none", raised.exception.required_authority_class)
+        self.assertEqual([], http.calls)
+
     def test_absent_tombstoned_object_blocks_before_source_request(self) -> None:
         content = b"absent-tombstone"
 
@@ -962,6 +1080,45 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
         self.assertEqual([], http.calls)
         self.assertEqual([], storage.creates)
         self.assertEqual([], rate.calls)
+
+    def test_tombstone_appearing_during_head_blocks_before_http(self) -> None:
+        content = b"late-tombstone"
+
+        class ChangingRetentionAuthority:
+            def __init__(self, ledger: Ledger) -> None:
+                self.ledger = ledger
+                self.calls = 0
+
+            def get_corpus_receipt_by_key(self, object_key: str):
+                return self.ledger.get_corpus_receipt_by_key(object_key)
+
+            def get_cleanup_tombstone_by_key(self, object_key: str):
+                del object_key
+                self.calls += 1
+                if self.calls >= 2:
+                    return {"tombstone_id": "tombstone_synthetic_worker_003"}
+                return None
+
+            def upsert(self, record, *, operation_id=None):
+                return self.ledger.upsert(record, operation_id=operation_id)
+
+        retention = ChangingRetentionAuthority(self.ledger)
+        executor, http, storage, _ = self.executor(
+            content=content,
+            receipt_authority=retention,
+        )
+        with self.assertRaisesRegex(
+            TrustedVMExecutionError,
+            "object_tombstoned",
+        ):
+            executor.acquire_one(
+                job=execution_job(content),
+                authority=authority(),
+                lease_id="lease_synthetic_worker_001",
+            )
+        self.assertGreaterEqual(retention.calls, 2)
+        self.assertEqual([], http.calls)
+        self.assertEqual([], storage.creates)
 
     def test_rate_elapsed_stream_and_shape_failures_clean_disposable_cache(self) -> None:
         content = b"bounded-failure"
@@ -1153,6 +1310,42 @@ class BoundedTrustedVMAcquisitionExecutorTests(unittest.TestCase):
         self.assertEqual(1, len(http.calls))
         self.assertEqual([], storage.creates)
         self.assert_cache_empty()
+
+    def test_authority_expiry_during_context_resolution_blocks_before_http(self) -> None:
+        content = b"context-authority-window"
+        clock = FakeClock()
+
+        class AdvancingContext(FakeExecutionContextResolver):
+            def resolve_execution_context(self, *, job, authority):
+                value = super().resolve_execution_context(
+                    job=job,
+                    authority=authority,
+                )
+                clock.advance(seconds=10)
+                return value
+
+        expiring = authority()
+        expiring["expires_at"] = "2026-07-25T02:00:05Z"
+        executor, http, storage, rate = self.executor(
+            content=content,
+            clock=clock,
+            context=AdvancingContext(
+                content,
+                maximum_elapsed_seconds=20,
+            ),
+        )
+        with self.assertRaisesRegex(
+            TrustedVMExecutionError,
+            "authority_expired_before_source",
+        ):
+            executor.acquire_one(
+                job=execution_job(content),
+                authority=expiring,
+                lease_id="lease_synthetic_worker_001",
+            )
+        self.assertEqual([], http.calls)
+        self.assertEqual([], storage.creates)
+        self.assertEqual([], rate.calls)
 
     def test_supervisor_uses_fresh_clock_and_releases_disconnect(self) -> None:
         clock = FakeClock()

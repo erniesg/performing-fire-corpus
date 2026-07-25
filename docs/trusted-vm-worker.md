@@ -46,7 +46,7 @@ one elapsed budget, and a source-request budget fixed at one. It:
 - checks for a matching exact object before any source request, enabling
   restart recovery without reacquisition;
 - checks current exact-key tombstone authority before source access and again
-  before create;
+  immediately before HTTP and before create;
 - durably reserves one source attempt before opening HTTP; reclaiming the same
   interrupted job cannot issue another request, while an explicitly reviewed
   retry uses a distinct job;
@@ -82,8 +82,9 @@ persisted.
 `required_authority_class` is `corpus_operator` only for a genuine policy,
 rights, access-decision, retention, changed-content, or immutable-conflict
 boundary. Lease loss, rate waiting, source-attempt reconciliation, provider
-startup, elapsed bounds, and transient executor failures use `none`; they must
-not become a human gate or pause unrelated work.
+startup, transient authority-resolver unavailability, elapsed bounds, and
+transient executor failures use `none`; they must not become a human gate or
+pause unrelated work.
 
 The generic Rucksack VM launcher is not part of this reference implementation.
 Until its startup transport issue is resolved, this worker remains portable
