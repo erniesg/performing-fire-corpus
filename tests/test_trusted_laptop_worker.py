@@ -836,6 +836,15 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(harness.transformer.calls, first_transform_count)
 
             assert first is not None
+            harness.control.job_value = job(
+                derivation_authority_sha256="d" * 64
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "completed_result_conflict",
+            )
+            harness.control.job_value = job()
             harness.receipts.tombstones.add(
                 str(first["output_object_key"])
             )

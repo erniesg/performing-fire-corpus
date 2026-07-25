@@ -198,6 +198,7 @@ _RESULT_KEYS = {
     "pairing_id",
     "lease_id",
     "job_id",
+    "job_contract_sha256",
     "source_id",
     "asset_id",
     "transformation_id",
@@ -945,6 +946,9 @@ def _validate_result(value: Mapping[str, object]) -> dict[str, object]:
         "manifest_receipt_id",
     ):
         _require_pattern(record[field], _ID, field)
+    _require_pattern(
+        record["job_contract_sha256"], _HASH, "job_contract_sha256"
+    )
     _require_pattern(record["source_id"], _SOURCE_ID, "source_id")
     _require_pattern(record["asset_id"], _ASSET_ID, "asset_id")
     _require_pattern(
@@ -2092,6 +2096,7 @@ class BoundedTrustedLaptopWorker:
             "pairing_id": pairing["pairing_id"],
             "lease_id": lease["lease_id"],
             "job_id": job["job_id"],
+            "job_contract_sha256": _digest(job),
             "source_id": job["source_id"],
             "asset_id": job["asset_id"],
             "transformation_id": job["transformation_id"],
@@ -2264,6 +2269,7 @@ class BoundedTrustedLaptopWorker:
             result = _validate_result(completed)
             if (
                 result["job_id"] != job["job_id"]
+                or result["job_contract_sha256"] != _digest(job)
                 or result["transformation_id"] != job["transformation_id"]
                 or result["input_receipt_id"] != job["input_receipt_id"]
                 or result["source_id"] != job["source_id"]
