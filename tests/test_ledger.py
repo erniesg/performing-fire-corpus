@@ -339,7 +339,12 @@ class LedgerTests(unittest.TestCase):
                         "migration_root = files('performing_fire_corpus.migrations'); "
                         "required = ('discovery-run-plan.json', 'page-checkpoint.json', "
                         "'request-fact.json', 'discovery-observation.json', "
-                        "'completeness-report.json'); "
+                        "'completeness-report.json', "
+                        "'project-native-contribution.json', "
+                        "'project-native-export-job.json', "
+                        "'project-native-legal-hold.json', "
+                        "'project-native-deletion-work.json', "
+                        "'project-native-audit-tombstone.json'); "
                         "assert all(schema_root.joinpath(name).is_file() for name in required); "
                         "assert migration_root.joinpath('002_discovery.sql').is_file()"
                     ),

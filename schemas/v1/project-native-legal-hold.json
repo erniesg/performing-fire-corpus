@@ -1,0 +1,60 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-legal-hold.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "label": {
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority_class": {"$ref": "#/$defs/label"},
+    "basis_code": {"$ref": "#/$defs/label"},
+    "contribution_ids": {
+      "items": {
+        "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "decided_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "legal_hold_id": {
+      "pattern": "^legal_hold_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "record_type": {"const": "project_native_legal_hold"},
+    "review_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "schema_version": {"const": 1},
+    "state": {"enum": ["active", "released"]}
+  },
+  "required": [
+    "authority_class",
+    "basis_code",
+    "contribution_ids",
+    "decided_at",
+    "expires_at",
+    "legal_hold_id",
+    "record_type",
+    "review_at",
+    "schema_version",
+    "state"
+  ],
+  "title": "Project-native scoped legal hold v1",
+  "type": "object"
+}

@@ -246,6 +246,27 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, contract)
 
+    def test_project_native_lifecycle_is_synthetic_and_fail_closed(self) -> None:
+        contract = (ROOT / "docs" / "project-native-lifecycle.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(contract.split())
+        for value in (
+            "invented records only",
+            "does not deploy an intake surface",
+            "pseudonymous contribution ID",
+            "specific, withdrawable consent",
+            "intersection of input uses and audiences",
+            "most restrictive input confidentiality",
+            "earliest input retention expiry",
+            "raw objects, derived objects, index documents",
+            "content-free tombstone",
+            "mandatory review time",
+            "no indefinite default",
+            "issue #46",
+        ):
+            self.assertIn(value, normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

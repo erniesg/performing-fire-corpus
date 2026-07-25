@@ -72,3 +72,9 @@ project, raw comments, private content, or proposal text.
 No project-native ingestion may start until a later reviewed intake issue
 supplies an approved notice, an accountable authority class, and a deletion
 owner. Synthetic fixtures are content-free and do not represent real people.
+
+The stricter contribution, inheritance, subject-export, exact deletion-work,
+scoped legal-hold, and content-free tombstone rules are defined in
+[`project-native-lifecycle.md`](project-native-lifecycle.md). Those portable
+contracts do not imply that an intake UI or production access control has been
+deployed.

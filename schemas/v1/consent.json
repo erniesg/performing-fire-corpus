@@ -47,6 +47,8 @@
         "prose_retention",
         "public_retrieval",
         "retention",
+        "score_generation",
+        "subject_export",
         "search_visibility"
       ]
     },

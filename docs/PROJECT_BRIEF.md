@@ -40,6 +40,13 @@ Forbidden in Git, GitHub, logs, screenshots, fixtures, and evidence:
 - credentials, access tokens, cookies, signed URLs, account identifiers, or
   secret values.
 
+Future artist submissions, visitor inputs, generated scores, performer
+annotations or choices, and visual-system state or history use the separate
+[project-native lifecycle contract](project-native-lifecycle.md). That
+synthetic-only contract requires pseudonymous IDs, explicit consent, finite
+retention, subject export and withdrawal, exact derivative deletion, and
+scoped expiring legal holds. It does not authorize or deploy real intake.
+
 ## Durable workflow
 
 Each asset moves through an explicit state machine:
@@ -102,4 +109,3 @@ never media or credentials.
 
 Deployment, model racing, OCR, transcription, video understanding, and
 full-corpus downloads are outside this first slice.
-

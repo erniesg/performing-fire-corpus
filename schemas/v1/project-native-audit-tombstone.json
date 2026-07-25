@@ -1,0 +1,58 @@
+{
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/project-native-audit-tombstone.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "counts": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_entries": {"minimum": 0, "type": "integer"},
+        "derived_objects": {"minimum": 0, "type": "integer"},
+        "index_documents": {"minimum": 0, "type": "integer"},
+        "raw_objects": {"minimum": 0, "type": "integer"},
+        "score_exports": {"minimum": 0, "type": "integer"}
+      },
+      "required": [
+        "cache_entries",
+        "derived_objects",
+        "index_documents",
+        "raw_objects",
+        "score_exports"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "completed_at": {
+      "format": "date-time",
+      "pattern": "Z$",
+      "type": "string"
+    },
+    "contribution_id": {
+      "pattern": "^contribution_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "deletion_id": {
+      "pattern": "^deletion_[a-z0-9][a-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "record_type": {"const": "project_native_audit_tombstone"},
+    "removed_counts": {"$ref": "#/$defs/counts"},
+    "schema_version": {"const": 1},
+    "tombstone_id": {
+      "pattern": "^project_native_tombstone_[0-9a-f]{24}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "completed_at",
+    "contribution_id",
+    "deletion_id",
+    "record_type",
+    "removed_counts",
+    "schema_version",
+    "tombstone_id"
+  ],
+  "title": "Content-free project-native deletion tombstone v1",
+  "type": "object"
+}
