@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from collections.abc import Iterable, Mapping
@@ -408,6 +409,13 @@ class UrllibHTTPResponse:
     def __init__(self, response: Any) -> None:
         self._response = response
         self.final_url = response.geturl()
+        status = getattr(response, "status", None)
+        if not isinstance(status, int) or isinstance(status, bool):
+            try:
+                status = response.getcode()
+            except Exception:
+                status = None
+        self.status = status
         self.media_type = response.headers.get("Content-Type", "")
         raw_length = response.headers.get("Content-Length")
         try:
@@ -447,12 +455,27 @@ class UrllibHTTPClient:
         self._timeout_seconds = timeout_seconds
         self._opener = urlrequest.build_opener(_NoRedirectHandler())
 
-    def open(self, url: str) -> UrllibHTTPResponse:
+    def open(
+        self,
+        url: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> UrllibHTTPResponse:
+        selected_timeout = self._timeout_seconds
+        if timeout_seconds is not None:
+            if (
+                not isinstance(timeout_seconds, (int, float))
+                or isinstance(timeout_seconds, bool)
+                or not math.isfinite(float(timeout_seconds))
+                or timeout_seconds <= 0
+            ):
+                raise ValueError("timeout_seconds must be finite and positive")
+            selected_timeout = min(selected_timeout, float(timeout_seconds))
         request = urlrequest.Request(
             url,
             headers={"User-Agent": "performing-fire-corpus/0.1"},
             method="GET",
         )
         return UrllibHTTPResponse(
-            self._opener.open(request, timeout=self._timeout_seconds)
+            self._opener.open(request, timeout=selected_timeout)
         )
