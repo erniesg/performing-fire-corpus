@@ -6,8 +6,10 @@ import json
 import multiprocessing
 import resource
 import signal
+import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -228,6 +230,7 @@ class FakeObjectStore:
         self.create_failure: Exception | None = None
         self.persist_before_create_failure = False
         self.before_head: Callable[[str, int], None] | None = None
+        self.before_download: Callable[[], None] | None = None
         self.head_counts: dict[str, int] = {}
 
     def head_object(self, key: str) -> dict[str, object] | None:
@@ -251,6 +254,8 @@ class FakeObjectStore:
         maximum_bytes: int,
     ) -> None:
         self.downloads.append(key)
+        if self.before_download is not None:
+            self.before_download()
         value = self.objects[key]
         body = bytes(value["body"])
         if len(body) > maximum_bytes:
@@ -377,6 +382,10 @@ class FakeTransformer:
         self.busy_seconds = 0.0
         self.allocate_bytes = 0
         self.ignore_cpu_signal = False
+        self.descendant_busy_seconds = 0.0
+        self.descendant_processes = 0
+        self.heartbeat_counter: object | None = None
+        self.require_heartbeat_during_sleep = False
         self.failure: Exception | None = None
         self.tombstone_marker_path: Path | None = None
         self.manifest_symlink_target: Path | None = None
@@ -414,6 +423,28 @@ class FakeTransformer:
             busy_until = time.monotonic() + self.busy_seconds
             while time.monotonic() < busy_until:
                 pass
+        descendants: list[subprocess.Popen[bytes]] = []
+        if self.descendant_busy_seconds and self.descendant_processes:
+            child_program = (
+                "import sys,time;"
+                "deadline=time.process_time()+float(sys.argv[1]);"
+                "\nwhile time.process_time()<deadline: pass"
+            )
+            descendants = [
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        child_program,
+                        str(self.descendant_busy_seconds),
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                for _ in range(self.descendant_processes)
+            ]
+            for descendant in descendants:
+                descendant.wait()
         effective_input_path = input_path
         effective_output_path = output_path
         if self.replace_cache_root is not None:
@@ -452,8 +483,19 @@ class FakeTransformer:
                 self.reap_root, now=self.reap_at
             ):
                 raise AssertionError("active cache was reaped")
+        heartbeat_before_sleep = (
+            None
+            if self.heartbeat_counter is None
+            else self.heartbeat_counter.value
+        )
         if self.sleep_seconds:
             time.sleep(self.sleep_seconds)
+        if (
+            self.require_heartbeat_during_sleep
+            and self.heartbeat_counter is not None
+            and self.heartbeat_counter.value <= heartbeat_before_sleep
+        ):
+            raise AssertionError("transform lease was not renewed")
         self.clock.advance(self.advance_seconds)
         return {
             "cpu_seconds": self.cpu_seconds,
@@ -472,7 +514,13 @@ class FakeControlPlane:
         self.fail_heartbeat_number: int | None = None
         self.fail_checkpoint_stage_after_store: str | None = None
         self.heartbeat_extension_minutes = 5
+        self.lease_duration_seconds = 5 * 60
+        self.heartbeat_counter = multiprocessing.get_context(
+            "forkserver"
+        ).Value("i", 0)
         self.job_value: dict[str, object] | None = job()
+        self.pair_entered: threading.Event | None = None
+        self.pair_release: threading.Event | None = None
 
     def pair_outbound(
         self,
@@ -481,6 +529,10 @@ class FakeControlPlane:
         now: datetime,
     ) -> dict[str, object]:
         del now
+        if self.pair_entered is not None:
+            self.pair_entered.set()
+        if self.pair_release is not None:
+            self.pair_release.wait(timeout=5)
         self.events.append(
             {
                 "event": "pair",
@@ -511,7 +563,9 @@ class FakeControlPlane:
                 "pairing_id": pairing_value["pairing_id"],
                 "job_id": self.job_value["job_id"],
                 "acquired_at": utc(now),
-                "expires_at": utc(now + timedelta(minutes=5)),
+                "expires_at": utc(
+                    now + timedelta(seconds=self.lease_duration_seconds)
+                ),
             },
         }
 
@@ -540,6 +594,8 @@ class FakeControlPlane:
         now: datetime,
     ) -> dict[str, object]:
         self.heartbeat_calls += 1
+        with self.heartbeat_counter.get_lock():
+            self.heartbeat_counter.value += 1
         if self.fail_heartbeat_number == self.heartbeat_calls:
             raise ConnectionError("synthetic disconnect content must not persist")
         value = {
@@ -596,6 +652,7 @@ class Harness:
         self.authority = FakeAuthorityResolver()
         self.transformer = FakeTransformer(self.clock)
         self.control = FakeControlPlane()
+        self.transformer.heartbeat_counter = self.control.heartbeat_counter
         self.worker = BoundedTrustedLaptopWorker(
             control_plane=self.control,
             authority_resolver=self.authority,
@@ -985,6 +1042,50 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 )
                 self.assertEqual(harness.storage.created, [])
 
+    def test_transformer_resource_bounds_cover_descendant_processes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(
+                maximum_cpu_seconds=1,
+                maximum_elapsed_seconds=10,
+            )
+            harness.transformer.cpu_seconds = 0
+            harness.transformer.advance_seconds = 0
+            harness.transformer.descendant_processes = 2
+            harness.transformer.descendant_busy_seconds = 0.75
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[0]["code"],
+                "cpu_limit_exceeded",
+            )
+
+    def test_transform_uses_only_the_remaining_job_elapsed_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = job(maximum_elapsed_seconds=1)
+            harness.storage.before_download = lambda: harness.clock.advance(2)
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 0)
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[0]["code"],
+                "elapsed_limit_exceeded",
+            )
+
+    def test_transform_watchdog_renews_the_lease_while_child_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.lease_duration_seconds = 1
+            harness.control.job_value = job(maximum_elapsed_seconds=3)
+            harness.transformer.advance_seconds = 0
+            harness.transformer.sleep_seconds = 1.2
+            harness.transformer.require_heartbeat_during_sleep = True
+
+            self.assertIsNotNone(harness.worker.run_once(capability()))
+
     def test_manifest_symlink_cannot_overwrite_an_unrelated_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1114,6 +1215,56 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(harness.transformer.calls, 1)
             self.assertEqual(len(harness.storage.created), 2)
+
+    def test_resumed_output_receipt_must_match_checkpoint_hash_and_size(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.fail_checkpoint_stage_after_store = (
+                "output_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+
+            checkpoint = next(
+                event
+                for event in reversed(harness.control.events)
+                if event.get("record_type") == "trusted_laptop_checkpoint"
+                and event.get("stage") == "output_verified"
+            )
+            checkpoint["output_sha256"] = "d" * 64
+            checkpoint["output_byte_size"] = int(
+                checkpoint["output_byte_size"]
+            ) + 1
+            resume_state = {
+                key: value
+                for key, value in checkpoint.items()
+                if key
+                not in {
+                    "schema_version",
+                    "record_type",
+                    "checkpoint_id",
+                    "resume_state_sha256",
+                    "recorded_at",
+                }
+            }
+            resume_hash = trusted_laptop_worker._digest(resume_state)
+            checkpoint["resume_state_sha256"] = resume_hash
+            checkpoint["checkpoint_id"] = (
+                "checkpoint_"
+                + trusted_laptop_worker._digest(
+                    {"resume_state_sha256": resume_hash}
+                )
+            )
+
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(attempt=2)
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(len(harness.storage.created), 1)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "resume_receipt_mismatch",
+            )
 
     def test_interrupted_transform_binds_resume_to_exact_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1257,6 +1408,40 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 disk.control.blockers[0]["code"],
                 "job_disk_bound_inconsistent",
             )
+
+    def test_worker_rejects_a_concurrent_run_on_the_same_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.job_value = None
+            entered = threading.Event()
+            release = threading.Event()
+            harness.control.pair_entered = entered
+            harness.control.pair_release = release
+            outcomes: list[dict[str, object] | None] = []
+            failures: list[BaseException] = []
+
+            def first_run() -> None:
+                try:
+                    outcomes.append(harness.worker.run_once(capability()))
+                except BaseException as exc:
+                    failures.append(exc)
+
+            thread = threading.Thread(target=first_run)
+            thread.start()
+            self.assertTrue(entered.wait(timeout=2))
+            try:
+                with self.assertRaisesRegex(
+                    TrustedLaptopWorkerError,
+                    "already has an active run",
+                ):
+                    harness.worker.run_once(capability())
+            finally:
+                release.set()
+                thread.join(timeout=2)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(outcomes, [None])
 
 
 if __name__ == "__main__":

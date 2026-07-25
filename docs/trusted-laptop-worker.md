@@ -39,8 +39,10 @@ For each claim, the worker:
 4. downloads only that approved key into a marker-bound disposable cache and
    verifies its exact hash and size before the transformer runs;
 5. runs one serializable, reviewed transformer in a fresh POSIX forkserver
-   child with kernel CPU, address-space, and output-file limits plus parent
-   watchdogs for elapsed time, resident-memory growth, and cache-disk use;
+   process group with inherited kernel CPU, address-space, and output-file
+   limits plus parent watchdogs that aggregate descendant CPU and resident
+   memory, spend only the job's remaining elapsed budget, renew the live
+   lease, and bound cache-disk use;
 6. checkpoints the exact output hash, size, key, and aggregate resource facts
    before any object create;
 7. refreshes the lease, elapsed bound, current authority, input tombstone, and
@@ -76,7 +78,9 @@ may be rerun only to reproduce the checkpointed hash. A different output is a
 durable blocker and cannot create a second key. If the output receipt is
 already durable, resume skips download and transformation. If both receipts
 are durable, resume verifies exact `HEAD` facts and completes without reading
-corpus bytes.
+corpus bytes. Every resumed derived receipt must also match the hash and size
+bound into its checkpoint; a self-consistent but contradictory checkpoint is
+held for operator reconciliation.
 
 A lost conditional-create response is accepted only when immediate exact-key
 `HEAD` matches the declared size, MIME type, and hash. Lease or outbound
@@ -102,8 +106,10 @@ The exact-object-store adapter receives local paths only in process. The
 transformer is serialized into a fresh forkserver child and receives only the
 exact input path, output path, and validated job. It must remain serializable
 and reviewed; the worker independently enforces and measures the declared
-limits. Neither adapter may put paths or bytes in checkpoints, logs, errors,
-issues, evidence, or manifests.
+limits across the complete process group. One worker instance rejects a
+reentrant run, preserving its advertised concurrency of one and preventing
+cache or lease state from crossing jobs. Neither adapter may put paths or bytes
+in checkpoints, logs, errors, issues, evidence, or manifests.
 
 ## Durable records
 

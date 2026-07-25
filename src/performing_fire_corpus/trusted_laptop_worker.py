@@ -20,6 +20,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
@@ -1343,6 +1344,13 @@ def _process_cpu_seconds(pid: int) -> float | None:
             capture_output=True,
             text=True,
         ).stdout.strip()
+        return _parse_process_time(value)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _parse_process_time(value: str) -> float | None:
+    try:
         day_parts = value.split("-", 1)
         days = int(day_parts[0]) if len(day_parts) == 2 else 0
         clock_parts = day_parts[-1].split(":")
@@ -1359,8 +1367,64 @@ def _process_cpu_seconds(pid: int) -> float | None:
             + int(minutes) * 60
             + float(seconds)
         )
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except ValueError:
         return None
+
+
+def _process_group_usage(process_group_id: int) -> tuple[float, int, int] | None:
+    """Return aggregate CPU, resident bytes, and member count for one group."""
+
+    if sys.platform.startswith("linux"):
+        cpu_ticks = 0
+        resident_pages = 0
+        members = 0
+        try:
+            clock_ticks = float(os.sysconf("SC_CLK_TCK"))
+            page_size = int(os.sysconf("SC_PAGE_SIZE"))
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    raw = (entry / "stat").read_text(encoding="ascii")
+                    fields = raw[raw.rfind(")") + 2 :].split()
+                    if int(fields[2]) != process_group_id:
+                        continue
+                    cpu_ticks += int(fields[11]) + int(fields[12])
+                    resident_pages += max(0, int(fields[21]))
+                    members += 1
+                except (OSError, ValueError, IndexError):
+                    continue
+            return cpu_ticks / clock_ticks, resident_pages * page_size, members
+        except (OSError, ValueError):
+            return None
+    try:
+        output = subprocess.run(
+            ["ps", "-axo", "pgid=,time=,rss="],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    cpu_seconds = 0.0
+    resident_bytes = 0
+    members = 0
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        try:
+            if int(fields[0]) != process_group_id:
+                continue
+            parsed_time = _parse_process_time(fields[1])
+            if parsed_time is None:
+                continue
+            cpu_seconds += parsed_time
+            resident_bytes += max(0, int(fields[2])) * 1024
+            members += 1
+        except ValueError:
+            continue
+    return cpu_seconds, resident_bytes, members
 
 
 def _maximum_rss_bytes(usage: Any) -> int:
@@ -1437,14 +1501,20 @@ def _run_transform_child(
                 job=job,
             )
             usage = resource.getrusage(resource.RUSAGE_SELF)
+            child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
             payload: dict[str, object] = {
                 "state": "ok",
                 "outcome": dict(outcome),
                 "observed_cpu_seconds": float(
-                    usage.ru_utime + usage.ru_stime
+                    usage.ru_utime
+                    + usage.ru_stime
+                    + child_usage.ru_utime
+                    + child_usage.ru_stime
                 ),
                 "observed_memory_bytes": max(
-                    0, _maximum_rss_bytes(usage) - baseline_rss
+                    0,
+                    _maximum_rss_bytes(usage) - baseline_rss,
+                    _maximum_rss_bytes(child_usage),
                 ),
             }
         except MemoryError:
@@ -1883,6 +1953,7 @@ class BoundedTrustedLaptopWorker:
         self.cache_root = cache_root
         self.clock = clock
         self._active_cache: _DisposableCache | None = None
+        self._run_lock = threading.Lock()
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -2232,10 +2303,24 @@ class BoundedTrustedLaptopWorker:
     def _transform(
         self,
         *,
+        pairing: Mapping[str, object],
+        lease: Mapping[str, object],
         job: Mapping[str, object],
         cache: _DisposableCache,
         started_at: datetime,
     ) -> tuple[int, str, dict[str, float]]:
+        elapsed_before_transform = max(
+            0.0, (self._now() - started_at).total_seconds()
+        )
+        remaining_elapsed_seconds = (
+            float(job["maximum_elapsed_seconds"]) - elapsed_before_transform
+        )
+        if remaining_elapsed_seconds <= 0:
+            raise TrustedLaptopExecutionError(
+                "elapsed_limit_exceeded",
+                "resource",
+                "Discard the cache and keep this job within reviewed bounds.",
+            )
         try:
             context = multiprocessing.get_context("forkserver")
         except ValueError as exc:
@@ -2273,16 +2358,33 @@ class BoundedTrustedLaptopWorker:
             if process.pid is None
             else _resident_memory_bytes(process.pid)
         )
+        peak_group_cpu = 0.0
+        peak_group_memory = 0
+        lease_window_seconds = max(
+            0.0,
+            (
+                _time(lease["expires_at"], "expires_at")
+                - _time(lease["acquired_at"], "acquired_at")
+            ).total_seconds(),
+        )
+        heartbeat_interval = max(
+            0.1, min(30.0, lease_window_seconds / 3.0)
+        )
+        next_heartbeat = process_started + heartbeat_interval
         try:
-            deadline = (
-                process_started + float(job["maximum_elapsed_seconds"])
-            )
+            deadline = process_started + remaining_elapsed_seconds
             while process.is_alive():
-                observed_cpu = (
-                    None
-                    if process.pid is None
-                    else _process_cpu_seconds(process.pid)
-                )
+                observed_cpu: float | None = None
+                observed_rss: int | None = None
+                if process.pid is not None:
+                    group_usage = _process_group_usage(process.pid)
+                    if group_usage is not None:
+                        observed_cpu, observed_rss, _ = group_usage
+                    else:
+                        observed_cpu = _process_cpu_seconds(process.pid)
+                        observed_rss = _resident_memory_bytes(process.pid)
+                if observed_cpu is not None:
+                    peak_group_cpu = max(peak_group_cpu, observed_cpu)
                 if (
                     observed_cpu is not None
                     and observed_cpu
@@ -2291,13 +2393,16 @@ class BoundedTrustedLaptopWorker:
                     limit_code = "cpu_limit_exceeded"
                     _stop_transform_process(process)
                     break
-                observed_rss = (
-                    None
-                    if process.pid is None
-                    else _resident_memory_bytes(process.pid)
-                )
                 if baseline_child_rss is None and observed_rss is not None:
                     baseline_child_rss = observed_rss
+                if (
+                    baseline_child_rss is not None
+                    and observed_rss is not None
+                ):
+                    peak_group_memory = max(
+                        peak_group_memory,
+                        max(0, observed_rss - baseline_child_rss),
+                    )
                 if (
                     baseline_child_rss is not None
                     and observed_rss is not None
@@ -2307,19 +2412,40 @@ class BoundedTrustedLaptopWorker:
                     limit_code = "memory_limit_exceeded"
                     _stop_transform_process(process)
                     break
+                current_monotonic = time.monotonic()
+                if current_monotonic >= next_heartbeat:
+                    self._heartbeat_only(
+                        pairing=pairing,
+                        lease=lease,
+                        job=job,
+                    )
+                    next_heartbeat = (
+                        current_monotonic + heartbeat_interval
+                    )
                 if _directory_size(cache._directory_fd) > int(
                     job["maximum_disk_bytes"]
                 ):
                     limit_code = "disk_limit_exceeded"
                     _stop_transform_process(process)
                     break
-                if time.monotonic() >= deadline:
+                if current_monotonic >= deadline:
                     limit_code = "elapsed_limit_exceeded"
                     _stop_transform_process(process)
                     break
-                time.sleep(0.01)
+                time.sleep(0.01 if sys.platform.startswith("linux") else 0.05)
             process.join()
             if process.pid is not None:
+                final_group_usage = _process_group_usage(process.pid)
+                if final_group_usage is not None:
+                    group_cpu, group_rss, group_members = final_group_usage
+                    peak_group_cpu = max(peak_group_cpu, group_cpu)
+                    if baseline_child_rss is not None:
+                        peak_group_memory = max(
+                            peak_group_memory,
+                            max(0, group_rss - baseline_child_rss),
+                        )
+                    if group_members:
+                        limit_code = limit_code or "transformer_failed"
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -2439,6 +2565,7 @@ class BoundedTrustedLaptopWorker:
         )
         metrics["cpu_seconds"] = max(
             metrics["cpu_seconds"],
+            peak_group_cpu,
             _finite_number(
                 payload["observed_cpu_seconds"],
                 "observed_cpu_seconds",
@@ -2446,6 +2573,7 @@ class BoundedTrustedLaptopWorker:
         )
         metrics["peak_memory_bytes"] = max(
             metrics["peak_memory_bytes"],
+            float(peak_group_memory),
             _finite_number(
                 payload["observed_memory_bytes"],
                 "observed_memory_bytes",
@@ -3033,6 +3161,16 @@ class BoundedTrustedLaptopWorker:
                 object_key=resume["output_object_key"],
                 object_kind="derived",
             )
+            if (
+                output_receipt["sha256"] != output_sha256
+                or output_receipt["byte_size"] != output_size
+            ):
+                raise TrustedLaptopExecutionError(
+                    "resume_receipt_mismatch",
+                    "checkpoint",
+                    "Hold this exact job and reconcile its immutable receipt.",
+                    required_authority_class="corpus_operator",
+                )
         if resume is not None and resume["stage"] == "manifest_verified":
             manifest_key = str(resume["manifest_object_key"])
             manifest_receipt = self._checkpoint_receipt(
@@ -3131,6 +3269,8 @@ class BoundedTrustedLaptopWorker:
                     observed_output_sha256,
                     observed_metrics,
                 ) = self._transform(
+                    pairing=pairing,
+                    lease=lease,
                     job=job,
                     cache=cache,
                     started_at=started_at,
@@ -3295,6 +3435,19 @@ class BoundedTrustedLaptopWorker:
     ) -> dict[str, object] | None:
         """Pair outbound, claim no more than one job, and fail closed."""
 
+        if not self._run_lock.acquire(blocking=False):
+            raise TrustedLaptopWorkerError(
+                "worker already has an active run"
+            )
+        try:
+            return self._run_once_serialized(capability_value)
+        finally:
+            self._run_lock.release()
+
+    def _run_once_serialized(
+        self,
+        capability_value: Mapping[str, object],
+    ) -> dict[str, object] | None:
         capability = _validate_capability(capability_value)
         now = self._now()
         if (
