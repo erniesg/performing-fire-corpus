@@ -576,6 +576,8 @@ class FakeControlPlane:
             and event.get("job_id") == self.job_value["job_id"]
         ]
         resume = None if not checkpoints else copy.deepcopy(checkpoints[-1])
+        if completed is not None:
+            resume = None
         lease = {
             "schema_version": 1,
             "record_type": "trusted_laptop_lease",
@@ -1046,6 +1048,68 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 side_effect=AssertionError("non-atomic resume lookup")
             )
             self.assertIsNotNone(harness.worker.run_once(capability()))
+
+    def test_atomic_attempt_must_exactly_bind_resume_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.transformer.failure_after_work = RuntimeError(
+                "synthetic transform failure"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            original_claim = harness.control.claim_one
+            harness.control.job_value = job(attempt=2)
+            harness.transformer.failure_after_work = None
+
+            def mismatched_claim(
+                pairing_value: dict[str, object],
+                capability_value: dict[str, object],
+                *,
+                now: datetime,
+            ) -> dict[str, object] | None:
+                reservation = original_claim(
+                    pairing_value, capability_value, now=now
+                )
+                assert reservation is not None
+                reservation["attempt_checkpoint"] = _checkpoint(
+                    pairing=pairing_value,
+                    lease=reservation["lease"],
+                    job=reservation["job"],
+                    stage="claimed",
+                    now=now,
+                )
+                return reservation
+
+            harness.control.claim_one = mismatched_claim  # type: ignore[method-assign]
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 1)
+            self.assertEqual(
+                harness.control.blockers[-1]["code"], "worker_failed"
+            )
+
+    def test_completed_result_still_requires_valid_atomic_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            self.assertIsNotNone(harness.worker.run_once(capability()))
+            original_claim = harness.control.claim_one
+
+            def malformed_claim(
+                pairing_value: dict[str, object],
+                capability_value: dict[str, object],
+                *,
+                now: datetime,
+            ) -> dict[str, object] | None:
+                reservation = original_claim(
+                    pairing_value, capability_value, now=now
+                )
+                assert reservation is not None
+                reservation["attempt_checkpoint"] = {}
+                return reservation
+
+            harness.control.claim_one = malformed_claim  # type: ignore[method-assign]
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(
+                harness.control.blockers[-1]["code"], "worker_failed"
+            )
 
     def test_missing_derivative_rights_blocks_before_any_object_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

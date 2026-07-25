@@ -3611,6 +3611,81 @@ class BoundedTrustedLaptopWorker:
         )
         self._assert_capability_covers_job(capability, job)
         self._assert_capability_current(capability)
+        attempt_record = _validate_checkpoint(attempt)
+        if (
+            attempt_record["pairing_id"] != pairing["pairing_id"]
+            or attempt_record["lease_id"] != lease["lease_id"]
+            or attempt_record["job_id"] != job["job_id"]
+            or attempt_record["job_contract_sha256"]
+            != _job_contract_sha256(job)
+            or attempt_record["input_object_key"]
+            != job["input_object_key"]
+            or not bool(attempt_record["attempt_open"])
+        ):
+            raise TrustedLaptopWorkerError(
+                "invalid atomic attempt checkpoint"
+            )
+        resume_record = (
+            None if resume is None else _validate_checkpoint(resume)
+        )
+        if resume_record is None:
+            if (
+                attempt_record["stage"] != "claimed"
+                or any(
+                    attempt_record[field] is not None
+                    for field in (
+                        "output_object_key",
+                        "output_receipt_id",
+                        "manifest_object_key",
+                        "manifest_receipt_id",
+                        "output_sha256",
+                        "output_byte_size",
+                        "cpu_seconds",
+                        "peak_memory_bytes",
+                        "working_disk_bytes",
+                        "elapsed_seconds",
+                    )
+                )
+            ):
+                raise TrustedLaptopWorkerError(
+                    "atomic initial attempt is not empty"
+                )
+        else:
+            if (
+                resume_record["job_id"] != job["job_id"]
+                or resume_record["input_object_key"]
+                != job["input_object_key"]
+                or resume_record["job_contract_sha256"]
+                != _job_contract_sha256(job)
+            ):
+                raise TrustedLaptopExecutionError(
+                    "resume_checkpoint_mismatch",
+                    "checkpoint",
+                    "Hold this exact job and reconcile its durable checkpoint.",
+                    required_authority_class="corpus_operator",
+                )
+            bound_fields = (
+                "stage",
+                "input_object_key",
+                "output_object_key",
+                "output_receipt_id",
+                "manifest_object_key",
+                "manifest_receipt_id",
+                "output_sha256",
+                "output_byte_size",
+                "cpu_seconds",
+                "peak_memory_bytes",
+                "working_disk_bytes",
+                "elapsed_seconds",
+            )
+            if any(
+                attempt_record[field] != resume_record[field]
+                for field in bound_fields
+            ):
+                raise TrustedLaptopWorkerError(
+                    "atomic attempt does not bind resume state"
+                )
+        self._last_checkpoint = attempt_record
         if completed is not None:
             result = _validate_result(completed)
             if (
@@ -3705,30 +3780,8 @@ class BoundedTrustedLaptopWorker:
                 completed_at=str(result["completed_at"]),
             )
 
-        self._last_checkpoint = _validate_checkpoint(attempt)
-        if (
-            self._last_checkpoint["job_id"] != job["job_id"]
-            or self._last_checkpoint["job_contract_sha256"]
-            != _job_contract_sha256(job)
-            or not bool(self._last_checkpoint["attempt_open"])
-        ):
-            raise TrustedLaptopWorkerError(
-                "invalid atomic attempt checkpoint"
-            )
+        resume = resume_record
         if resume is not None:
-            resume = _validate_checkpoint(resume)
-            if (
-                resume["job_id"] != job["job_id"]
-                or resume["input_object_key"] != job["input_object_key"]
-                or resume["job_contract_sha256"]
-                != _job_contract_sha256(job)
-            ):
-                raise TrustedLaptopExecutionError(
-                    "resume_checkpoint_mismatch",
-                    "checkpoint",
-                    "Hold this exact job and reconcile its durable checkpoint.",
-                    required_authority_class="corpus_operator",
-                )
             if bool(resume["attempt_open"]):
                 raise TrustedLaptopExecutionError(
                     "attempt_unreconciled",
