@@ -327,6 +327,42 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, normalized)
 
+    def test_derived_media_workflows_are_operation_specific_and_content_free(
+        self,
+    ) -> None:
+        contract = (ROOT / "docs" / "derived-media-workflows.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(contract.split())
+        for value in (
+            "Separate profiles, never one opaque extraction job",
+            "never executes a tool",
+            "a missing decision is a denial, not a default",
+            "an unavailable authority or a tombstone for a different key is a "
+            "denial, never permission",
+            "most restrictive",
+            "output key and hash must differ from the input key and hash",
+            "No recognized text",
+            "No transcript text and no waveform",
+            "No frames",
+            "model_output_not_ground_truth",
+            "No prompt, chain-of-thought, provider response",
+            "Derived content itself remains in R2 under its rights class",
+            "duplicate_transformation",
+            "tool_version_drift",
+            "remove_exact_field",
+            "a partial inventory can never present itself as a finished propagation",
+            "the descendant graph is exactly one level deep",
+            "Chained derivation is out of scope here",
+            "Scope follows the record that decided it",
+            "reach every derivative of that asset",
+            "Neither scope may leak into the other",
+            "Every reason is a fixed literal",
+            "always safe to log",
+            "Prefer local offline tools",
+        ):
+            self.assertIn(value, normalized)
+
 
 if __name__ == "__main__":
     unittest.main()
