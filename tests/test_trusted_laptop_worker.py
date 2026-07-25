@@ -4,10 +4,13 @@ import copy
 import hashlib
 import json
 import multiprocessing
+import resource
+import signal
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -373,6 +376,7 @@ class FakeTransformer:
         self.sleep_seconds = 0.0
         self.busy_seconds = 0.0
         self.allocate_bytes = 0
+        self.ignore_cpu_signal = False
         self.failure: Exception | None = None
         self.tombstone_marker_path: Path | None = None
         self.manifest_symlink_target: Path | None = None
@@ -397,6 +401,8 @@ class FakeTransformer:
             self._calls.value += 1
         if self.failure is not None:
             raise self.failure
+        if self.ignore_cpu_signal:
+            signal.signal(signal.SIGXCPU, signal.SIG_IGN)
         allocation = (
             bytearray(self.allocate_bytes)
             if self.allocate_bytes
@@ -684,6 +690,20 @@ class TrustedLaptopSchemaTests(unittest.TestCase):
 
 
 class TrustedLaptopWorkerTests(unittest.TestCase):
+    def test_cpu_hard_limit_never_exceeds_the_declared_bound(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        with (
+            mock.patch.object(
+                resource,
+                "getrlimit",
+                return_value=(resource.RLIM_INFINITY, resource.RLIM_INFINITY),
+            ),
+            mock.patch.object(resource, "setrlimit") as setrlimit,
+        ):
+            trusted_laptop_worker._set_cpu_resource_limit(7)
+        setrlimit.assert_called_once_with(resource.RLIMIT_CPU, (7, 7))
+
     def test_outbound_pairing_exact_download_transform_and_two_immutable_writes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
@@ -940,7 +960,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             (
                 "cpu_limit_exceeded",
                 {"maximum_cpu_seconds": 1, "maximum_elapsed_seconds": 10},
-                {"busy_seconds": 5.0},
+                {"busy_seconds": 5.0, "ignore_cpu_signal": True},
             ),
             (
                 "memory_limit_exceeded",

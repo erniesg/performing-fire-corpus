@@ -1327,6 +1327,42 @@ def _resident_memory_bytes(pid: int) -> int | None:
         return None
 
 
+def _process_cpu_seconds(pid: int) -> float | None:
+    if sys.platform.startswith("linux"):
+        try:
+            raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            fields = raw[raw.rfind(")") + 2 :].split()
+            ticks = int(fields[11]) + int(fields[12])
+            return ticks / float(os.sysconf("SC_CLK_TCK"))
+        except (OSError, ValueError, IndexError):
+            return None
+    try:
+        value = subprocess.run(
+            ["ps", "-o", "time=", "-p", str(pid)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        day_parts = value.split("-", 1)
+        days = int(day_parts[0]) if len(day_parts) == 2 else 0
+        clock_parts = day_parts[-1].split(":")
+        if len(clock_parts) == 3:
+            hours, minutes, seconds = clock_parts
+        elif len(clock_parts) == 2:
+            hours = "0"
+            minutes, seconds = clock_parts
+        else:
+            return None
+        return (
+            days * 86400
+            + int(hours) * 3600
+            + int(minutes) * 60
+            + float(seconds)
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def _maximum_rss_bytes(usage: Any) -> int:
     observed = int(usage.ru_maxrss)
     return observed if sys.platform == "darwin" else observed * 1024
@@ -1343,16 +1379,7 @@ def _set_hard_resource_limit(resource_kind: int, requested: int) -> None:
 
 
 def _set_cpu_resource_limit(requested: int) -> None:
-    _, inherited_hard = resource.getrlimit(resource.RLIMIT_CPU)
-    hard_target = (
-        requested + 1
-        if inherited_hard == resource.RLIM_INFINITY
-        else min(requested + 1, inherited_hard)
-    )
-    resource.setrlimit(
-        resource.RLIMIT_CPU,
-        (min(requested, hard_target), hard_target),
-    )
+    _set_hard_resource_limit(resource.RLIMIT_CPU, requested)
 
 
 def _stop_transform_process(process: Any) -> None:
@@ -2251,6 +2278,19 @@ class BoundedTrustedLaptopWorker:
                 process_started + float(job["maximum_elapsed_seconds"])
             )
             while process.is_alive():
+                observed_cpu = (
+                    None
+                    if process.pid is None
+                    else _process_cpu_seconds(process.pid)
+                )
+                if (
+                    observed_cpu is not None
+                    and observed_cpu
+                    >= float(job["maximum_cpu_seconds"])
+                ):
+                    limit_code = "cpu_limit_exceeded"
+                    _stop_transform_process(process)
+                    break
                 observed_rss = (
                     None
                     if process.pid is None
@@ -2292,9 +2332,18 @@ class BoundedTrustedLaptopWorker:
                 )
             if process.exitcode is not None and process.exitcode < 0:
                 child_signal = -process.exitcode
+                elapsed_at_exit = time.monotonic() - process_started
+                hard_cpu_stop = (
+                    child_signal == signal.SIGKILL
+                    and elapsed_at_exit
+                    >= max(
+                        0.5,
+                        float(job["maximum_cpu_seconds"]) * 0.8,
+                    )
+                )
                 code = (
                     "cpu_limit_exceeded"
-                    if child_signal == signal.SIGXCPU
+                    if child_signal == signal.SIGXCPU or hard_cpu_stop
                     else (
                         "output_limit_exceeded"
                         if child_signal == signal.SIGXFSZ
