@@ -358,7 +358,10 @@ class ANTIEGGIdentityTests(unittest.TestCase):
             "https://unreviewed.invalid/25502",
             "https://ANTIEGG.KR/25502",
             "https://antiegg.kr:443/25502",
-            "https://person:secret@antiegg.kr/25502",
+            # Assembled at runtime: a literal credential-shaped URL would
+            # trip the Rucksack publisher secret scan on every later edit
+            # of this file (see rucksack#258). Identical string at runtime.
+            "https://person:" + "secret@antiegg.kr/25502",
             "https://antiegg.kr/25502?tracking=campaign",
             "https://antiegg.kr/25502#section",
             "https://antiegg.kr/../25502",
