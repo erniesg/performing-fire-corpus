@@ -64,35 +64,38 @@ _CREDENTIAL_QUERY_WORDS = frozenset(
         "token",
     }
 )
-_CREDENTIAL_COMPOUND_WORDS = frozenset(
+_BENIGN_QUERY_NAMES = frozenset(
     {
-        "authorization",
-        "cookie",
-        "credential",
-        "password",
-        "presignedurl",
-        "secret",
-        "signedurl",
-        "token",
+        "author",
+        "authentication",
+        "authority",
+        "digitalsignaturealgorithm",
+        "id",
+        "page",
+        "perpage",
+        "signaturestatus",
+        "signaturestyle",
+        "signaturestyleversion",
+        "tokenizer",
     }
 )
-_CREDENTIAL_COMPOUND_AFFIXES = frozenset(
+_CREDENTIAL_QUERY_MARKERS = frozenset(
     {
-        "access",
-        "api",
         "auth",
         "bearer",
-        "client",
-        "hmac",
-        "id",
-        "private",
-        "refresh",
-        "request",
-        "security",
+        "cookie",
+        "credential",
+        "hmacsignature",
+        "jsessionid",
+        "password",
+        "presignedurl",
+        "privatekey",
+        "requestsignature",
+        "secret",
         "session",
         "signature",
-        "value",
-        "x",
+        "signedurl",
+        "token",
     }
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
@@ -124,6 +127,8 @@ def _reject(code: str, reason: str) -> None:
 
 def _credential_query_key(value: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]", "", value.lower())
+    if normalized in _BENIGN_QUERY_NAMES:
+        return False
     words = {
         word.lower()
         for word in re.split(
@@ -133,23 +138,12 @@ def _credential_query_key(value: str) -> bool:
         if word
     }
     lowered_words = {word.lower() for word in words}
-    compound_credential = any(
-        normalized == marker
-        or (
-            normalized.startswith(marker)
-            and normalized.removeprefix(marker)
-            in _CREDENTIAL_COMPOUND_AFFIXES
-        )
-        or (
-            normalized.endswith(marker)
-            and normalized.removesuffix(marker)
-            in _CREDENTIAL_COMPOUND_AFFIXES
-        )
-        for marker in _CREDENTIAL_COMPOUND_WORDS
-    )
     return (
         normalized in _CREDENTIAL_QUERY_NAMES
-        or compound_credential
+        or any(
+            marker in normalized
+            for marker in _CREDENTIAL_QUERY_MARKERS
+        )
         or "apikey" in normalized
         or "accesskey" in normalized
         or "accesstoken" in normalized
