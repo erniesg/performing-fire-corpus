@@ -603,13 +603,15 @@ class FakeControlPlane:
         pairing_id: str,
         *,
         now: datetime,
+        timeout_seconds: float,
     ) -> dict[str, object]:
         self.heartbeat_calls += 1
         with self.heartbeat_counter.get_lock():
             self.heartbeat_counter.value += 1
         if self.block_heartbeat_number == self.heartbeat_calls:
             self.heartbeat_entered.set()
-            self.heartbeat_release.wait(timeout=5)
+            if not self.heartbeat_release.wait(timeout=timeout_seconds):
+                raise TimeoutError("bounded synthetic heartbeat timeout")
         if self.fail_heartbeat_number == self.heartbeat_calls:
             raise ConnectionError("synthetic disconnect content must not persist")
         value = {
@@ -630,6 +632,36 @@ class FakeControlPlane:
         self.events.append(copy.deepcopy(value))
         if self.fail_checkpoint_stage_after_store == value["stage"]:
             raise ConnectionError("synthetic checkpoint disconnect")
+
+    def reconcile_latest_attempt(self) -> None:
+        from performing_fire_corpus import trusted_laptop_worker
+
+        checkpoint = next(
+            event
+            for event in reversed(self.events)
+            if event.get("record_type") == "trusted_laptop_checkpoint"
+        )
+        checkpoint["attempt_open"] = False
+        resume_state = {
+            key: value
+            for key, value in checkpoint.items()
+            if key
+            not in {
+                "schema_version",
+                "record_type",
+                "checkpoint_id",
+                "resume_state_sha256",
+                "recorded_at",
+            }
+        }
+        resume_hash = trusted_laptop_worker._digest(resume_state)
+        checkpoint["resume_state_sha256"] = resume_hash
+        checkpoint["checkpoint_id"] = (
+            "checkpoint_"
+            + trusted_laptop_worker._digest(
+                {"resume_state_sha256": resume_hash}
+            )
+        )
 
     def complete(self, value: dict[str, object]) -> None:
         saved = copy.deepcopy(value)
@@ -1244,7 +1276,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2)
             self.assertEqual(
                 harness.control.blockers[-1]["code"],
-                "elapsed_limit_exceeded",
+                "pairing_disconnected",
             )
             failed_checkpoint = next(
                 event
@@ -1255,7 +1287,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
             self.assertGreater(
                 float(failed_checkpoint["elapsed_seconds"]),
-                0.9,
+                0.04,
             )
 
     def test_heartbeat_renewal_is_checked_after_the_rpc_returns(self) -> None:
@@ -1528,6 +1560,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
 
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(attempt=2)
             result = harness.worker.run_once(capability())
             self.assertIsNotNone(result)
@@ -1579,6 +1612,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
 
             harness.storage.before_head = advance_before_manifest_head
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(
                 attempt=2,
                 maximum_elapsed_seconds=10,
@@ -1628,6 +1662,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 )
             )
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(attempt=2)
 
             self.assertIsNone(harness.worker.run_once(capability()))
@@ -1679,6 +1714,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
 
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(attempt=2)
             self.assertIsNone(harness.worker.run_once(capability()))
             self.assertEqual(len(harness.storage.created), 1)
@@ -1755,6 +1791,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(harness.storage.created, [])
 
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.transformer.output = b'{"synthetic":"changed"}'
             self.assertIsNone(harness.worker.run_once(capability()))
             self.assertEqual(harness.storage.created, [])
@@ -1771,6 +1808,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
             self.assertIsNone(harness.worker.run_once(capability()))
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(attempt=2)
 
             result = harness.worker.run_once(capability())
@@ -1788,6 +1826,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 cpu_exhausted.worker.run_once(capability())
             )
             cpu_exhausted.control.fail_checkpoint_stage_after_store = None
+            cpu_exhausted.control.reconcile_latest_attempt()
             cpu_exhausted.control.job_value = job(
                 attempt=2,
                 maximum_cpu_seconds=3,
@@ -1814,6 +1853,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 elapsed_exhausted.worker.run_once(capability())
             )
             elapsed_exhausted.control.fail_checkpoint_stage_after_store = None
+            elapsed_exhausted.control.reconcile_latest_attempt()
             elapsed_exhausted.control.job_value = job(
                 attempt=2,
                 maximum_elapsed_seconds=1,
@@ -1826,6 +1866,33 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 elapsed_exhausted.control.blockers[-1]["code"],
                 "elapsed_limit_exceeded",
             )
+
+    def test_failed_transform_replay_preserves_new_cpu_consumption(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.transformer.cpu_seconds = 0
+            harness.control.fail_checkpoint_stage_after_store = (
+                "transform_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
+            harness.control.job_value = job(attempt=2)
+            harness.transformer.busy_seconds = 0.3
+            harness.transformer.failure_after_work = RuntimeError(
+                "synthetic replay failure"
+            )
+
+            self.assertIsNone(harness.worker.run_once(capability()))
+            checkpoint = next(
+                event
+                for event in reversed(harness.control.events)
+                if event.get("record_type")
+                == "trusted_laptop_checkpoint"
+                and event.get("stage") == "transform_verified"
+                and event.get("attempt_open") is False
+            )
+            self.assertGreater(float(checkpoint["cpu_seconds"]), 0.1)
 
     def test_failed_transform_consumption_is_durable_across_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1917,7 +1984,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(harness.transformer.calls, 1)
             self.assertEqual(
                 harness.control.blockers[-1]["code"],
-                "transform_attempt_unreconciled",
+                "attempt_unreconciled",
             )
             self.assertEqual(
                 harness.control.blockers[-1][
@@ -1933,7 +2000,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(harness.transformer.calls, 1)
             self.assertEqual(
                 harness.control.blockers[-1]["code"],
-                "transform_attempt_unreconciled",
+                "attempt_unreconciled",
             )
 
     def test_manifest_failure_consumes_elapsed_budget_on_retry(self) -> None:
@@ -2009,6 +2076,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(harness.transformer.calls, 1)
 
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.reconcile_latest_attempt()
             harness.control.job_value = job(
                 tool_version="1.0.1",
                 transformation_id=transformation_id(

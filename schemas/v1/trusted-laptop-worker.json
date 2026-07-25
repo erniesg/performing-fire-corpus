@@ -322,6 +322,7 @@
         "job_id",
         "job_contract_sha256",
         "stage",
+        "attempt_open",
         "input_object_key",
         "output_object_key",
         "output_receipt_id",
@@ -355,6 +356,7 @@
             "manifest_verified"
           ]
         },
+        "attempt_open": {"type": "boolean"},
         "input_object_key": {"$ref": "#/$defs/object_key"},
         "output_object_key": {
           "oneOf": [

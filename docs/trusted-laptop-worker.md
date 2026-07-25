@@ -79,6 +79,8 @@ Checkpoints are hash-bound and monotonic by stage:
   excluding only the retry ordinal so an identical safe retry can resume;
 - every result ID binds all stable validated result facts; a stale ID on a
   modified durable result fails closed;
+- `attempt_open` is set before resumable work; an open attempt is held until
+  its resource use is durably reconciled or a completed result exists;
 - `attempt_failed` preserves measured cumulative CPU, memory, disk, and
   elapsed consumption without claiming an output for setup, download, and
   transform failures before an output is verified;
@@ -101,7 +103,9 @@ so retries cannot reset CPU or elapsed consumption. Post-transform resume work
 adds the new attempt's elapsed time to the durable checkpoint rather than
 taking the larger of two disjoint intervals. If failed-attempt metrics cannot
 be committed, the durable `transform_started` checkpoint is held for explicit
-reconciliation instead of granting a fresh budget. Setup and download failures
+reconciliation instead of granting a fresh budget. More generally, a failed
+or unknown accounting write leaves `attempt_open` set, so no prior stage can
+silently reset a later attempt's budget. Setup and download failures
 advance to `attempt_failed`; later failures preserve the latest exact output
 and receipt stage while refreshing elapsed consumption. Every resumed output
 size and resource fact, including a completed result, is checked against the
@@ -127,12 +131,12 @@ prevents unlinking the pathname. Validated heartbeats atomically refresh the
 marker expiry, so an active renewed cache cannot be reaped using the claim's
 original expiry.
 
-During transformation, heartbeat requests use a daemon request lane. The
-watchdog continues sampling the full process group and enforcing lease, CPU,
-memory, disk, and elapsed limits while a request is pending. A pending request
-never mutates worker state; only its validated response may extend the lease.
-Before any failure metrics are checkpointed, the worker takes a final
-process-group sample and stops the isolated process.
+Every heartbeat transport must enforce the worker-supplied timeout. During
+transformation that timeout is at most fifty milliseconds and is further
+bounded by the remaining lease and elapsed budgets, so no request can survive
+release or overlap a later run. Before failure metrics are checkpointed, the
+worker terminates and reaps the full process group while sampling its terminal
+CPU and memory use.
 
 Normal success and every handled failure remove that exact directory. Startup
 reaping removes only worker-named, validly marker-bound directories whose
