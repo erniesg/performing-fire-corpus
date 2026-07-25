@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
 from performing_fire_corpus.governance import (
+    GovernanceError,
     PROJECT_NATIVE_SOURCE_IDS,
     validate_project_native_contract,
 )
@@ -811,6 +812,225 @@ def evaluate_project_native_operation(
     return {
         "contribution_id": record["contribution_id"],
         "consent_id": consent_value["consent_id"],
+        "operation": operation,
+        "audience": audience,
+        "eligible": not reasons,
+        "reasons": reasons,
+    }
+
+
+def evaluate_project_native_graph_operation(
+    contribution: Mapping[str, Any],
+    contributions: Sequence[Mapping[str, Any]],
+    authorities: Mapping[str, Mapping[str, Any]],
+    *,
+    operation: str,
+    audience: str,
+    redaction_applied: bool,
+    now: datetime,
+) -> dict[str, Any]:
+    """Recheck a contribution and every transitive input authority."""
+
+    target = validate_project_native_contribution(contribution)
+    records = validate_project_native_contributions(contributions)
+    inventory = {
+        record["contribution_id"]: record for record in records
+    }
+    current_target = inventory.get(target["contribution_id"])
+    if current_target is None:
+        inventory[target["contribution_id"]] = target
+    elif _canonical(current_target) != _canonical(target):
+        return {
+            "contribution_id": target["contribution_id"],
+            "operation": operation,
+            "audience": audience,
+            "eligible": False,
+            "reasons": ["target:inventory_conflict"],
+        }
+    if operation not in PROJECT_NATIVE_OPERATIONS:
+        raise ProjectNativeLifecycleError(
+            "project-native operation is unknown"
+        )
+    if now.tzinfo is None:
+        raise ProjectNativeLifecycleError(
+            "evaluation time must be timezone-aware"
+        )
+    if not isinstance(authorities, Mapping):
+        raise ProjectNativeLifecycleError(
+            "current contribution authorities are required"
+        )
+
+    memo: dict[str, list[str]] = {}
+    visiting: set[str] = set()
+
+    def evaluate_one(contribution_id: str) -> list[str]:
+        if contribution_id in memo:
+            return memo[contribution_id]
+        if contribution_id in visiting:
+            return [f"input:{contribution_id}:cycle"]
+        record = inventory.get(contribution_id)
+        if record is None:
+            return [f"input:{contribution_id}:missing"]
+        visiting.add(contribution_id)
+        reasons: list[str] = []
+        if not record["input_contribution_ids"]:
+            consent_id = record["consent_ids"][0]
+            bundle = authorities.get(consent_id)
+            if (
+                not isinstance(bundle, Mapping)
+                or set(bundle) != {"consent", "retention", "deletion"}
+            ):
+                reasons.append(
+                    f"input:{contribution_id}:authority_missing"
+                )
+            else:
+                try:
+                    result = evaluate_project_native_operation(
+                        record,
+                        bundle["consent"],
+                        bundle["retention"],
+                        bundle["deletion"],
+                        operation=operation,
+                        audience=audience,
+                        redaction_applied=redaction_applied,
+                        now=now,
+                    )
+                except (
+                    GovernanceError,
+                    ProjectNativeLifecycleError,
+                ):
+                    reasons.append(
+                        f"input:{contribution_id}:authority_invalid"
+                    )
+                else:
+                    reasons.extend(
+                        f"input:{contribution_id}:{reason}"
+                        for reason in result["reasons"]
+                    )
+        else:
+            input_records = [
+                inventory.get(input_id)
+                for input_id in record["input_contribution_ids"]
+            ]
+            for input_id in record["input_contribution_ids"]:
+                reasons.extend(evaluate_one(input_id))
+            if all(input_record is not None for input_record in input_records):
+                checked_inputs = [
+                    input_record
+                    for input_record in input_records
+                    if input_record is not None
+                ]
+                purpose_codes = {
+                    input_record["purpose_code"]
+                    for input_record in checked_inputs
+                }
+                expected_consents = sorted(
+                    {
+                        consent_id
+                        for input_record in checked_inputs
+                        for consent_id in input_record["consent_ids"]
+                    }
+                )
+                expected_uses = sorted(
+                    set.intersection(
+                        *(
+                            set(input_record["allowed_uses"])
+                            for input_record in checked_inputs
+                        )
+                    )
+                )
+                expected_audiences = sorted(
+                    set.intersection(
+                        *(
+                            set(input_record["allowed_audiences"])
+                            for input_record in checked_inputs
+                        )
+                    )
+                )
+                expected_confidentiality = max(
+                    (
+                        input_record["confidentiality_class"]
+                        for input_record in checked_inputs
+                    ),
+                    key=_CONFIDENTIALITY_RANK.__getitem__,
+                )
+                expected_retention = min(
+                    checked_inputs,
+                    key=lambda item: _parse_time(
+                        item["retention_expires_at"],
+                        "retention_expires_at",
+                    ),
+                )["retention_expires_at"]
+                if (
+                    len(purpose_codes) != 1
+                    or record["purpose_code"] not in purpose_codes
+                ):
+                    reasons.append(
+                        f"input:{contribution_id}:purpose_drift"
+                    )
+                if record["consent_ids"] != expected_consents:
+                    reasons.append(
+                        f"input:{contribution_id}:consent_lineage_drift"
+                    )
+                if record["allowed_uses"] != expected_uses:
+                    reasons.append(
+                        f"input:{contribution_id}:use_inheritance_drift"
+                    )
+                if record["allowed_audiences"] != expected_audiences:
+                    reasons.append(
+                        f"input:{contribution_id}:audience_inheritance_drift"
+                    )
+                if (
+                    record["confidentiality_class"]
+                    != expected_confidentiality
+                ):
+                    reasons.append(
+                        f"input:{contribution_id}:confidentiality_drift"
+                    )
+                if record["retention_expires_at"] != expected_retention:
+                    reasons.append(
+                        f"input:{contribution_id}:retention_drift"
+                    )
+            if operation not in record["allowed_uses"]:
+                reasons.append(
+                    f"input:{contribution_id}:use_not_allowed"
+                )
+            if audience not in record["allowed_audiences"]:
+                reasons.append(
+                    f"input:{contribution_id}:audience_not_allowed"
+                )
+            if (
+                operation == "public_retrieval"
+                and (
+                    audience != "public"
+                    or record["confidentiality_class"] != "public"
+                )
+            ):
+                reasons.append(
+                    f"input:{contribution_id}:confidentiality_not_public"
+                )
+            if _parse_time(
+                record["retention_expires_at"],
+                "retention_expires_at",
+            ) <= now.astimezone(UTC):
+                reasons.append(
+                    f"input:{contribution_id}:retention_expired"
+                )
+            if record["withdrawal_state"] != "current":
+                reasons.append(
+                    f"input:{contribution_id}:withdrawn"
+                )
+            if record["deletion_state"] != "active":
+                reasons.append(
+                    f"input:{contribution_id}:deletion_pending"
+                )
+        visiting.remove(contribution_id)
+        memo[contribution_id] = sorted(set(reasons))
+        return memo[contribution_id]
+
+    reasons = evaluate_one(target["contribution_id"])
+    return {
+        "contribution_id": target["contribution_id"],
         "operation": operation,
         "audience": audience,
         "eligible": not reasons,

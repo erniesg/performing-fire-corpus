@@ -22,6 +22,7 @@ from performing_fire_corpus.project_native_lifecycle import (
     build_subject_export_job,
     complete_project_native_deletion,
     derive_project_native_contribution,
+    evaluate_project_native_graph_operation,
     evaluate_project_native_operation,
     validate_project_native_contributions,
 )
@@ -446,6 +447,113 @@ class ProjectNativeLifecycleTests(unittest.TestCase):
                 "contribution_synthetic_visitor_001",
             ],
             derived["input_contribution_ids"],
+        )
+
+    def test_derived_use_rechecks_every_current_input_authority(self) -> None:
+        first = contribution()
+        artist_consent = consent(
+            consent_id="consent_synthetic_artist_001",
+            source_id="project-native-artist-submissions",
+            subject_ref="subject_synthetic_artist_001",
+        )
+        second = build_project_native_contribution(
+            contribution_id="contribution_synthetic_artist_001",
+            subject_ref="subject_synthetic_artist_001",
+            source_id="project-native-artist-submissions",
+            data_class="artist_submission",
+            purpose_code="participatory_score_research",
+            consent=artist_consent,
+            confidentiality_class="restricted",
+            allowed_audiences=["researcher"],
+            allowed_uses=[
+                "derived_processing",
+                "indexing",
+                "metadata_inventory",
+            ],
+            provenance_id="provenance_synthetic_artist_001",
+            input_contribution_ids=[],
+            raw_object_keys=[],
+            derived_object_keys=[],
+            index_document_ids=[],
+            cache_entry_ids=[],
+            score_export_ids=[],
+            retention_expires_at="2026-08-01T00:00:00Z",
+            system_provenance_id=None,
+            created_at="2026-07-24T02:00:00Z",
+        )
+        derived = derive_project_native_contribution(
+            [first, second],
+            contribution_id="contribution_synthetic_score_002",
+            source_id="project-native-generated-scores",
+            data_class="generated_score",
+            provenance_id="provenance_synthetic_score_002",
+            system_provenance_id="system_provenance_visual_rules_v1",
+            derived_object_keys=[],
+            created_at="2026-07-24T03:00:00Z",
+        )
+        authorities = {
+            "consent_synthetic_visitor_001": {
+                "consent": consent(),
+                "retention": retention(),
+                "deletion": deletion(),
+            },
+            "consent_synthetic_artist_001": {
+                "consent": artist_consent,
+                "retention": retention(
+                    consent_id="consent_synthetic_artist_001",
+                    source_id="project-native-artist-submissions",
+                ),
+                "deletion": deletion(
+                    consent_id="consent_synthetic_artist_001",
+                    source_id="project-native-artist-submissions",
+                ),
+            },
+        }
+        current = evaluate_project_native_graph_operation(
+            derived,
+            [first, second, derived],
+            authorities,
+            operation="indexing",
+            audience="researcher",
+            redaction_applied=True,
+            now=NOW,
+        )
+        self.assertTrue(current["eligible"])
+
+        revoked = consent(state="revoked")
+        authorities["consent_synthetic_visitor_001"] = {
+            "consent": revoked,
+            "retention": retention(),
+            "deletion": deletion(trigger_state="consent_revoked"),
+        }
+        blocked = evaluate_project_native_graph_operation(
+            derived,
+            [first, second, derived],
+            authorities,
+            operation="indexing",
+            audience="researcher",
+            redaction_applied=True,
+            now=NOW,
+        )
+        self.assertFalse(blocked["eligible"])
+        self.assertIn(
+            "input:contribution_synthetic_visitor_001:consent:revoked",
+            blocked["reasons"],
+        )
+
+        missing = evaluate_project_native_graph_operation(
+            derived,
+            [second, derived],
+            authorities,
+            operation="indexing",
+            audience="researcher",
+            redaction_applied=True,
+            now=NOW,
+        )
+        self.assertFalse(missing["eligible"])
+        self.assertIn(
+            "input:contribution_synthetic_visitor_001:missing",
+            missing["reasons"],
         )
 
     def test_subject_export_contains_only_stable_ids_and_object_keys(self) -> None:

@@ -61,6 +61,11 @@ Generated scores and visual-system state or history inherit:
 An incompatible purpose, empty authority intersection, expired or withdrawn
 input, missing input, or missing system provenance prevents creation. A
 derived record cannot make an input more public or retain it longer.
+Every derived use traverses the complete input graph again, requires each
+current consent/retention/deletion bundle, and recomputes purpose, consent
+lineage, audiences, uses, confidentiality, and retention. A missing input,
+cycle, stale inherited field, or later input withdrawal blocks the derived
+operation.
 
 ## Withdrawal, deletion, and legal hold
 
