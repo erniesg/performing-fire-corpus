@@ -133,6 +133,34 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, smoke)
 
+    def test_antiegg_metadata_adapters_are_documented_as_held_and_prose_free(
+        self,
+    ) -> None:
+        contract = (ROOT / "docs" / "antiegg-metadata-adapters.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(contract.split())
+        for value in (
+            "secondary Korean editorial and Fluxus context",
+            "SourceShapeUnreviewed",
+            "not a live-source approval",
+            "invented for the fixtures",
+            "forbidden even though the API labels",
+            "one article has one ID no matter which endpoint observed it",
+            "is_completeness_guarantee: false",
+            "blocks that endpoint only",
+        ):
+            self.assertIn(value, normalized)
+
+        smoke = (ROOT / "docs" / "network-acquisition-smoke.md").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "docs/antiegg-metadata-adapters.md",
+            "public readability is not ingestion",
+        ):
+            self.assertIn(value, " ".join(smoke.split()))
+
     def test_metadata_readiness_proof_covers_restart_privacy_and_gap_matrix(
         self,
     ) -> None:
