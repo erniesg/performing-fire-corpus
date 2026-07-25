@@ -79,8 +79,9 @@ Checkpoints are hash-bound and monotonic by stage:
   excluding only the retry ordinal so an identical safe retry can resume;
 - every result ID binds all stable validated result facts; a stale ID on a
   modified durable result fails closed;
-- `transform_failed` preserves measured cumulative CPU, memory, disk, and
-  elapsed consumption without claiming an output;
+- `attempt_failed` preserves measured cumulative CPU, memory, disk, and
+  elapsed consumption without claiming an output for setup, download, and
+  transform failures before an output is verified;
 - `transform_verified` fixes the only output hash/key the job may create;
 - `output_verified` fixes the durable derived-object receipt; and
 - `manifest_verified` fixes both exact object receipts.
@@ -100,9 +101,11 @@ so retries cannot reset CPU or elapsed consumption. Post-transform resume work
 adds the new attempt's elapsed time to the durable checkpoint rather than
 taking the larger of two disjoint intervals. If failed-attempt metrics cannot
 be committed, the durable `transform_started` checkpoint is held for explicit
-reconciliation instead of granting a fresh budget. Every resumed output size
-and resource fact is checked against the immutable job contract before receipt
-or manifest work.
+reconciliation instead of granting a fresh budget. Setup and download failures
+advance to `attempt_failed`; later failures preserve the latest exact output
+and receipt stage while refreshing elapsed consumption. Every resumed output
+size and resource fact, including a completed result, is checked against the
+immutable job contract before receipt or manifest work.
 
 A lost conditional-create response is accepted only when immediate exact-key
 `HEAD` matches the declared size, MIME type, and hash. Lease or outbound
@@ -123,6 +126,13 @@ prevent wiping bytes from the descriptor-pinned owned directory; it only
 prevents unlinking the pathname. Validated heartbeats atomically refresh the
 marker expiry, so an active renewed cache cannot be reaped using the claim's
 original expiry.
+
+During transformation, heartbeat requests use a daemon request lane. The
+watchdog continues sampling the full process group and enforcing lease, CPU,
+memory, disk, and elapsed limits while a request is pending. A pending request
+never mutates worker state; only its validated response may extend the lease.
+Before any failure metrics are checkpointed, the worker takes a final
+process-group sample and stops the isolated process.
 
 Normal success and every handled failure remove that exact directory. Startup
 reaping removes only worker-named, validly marker-bound directories whose
@@ -151,7 +161,7 @@ in checkpoints, logs, errors, issues, evidence, or manifests.
 - sanitized blockers.
 
 Checkpoint stage conditionals encode the same fact invariants as runtime:
-pre-transform stages carry no output facts, `transform_failed` carries only
+pre-transform stages carry no output facts, `attempt_failed` carries only
 measured resource facts, `transform_verified` carries exact output facts
 without receipts, `output_verified` adds only the output receipt, and
 `manifest_verified` requires both exact receipts.

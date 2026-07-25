@@ -349,7 +349,7 @@
             "claimed",
             "input_verified",
             "transform_started",
-            "transform_failed",
+            "attempt_failed",
             "transform_verified",
             "output_verified",
             "manifest_verified"
@@ -445,7 +445,7 @@
         },
         {
           "if": {
-            "properties": {"stage": {"const": "transform_failed"}}
+            "properties": {"stage": {"const": "attempt_failed"}}
           },
           "then": {
             "properties": {

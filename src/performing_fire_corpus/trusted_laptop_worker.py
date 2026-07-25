@@ -14,6 +14,7 @@ import json
 import math
 import multiprocessing
 import os
+import queue
 import re
 import resource
 import signal
@@ -276,7 +277,7 @@ _STAGES = frozenset(
         "claimed",
         "input_verified",
         "transform_started",
-        "transform_failed",
+        "attempt_failed",
         "transform_verified",
         "output_verified",
         "manifest_verified",
@@ -932,7 +933,7 @@ def _validate_checkpoint(value: Mapping[str, object]) -> dict[str, object]:
             raise TrustedLaptopWorkerError(
                 "pre-transform checkpoint cannot carry receipts"
             )
-    elif stage == "transform_failed":
+    elif stage == "attempt_failed":
         if any(
             record[field] is not None for field in output_identity_facts
         ) or any(record[field] is None for field in resource_facts):
@@ -2013,6 +2014,10 @@ class BoundedTrustedLaptopWorker:
         self._run_lock = threading.Lock()
         self._latest_lease_expires_at: datetime | None = None
         self._last_transform_attempt_metrics: dict[str, float] | None = None
+        self._claim_started_at: datetime | None = None
+        self._claim_prior_elapsed_seconds = 0.0
+        self._last_checkpoint: dict[str, object] | None = None
+        self._checkpoint_outcome_unknown = False
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -2023,6 +2028,21 @@ class BoundedTrustedLaptopWorker:
         return value.astimezone(_UTC)
 
     def _heartbeat_only(
+        self,
+        *,
+        pairing: Mapping[str, object],
+        lease: Mapping[str, object],
+        job: Mapping[str, object],
+    ) -> dict[str, object]:
+        validated = self._request_heartbeat(
+            pairing=pairing,
+            lease=lease,
+            job=job,
+        )
+        self._apply_heartbeat(validated)
+        return validated
+
+    def _request_heartbeat(
         self,
         *,
         pairing: Mapping[str, object],
@@ -2056,13 +2076,6 @@ class BoundedTrustedLaptopWorker:
                 job=job,
                 now=response_at,
             )
-            self._latest_lease_expires_at = _time(
-                validated["expires_at"], "expires_at"
-            )
-            if self._active_cache is not None:
-                self._active_cache.refresh_lease_expires_at(
-                    str(validated["expires_at"])
-                )
             return validated
         except TrustedLaptopExecutionError:
             raise
@@ -2072,6 +2085,18 @@ class BoundedTrustedLaptopWorker:
                 "pairing",
                 "Resume this exact lease after outbound pairing is restored.",
             ) from exc
+
+    def _apply_heartbeat(
+        self,
+        validated: Mapping[str, object],
+    ) -> None:
+        self._latest_lease_expires_at = _time(
+            validated["expires_at"], "expires_at"
+        )
+        if self._active_cache is not None:
+            self._active_cache.refresh_lease_expires_at(
+                str(validated["expires_at"])
+            )
 
     def _maintain(
         self,
@@ -2084,17 +2109,19 @@ class BoundedTrustedLaptopWorker:
     ) -> None:
         self._heartbeat_only(pairing=pairing, lease=lease, job=job)
         now = self._now()
+        checkpoint = _checkpoint(
+            pairing=pairing,
+            lease=lease,
+            job=job,
+            stage=stage,
+            now=now,
+            progress=progress,
+        )
         try:
-            self.control_plane.checkpoint(
-                _checkpoint(
-                    pairing=pairing,
-                    lease=lease,
-                    job=job,
-                    stage=stage,
-                    now=now,
-                    progress=progress,
-                )
-            )
+            self._checkpoint_outcome_unknown = True
+            self.control_plane.checkpoint(checkpoint)
+            self._checkpoint_outcome_unknown = False
+            self._last_checkpoint = checkpoint
         except TrustedLaptopExecutionError:
             raise
         except Exception as exc:
@@ -2104,36 +2131,101 @@ class BoundedTrustedLaptopWorker:
                 "Resume this exact lease after outbound pairing is restored.",
             ) from exc
 
-    def _record_failed_transform(
+    def _record_attempt_failure(
         self,
         *,
         pairing: Mapping[str, object],
         lease: Mapping[str, object],
         job: Mapping[str, object],
-        metrics: Mapping[str, float],
     ) -> None:
-        checkpoint = _checkpoint(
-            pairing=pairing,
-            lease=lease,
-            job=job,
-            stage="transform_failed",
-            now=self._now(),
-            progress={
-                field: float(metrics[field])
+        previous = self._last_checkpoint
+        started_at = self._claim_started_at
+        if (
+            previous is None
+            or started_at is None
+            or self._checkpoint_outcome_unknown
+        ):
+            return
+        stage = str(previous["stage"])
+        cumulative_elapsed = self._cumulative_elapsed(
+            started_at=started_at,
+            prior_elapsed_seconds=self._claim_prior_elapsed_seconds,
+        )
+        if stage in {
+            "claimed",
+            "input_verified",
+            "transform_started",
+            "attempt_failed",
+        }:
+            if self._last_transform_attempt_metrics is not None:
+                metrics = dict(self._last_transform_attempt_metrics)
+            elif stage == "attempt_failed":
+                metrics = {
+                    field: float(previous[field])
+                    for field in (
+                        "cpu_seconds",
+                        "peak_memory_bytes",
+                        "working_disk_bytes",
+                        "elapsed_seconds",
+                    )
+                }
+            else:
+                metrics = {
+                    "cpu_seconds": 0.0,
+                    "peak_memory_bytes": 0.0,
+                    "working_disk_bytes": 0.0,
+                    "elapsed_seconds": 0.0,
+                }
+            metrics["elapsed_seconds"] = max(
+                metrics["elapsed_seconds"],
+                cumulative_elapsed,
+            )
+            target_stage = "attempt_failed"
+            progress: dict[str, object] = dict(metrics)
+        elif stage in {
+            "transform_verified",
+            "output_verified",
+            "manifest_verified",
+        }:
+            target_stage = stage
+            progress = {
+                field: previous[field]
                 for field in (
+                    "output_object_key",
+                    "output_receipt_id",
+                    "manifest_object_key",
+                    "manifest_receipt_id",
+                    "output_sha256",
+                    "output_byte_size",
                     "cpu_seconds",
                     "peak_memory_bytes",
                     "working_disk_bytes",
                     "elapsed_seconds",
                 )
-            },
+                if previous[field] is not None
+            }
+            progress["elapsed_seconds"] = max(
+                float(previous["elapsed_seconds"]),
+                cumulative_elapsed,
+            )
+        else:
+            return
+        checkpoint = _checkpoint(
+            pairing=pairing,
+            lease=lease,
+            job=job,
+            stage=target_stage,
+            now=self._now(),
+            progress=progress,
         )
         try:
+            self._checkpoint_outcome_unknown = True
             self.control_plane.checkpoint(checkpoint)
+            self._checkpoint_outcome_unknown = False
+            self._last_checkpoint = checkpoint
         except Exception:
-            # The preceding transform_started checkpoint remains a fail-closed
-            # unresolved attempt if the control plane cannot durably accept
-            # measured consumption.
+            # An unknown checkpoint outcome is never overwritten. The next
+            # claim must reconcile whichever exact state became durable.
             return
 
     def _current_authority(
@@ -2689,9 +2781,84 @@ class BoundedTrustedLaptopWorker:
         heartbeat_interval = max(0.05, min(30.0, lease_remaining / 3.0))
         next_heartbeat = process_started + heartbeat_interval
         lease_deadline = process_started + lease_remaining
+        heartbeat_outcomes: queue.SimpleQueue[
+            tuple[str, object]
+        ] = queue.SimpleQueue()
+        heartbeat_pending = False
+
+        def request_heartbeat() -> None:
+            try:
+                heartbeat_outcomes.put(
+                    (
+                        "ok",
+                        self._request_heartbeat(
+                            pairing=pairing,
+                            lease=lease,
+                            job=job,
+                        ),
+                    )
+                )
+            except Exception as exc:
+                heartbeat_outcomes.put(("error", exc))
+
         try:
             deadline = process_started + remaining_elapsed_seconds
             while process.is_alive():
+                if heartbeat_pending:
+                    try:
+                        heartbeat_state, heartbeat_value = (
+                            heartbeat_outcomes.get_nowait()
+                        )
+                    except queue.Empty:
+                        pass
+                    else:
+                        heartbeat_pending = False
+                        if heartbeat_state == "error":
+                            if isinstance(
+                                heartbeat_value,
+                                TrustedLaptopExecutionError,
+                            ):
+                                raise heartbeat_value
+                            raise TrustedLaptopExecutionError(
+                                "pairing_disconnected",
+                                "pairing",
+                                "Resume this exact lease after outbound pairing is restored.",
+                            )
+                        if not isinstance(heartbeat_value, Mapping):
+                            raise TrustedLaptopExecutionError(
+                                "pairing_disconnected",
+                                "pairing",
+                                "Resume this exact lease after outbound pairing is restored.",
+                            )
+                        self._apply_heartbeat(heartbeat_value)
+                        latest_lease_expiry = (
+                            self._latest_lease_expires_at
+                        )
+                        if latest_lease_expiry is None:
+                            raise TrustedLaptopExecutionError(
+                                "lease_expired",
+                                "pairing",
+                                "Resume this exact job under a current outbound lease.",
+                            )
+                        lease_remaining = (
+                            latest_lease_expiry - self._now()
+                        ).total_seconds()
+                        if lease_remaining <= 0:
+                            raise TrustedLaptopExecutionError(
+                                "lease_expired",
+                                "pairing",
+                                "Resume this exact job under a current outbound lease.",
+                            )
+                        heartbeat_interval = max(
+                            0.05, min(30.0, lease_remaining / 3.0)
+                        )
+                        heartbeat_applied_at = time.monotonic()
+                        next_heartbeat = (
+                            heartbeat_applied_at + heartbeat_interval
+                        )
+                        lease_deadline = (
+                            heartbeat_applied_at + lease_remaining
+                        )
                 observed_cpu: float | None = None
                 observed_rss: int | None = None
                 if process.pid is not None:
@@ -2738,37 +2905,17 @@ class BoundedTrustedLaptopWorker:
                         "pairing",
                         "Resume this exact job under a current outbound lease.",
                     )
-                if current_monotonic >= next_heartbeat:
-                    self._heartbeat_only(
-                        pairing=pairing,
-                        lease=lease,
-                        job=job,
-                    )
-                    latest_lease_expiry = self._latest_lease_expires_at
-                    if latest_lease_expiry is None:
-                        raise TrustedLaptopExecutionError(
-                            "lease_expired",
-                            "pairing",
-                            "Resume this exact job under a current outbound lease.",
-                        )
-                    lease_remaining = (
-                        latest_lease_expiry - self._now()
-                    ).total_seconds()
-                    if lease_remaining <= 0:
-                        raise TrustedLaptopExecutionError(
-                            "lease_expired",
-                            "pairing",
-                            "Resume this exact job under a current outbound lease.",
-                        )
-                    heartbeat_interval = max(
-                        0.05, min(30.0, lease_remaining / 3.0)
-                    )
-                    next_heartbeat = (
-                        current_monotonic + heartbeat_interval
-                    )
-                    lease_deadline = (
-                        current_monotonic + lease_remaining
-                    )
+                if (
+                    current_monotonic >= next_heartbeat
+                    and not heartbeat_pending
+                ):
+                    heartbeat_pending = True
+                    threading.Thread(
+                        target=request_heartbeat,
+                        name="trusted-laptop-heartbeat",
+                        daemon=True,
+                    ).start()
+                    next_heartbeat = math.inf
                 if _directory_size(cache._directory_fd) > int(
                     job["maximum_disk_bytes"]
                 ):
@@ -2848,6 +2995,18 @@ class BoundedTrustedLaptopWorker:
                     "Use a transformer that reports the reviewed resource metrics.",
                 ) from exc
         finally:
+            if process.pid is not None:
+                final_usage = _process_group_usage(process.pid)
+                if final_usage is not None:
+                    final_cpu, final_rss, _ = final_usage
+                    peak_group_cpu = max(peak_group_cpu, final_cpu)
+                    if baseline_child_rss is not None:
+                        peak_group_memory = max(
+                            peak_group_memory,
+                            max(0, final_rss - baseline_child_rss),
+                        )
+            if process.is_alive():
+                _stop_transform_process(process)
             self._capture_transform_attempt_metrics(
                 cache=cache,
                 started_at=started_at,
@@ -2856,8 +3015,6 @@ class BoundedTrustedLaptopWorker:
                 current_cpu_seconds=peak_group_cpu,
                 current_peak_memory_bytes=float(peak_group_memory),
             )
-            if process.is_alive():
-                _stop_transform_process(process)
             receive_connection.close()
         if (
             not isinstance(payload, Mapping)
@@ -3422,6 +3579,11 @@ class BoundedTrustedLaptopWorker:
         job: Mapping[str, object],
     ) -> dict[str, object]:
         started_at = self._now()
+        self._claim_started_at = started_at
+        self._claim_prior_elapsed_seconds = 0.0
+        self._last_checkpoint = None
+        self._last_transform_attempt_metrics = None
+        self._checkpoint_outcome_unknown = False
         self._latest_lease_expires_at = _time(
             lease["expires_at"], "expires_at"
         )
@@ -3461,6 +3623,20 @@ class BoundedTrustedLaptopWorker:
                     "Hold this exact job and reconcile its completed result.",
                     required_authority_class="corpus_operator",
                 )
+            completed_metrics = {
+                field: float(result[field])
+                for field in (
+                    "cpu_seconds",
+                    "peak_memory_bytes",
+                    "working_disk_bytes",
+                    "elapsed_seconds",
+                )
+            }
+            self._assert_output_resource_bounds(
+                job=job,
+                metrics=completed_metrics,
+                output_size=int(result["output_byte_size"]),
+            )
             self._heartbeat_only(
                 pairing=pairing,
                 lease=lease,
@@ -3513,19 +3689,17 @@ class BoundedTrustedLaptopWorker:
                 manifest_key=str(result["manifest_object_key"]),
                 output_sha256=str(result["output_sha256"]),
                 output_size=int(result["output_byte_size"]),
-                metrics={
-                    field: float(result[field])
-                    for field in (
-                        "cpu_seconds",
-                        "peak_memory_bytes",
-                        "working_disk_bytes",
-                        "elapsed_seconds",
-                    )
-                },
+                metrics=completed_metrics,
                 completed_at=str(result["completed_at"]),
             )
 
         resume = self._latest_checkpoint(job=job)
+        if resume is not None:
+            self._last_checkpoint = resume
+            if resume["elapsed_seconds"] is not None:
+                self._claim_prior_elapsed_seconds = float(
+                    resume["elapsed_seconds"]
+                )
         if resume is None:
             self._maintain(
                 pairing=pairing, lease=lease, job=job, stage="claimed"
@@ -3559,7 +3733,7 @@ class BoundedTrustedLaptopWorker:
         manifest_key: str | None = None
         manifest_receipt: dict[str, object] | None = None
         prior_elapsed_seconds = 0.0
-        if resume is not None and resume["stage"] == "transform_failed":
+        if resume is not None and resume["stage"] == "attempt_failed":
             metrics = {
                 field: float(resume[field])
                 for field in (
@@ -3733,34 +3907,24 @@ class BoundedTrustedLaptopWorker:
                     str(job["input_object_key"]),
                     code="input_object_tombstoned",
                 )
-                try:
-                    (
-                        observed_output_size,
-                        observed_output_sha256,
-                        observed_metrics,
-                    ) = self._transform(
-                        pairing=pairing,
-                        lease=lease,
-                        job=job,
-                        cache=cache,
-                        started_at=started_at,
-                        prior_metrics=(
-                            metrics
-                            if resume is not None
-                            and resume["stage"]
-                            in {"transform_failed", "transform_verified"}
-                            else None
-                        ),
-                    )
-                except TrustedLaptopExecutionError:
-                    if self._last_transform_attempt_metrics is not None:
-                        self._record_failed_transform(
-                            pairing=pairing,
-                            lease=lease,
-                            job=job,
-                            metrics=self._last_transform_attempt_metrics,
-                        )
-                    raise
+                (
+                    observed_output_size,
+                    observed_output_sha256,
+                    observed_metrics,
+                ) = self._transform(
+                    pairing=pairing,
+                    lease=lease,
+                    job=job,
+                    cache=cache,
+                    started_at=started_at,
+                    prior_metrics=(
+                        metrics
+                        if resume is not None
+                        and resume["stage"]
+                        in {"attempt_failed", "transform_verified"}
+                        else None
+                    ),
+                )
                 observed_output_key = derived_object_key(
                     str(job["namespace_prefix"]),
                     str(job["source_id"]),
@@ -4012,6 +4176,12 @@ class BoundedTrustedLaptopWorker:
             self.control_plane.complete(result)
             return result
         except TrustedLaptopExecutionError as error:
+            if error.code != "transform_attempt_unreconciled":
+                self._record_attempt_failure(
+                    pairing=pairing,
+                    lease=lease,
+                    job=job,
+                )
             blocker = _blocker(
                 pairing=pairing,
                 lease=lease,
@@ -4032,7 +4202,13 @@ class BoundedTrustedLaptopWorker:
             except Exception:
                 pass
             return None
-        except Exception:
+        except Exception as unexpected:
+            if not isinstance(unexpected, TrustedLaptopWorkerError):
+                self._record_attempt_failure(
+                    pairing=pairing,
+                    lease=lease,
+                    job=job,
+                )
             error = TrustedLaptopExecutionError(
                 "worker_failed",
                 "worker",
