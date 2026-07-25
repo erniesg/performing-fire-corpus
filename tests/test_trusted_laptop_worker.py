@@ -881,6 +881,30 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 "transformation_resume_mismatch",
             )
 
+    def test_resume_checkpoint_is_bound_to_the_entire_job_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Harness(Path(directory))
+            harness.control.fail_checkpoint_stage_after_store = (
+                "transform_verified"
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 1)
+
+            harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(
+                tool_version="1.0.1",
+                transformation_id=transformation_id(
+                    tool_version="1.0.1"
+                ),
+            )
+            self.assertIsNone(harness.worker.run_once(capability()))
+            self.assertEqual(harness.transformer.calls, 1)
+            self.assertEqual(harness.storage.created, [])
+            self.assertEqual(
+                harness.control.blockers[-1]["code"],
+                "resume_checkpoint_mismatch",
+            )
+
     def test_stale_worker_cache_is_reaped_but_unowned_paths_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

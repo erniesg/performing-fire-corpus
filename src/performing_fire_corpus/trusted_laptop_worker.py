@@ -175,6 +175,7 @@ _CHECKPOINT_KEYS = {
     "pairing_id",
     "lease_id",
     "job_id",
+    "job_contract_sha256",
     "stage",
     "input_object_key",
     "output_object_key",
@@ -816,6 +817,9 @@ def _validate_checkpoint(value: Mapping[str, object]) -> dict[str, object]:
         "job_id",
     ):
         _require_pattern(record[field], _ID, field)
+    _require_pattern(
+        record["job_contract_sha256"], _HASH, "job_contract_sha256"
+    )
     if record["stage"] not in _STAGES:
         raise TrustedLaptopWorkerError("invalid checkpoint stage")
     _require_pattern(
@@ -1330,6 +1334,7 @@ def _checkpoint(
         "pairing_id": pairing["pairing_id"],
         "lease_id": lease["lease_id"],
         "job_id": job["job_id"],
+        "job_contract_sha256": _digest(job),
         "stage": stage,
         "input_object_key": job["input_object_key"],
         "output_object_key": None,
@@ -1369,6 +1374,7 @@ def _checkpoint(
         "pairing_id": pairing["pairing_id"],
         "lease_id": lease["lease_id"],
         "job_id": job["job_id"],
+        "job_contract_sha256": resume_state["job_contract_sha256"],
         "stage": stage,
         "input_object_key": resume_state["input_object_key"],
         "output_object_key": resume_state["output_object_key"],
@@ -2142,6 +2148,7 @@ class BoundedTrustedLaptopWorker:
         if (
             checkpoint["job_id"] != job["job_id"]
             or checkpoint["input_object_key"] != job["input_object_key"]
+            or checkpoint["job_contract_sha256"] != _digest(job)
         ):
             raise TrustedLaptopExecutionError(
                 "resume_checkpoint_mismatch",

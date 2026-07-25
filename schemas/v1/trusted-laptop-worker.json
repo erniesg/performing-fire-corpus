@@ -320,6 +320,7 @@
         "pairing_id",
         "lease_id",
         "job_id",
+        "job_contract_sha256",
         "stage",
         "input_object_key",
         "output_object_key",
@@ -342,6 +343,7 @@
         "pairing_id": {"$ref": "#/$defs/identifier"},
         "lease_id": {"$ref": "#/$defs/identifier"},
         "job_id": {"$ref": "#/$defs/identifier"},
+        "job_contract_sha256": {"$ref": "#/$defs/sha256"},
         "stage": {
           "enum": [
             "claimed",
