@@ -18,6 +18,16 @@ classification enum. Text nodes and display titles are ignored. A changed or
 missing structural contract fails closed instead of widening the retained
 projection.
 
+## Bilingual observations
+
+Korean and English variants are kept as language-specific observations on the
+per-record `language` enum (`language_ko`, `language_en`,
+`language_bilingual`, `language_unknown`), never as a merge key. Identity comes
+only from the stable public record identifier, so two records that publish the
+same Korean/English display label stay two records, and a record whose label
+changes keeps one identity. Display labels themselves are prose and are not
+retained, so no title-derived alias string enters the projection.
+
 Passing these tests is not a live-source approval and does not make the
 invented fixture parser source-useful. Before a network request, the exact
 endpoint needs a bounded reviewed observation that defines the real factual
@@ -39,6 +49,10 @@ Candidates start with `pending` rights, `acquisition_eligible = false`, and
 retry, alternate route, token reuse, referer change, login, or byte request.
 No attachment bytes are requested by either metadata adapter.
 
+A candidate is bound to the source that observed it. One adapter cannot record
+an access outcome for the other source's candidate, so a main-site blocker
+neither blocks nor authorizes the Video Archive, and the reverse holds too.
+
 ## Offline evidence
 
 Both adapters inherit the standard conformance matrix. It covers zero
@@ -51,6 +65,9 @@ The adapter-specific tests additionally verify that:
 
 - main-site and Video Archive records never share a source identity;
 - titles do not define identity, and equal titles do not merge distinct IDs;
+- Korean, English, and bilingual records on one page stay separate records
+  with their own language observation;
+- one source's `403` attachment blocker leaves the other source untouched;
 - missing years remain explicit unknown observations;
 - attachment candidates cannot become acquisition-eligible;
 - credentialed, signed, or off-host attachment locators fail closed.

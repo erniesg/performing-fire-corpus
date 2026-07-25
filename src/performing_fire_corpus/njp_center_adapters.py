@@ -131,7 +131,12 @@ class _BaseNJPCenterAdapter:
             "value_type": "enum",
         },
         "language": {
-            "allowed_values": ["language_en", "language_ko", "language_unknown"],
+            "allowed_values": [
+                "language_bilingual",
+                "language_en",
+                "language_ko",
+                "language_unknown",
+            ],
             "value_type": "enum",
         },
         "record_type": {

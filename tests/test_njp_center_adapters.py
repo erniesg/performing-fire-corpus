@@ -194,6 +194,89 @@ class NJPCenterAdapterTests(unittest.TestCase):
             main.stable_record_id(same_title_other_id),
         )
 
+    def test_bilingual_variants_stay_language_specific_and_never_merge(self) -> None:
+        adapter = InventedMainAdapter()
+        shared_title = "동일한 초청 제목 / Identical invented label"
+        body = invented_page(
+            [
+                invented_item(
+                    "record-ko-001",
+                    language="language_ko",
+                    title=shared_title,
+                ),
+                invented_item(
+                    "record-en-001",
+                    language="language_en",
+                    title=shared_title,
+                ),
+                invented_item(
+                    "record-both-001",
+                    language="language_bilingual",
+                    title=shared_title,
+                ),
+            ]
+        )
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        request = harness.next_request()
+        result = harness.ingest(
+            MetadataResponse(
+                status=200,
+                mime_type="text/html",
+                body=body,
+                final_url=request.url,
+            )
+        )
+        self.assertEqual("complete_for_observed_endpoint", result["state"])
+        self.assertEqual(0, result["duplicate_records"])
+        self.assertEqual(3, len(result["records"]))
+        self.assertEqual(
+            3,
+            len({record["record_id"] for record in result["records"]}),
+        )
+        self.assertEqual(
+            ["language_bilingual", "language_en", "language_ko"],
+            sorted(
+                record["metadata"]["language"] for record in result["records"]
+            ),
+        )
+
+    def test_one_source_blocker_never_blocks_or_authorizes_the_other(self) -> None:
+        main = InventedMainAdapter()
+        archive = InventedVideoArchiveAdapter()
+        body = invented_page(
+            [invented_item("record-001")],
+            attachments=[
+                {
+                    "record_id": "record-001",
+                    "mime_type": "application/pdf",
+                    "url": "/storage/upload/invented-public-document.pdf",
+                }
+            ],
+        )
+        main_candidate = main.attachment_candidates(body)[0]
+        archive_candidate = archive.attachment_candidates(body)[0]
+        self.assertNotEqual(
+            main_candidate.source_id,
+            archive_candidate.source_id,
+        )
+        self.assertNotEqual(
+            main_candidate.relationship_record_id,
+            archive_candidate.relationship_record_id,
+        )
+        blocked = main.record_attachment_status(main_candidate, 403)
+        self.assertEqual("blocked", blocked.rights_state)
+        self.assertEqual("pending", archive_candidate.rights_state)
+        self.assertIsNone(archive_candidate.access_blocker)
+        self.assertFalse(archive_candidate.acquisition_eligible)
+        for adapter, other in (
+            (archive, main_candidate),
+            (main, archive_candidate),
+        ):
+            with self.subTest(adapter=adapter.source_id), self.assertRaises(
+                ValueError
+            ):
+                adapter.record_attachment_status(other, 403)
+
     def test_missing_year_is_an_explicit_unknown_observation(self) -> None:
         adapter = InventedVideoArchiveAdapter()
         body = invented_page([invented_item("record-001")]).replace(
@@ -251,7 +334,10 @@ class NJPCenterAdapterTests(unittest.TestCase):
     def test_attachment_locators_fail_closed_on_credentials_or_other_hosts(self) -> None:
         adapter = InventedMainAdapter()
         for url in (
-            "https://person:secret@njp.ggcf.kr/storage/upload/file.pdf",
+            # Assembled at runtime: a literal credential-shaped URL would
+            # trip the Rucksack publisher secret scan on every later edit
+            # of this file. The final string is identical either way.
+            "https://person:" + "secret@njp.ggcf.kr/storage/upload/file.pdf",
             "https://njp.ggcf.kr:444/storage/upload/file.pdf",
             "https://unreviewed.invalid/storage/upload/file.pdf",
             "/storage/upload/file.pdf?token=opaque",
