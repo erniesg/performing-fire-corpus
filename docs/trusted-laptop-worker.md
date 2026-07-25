@@ -62,6 +62,9 @@ tombstone or withdrawn authority blocks the affected job and descendants.
 
 Checkpoints are hash-bound and monotonic by stage:
 
+- every checkpoint and terminal result binds the immutable job contract
+  (authority, input, tool/version, parameters, bounds, and retention), while
+  excluding only the retry ordinal so an identical safe retry can resume;
 - `transform_verified` fixes the only output hash/key the job may create;
 - `output_verified` fixes the durable derived-object receipt; and
 - `manifest_verified` fixes both exact object receipts.

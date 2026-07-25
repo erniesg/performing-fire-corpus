@@ -67,6 +67,7 @@ _EMAIL = re.compile(
     r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 )
 _CHUNK_SIZE = 64 * 1024
+_MANIFEST_MAX_BYTES = 64 * 1024
 _GATES = (
     "capability",
     "consent",
@@ -432,6 +433,18 @@ def _digest(value: object) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _job_contract_sha256(job: Mapping[str, object]) -> str:
+    """Bind immutable job authority and bounds, excluding retry ordinal."""
+
+    return _digest(
+        {
+            key: child
+            for key, child in job.items()
+            if key != "attempt"
+        }
+    )
+
+
 def _exact(
     value: Mapping[str, object],
     keys: set[str],
@@ -766,8 +779,12 @@ def _validate_lease(
         raise TrustedLaptopWorkerError("lease pairing mismatch")
     if job is not None and record["job_id"] != job["job_id"]:
         raise TrustedLaptopWorkerError("lease job mismatch")
-    if now is not None and expires <= now.astimezone(_UTC):
-        raise TrustedLaptopWorkerError("lease is expired")
+    if now is not None:
+        current = now.astimezone(_UTC)
+        if acquired > current:
+            raise TrustedLaptopWorkerError("lease acquisition is in the future")
+        if expires <= current:
+            raise TrustedLaptopWorkerError("lease is expired")
     return record
 
 
@@ -799,8 +816,12 @@ def _validate_heartbeat(
         raise TrustedLaptopWorkerError("heartbeat lease mismatch")
     if job is not None and record["job_id"] != job["job_id"]:
         raise TrustedLaptopWorkerError("heartbeat job mismatch")
-    if now is not None and expires <= now.astimezone(_UTC):
-        raise TrustedLaptopWorkerError("heartbeat lease is expired")
+    if now is not None:
+        current = now.astimezone(_UTC)
+        if heartbeat_at > current:
+            raise TrustedLaptopWorkerError("heartbeat is in the future")
+        if expires <= current:
+            raise TrustedLaptopWorkerError("heartbeat lease is expired")
     return record
 
 
@@ -1338,7 +1359,7 @@ def _checkpoint(
         "pairing_id": pairing["pairing_id"],
         "lease_id": lease["lease_id"],
         "job_id": job["job_id"],
-        "job_contract_sha256": _digest(job),
+        "job_contract_sha256": _job_contract_sha256(job),
         "stage": stage,
         "input_object_key": job["input_object_key"],
         "output_object_key": None,
@@ -1518,6 +1539,12 @@ class BoundedTrustedLaptopWorker:
         job: Mapping[str, object],
     ) -> None:
         now = self._now()
+        if _time(pairing["expires_at"], "expires_at") <= now:
+            raise TrustedLaptopExecutionError(
+                "pairing_expired",
+                "pairing",
+                "Establish a fresh outbound pairing before resuming this job.",
+            )
         try:
             heartbeat = self.control_plane.heartbeat(
                 str(lease["lease_id"]),
@@ -1606,9 +1633,21 @@ class BoundedTrustedLaptopWorker:
                 "Discard the cache and keep this job within reviewed bounds.",
             )
 
+    def _assert_capability_current(
+        self,
+        capability: Mapping[str, object],
+    ) -> None:
+        if _time(capability["expires_at"], "expires_at") <= self._now():
+            raise TrustedLaptopExecutionError(
+                "capability_expired",
+                "capability",
+                "Advertise a fresh bounded capability before resuming this job.",
+            )
+
     def _create_boundary_guard(
         self,
         *,
+        capability: Mapping[str, object],
         pairing: Mapping[str, object],
         lease: Mapping[str, object],
         job: Mapping[str, object],
@@ -1617,6 +1656,7 @@ class BoundedTrustedLaptopWorker:
         dependent_keys: Sequence[str] = (),
     ) -> Callable[[str], None]:
         def guard(target_key: str) -> None:
+            self._assert_capability_current(capability)
             self._heartbeat_only(
                 pairing=pairing,
                 lease=lease,
@@ -1675,6 +1715,17 @@ class BoundedTrustedLaptopWorker:
                 "retry",
                 "Review the sanitized failures before authorizing another attempt.",
                 required_authority_class="corpus_operator",
+            )
+        required_disk = (
+            int(job["input_byte_size"])
+            + int(job["maximum_output_bytes"])
+            + _MANIFEST_MAX_BYTES
+        )
+        if int(job["maximum_disk_bytes"]) < required_disk:
+            raise TrustedLaptopExecutionError(
+                "job_disk_bound_inconsistent",
+                "resource",
+                "Keep this job queued with enough disk for input, output, and manifest.",
             )
 
     def _input_receipt(
@@ -2014,6 +2065,18 @@ class BoundedTrustedLaptopWorker:
                 evidence_ref=str(job["evidence_ref"]),
             )
             payload = _canonical(manifest)
+            if (
+                len(payload) > _MANIFEST_MAX_BYTES
+                or int(job["input_byte_size"])
+                + int(output_receipt["byte_size"])
+                + len(payload)
+                > int(job["maximum_disk_bytes"])
+            ):
+                raise TrustedLaptopExecutionError(
+                    "manifest_disk_limit_exceeded",
+                    "resource",
+                    "Keep the sanitized manifest within the reviewed disk bound.",
+                )
             cache.manifest_path.write_bytes(payload)
             manifest_sha256 = hashlib.sha256(payload).hexdigest()
             key = manifest_object_key(
@@ -2023,6 +2086,8 @@ class BoundedTrustedLaptopWorker:
                 manifest_id,
                 manifest_sha256,
             )
+        except TrustedLaptopExecutionError:
+            raise
         except (CorpusObjectError, OSError, TrustedLaptopWorkerError) as exc:
             raise TrustedLaptopExecutionError(
                 "manifest_build_failed",
@@ -2096,7 +2161,7 @@ class BoundedTrustedLaptopWorker:
             "pairing_id": pairing["pairing_id"],
             "lease_id": lease["lease_id"],
             "job_id": job["job_id"],
-            "job_contract_sha256": _digest(job),
+            "job_contract_sha256": _job_contract_sha256(job),
             "source_id": job["source_id"],
             "asset_id": job["asset_id"],
             "transformation_id": job["transformation_id"],
@@ -2153,7 +2218,8 @@ class BoundedTrustedLaptopWorker:
         if (
             checkpoint["job_id"] != job["job_id"]
             or checkpoint["input_object_key"] != job["input_object_key"]
-            or checkpoint["job_contract_sha256"] != _digest(job)
+            or checkpoint["job_contract_sha256"]
+            != _job_contract_sha256(job)
         ):
             raise TrustedLaptopExecutionError(
                 "resume_checkpoint_mismatch",
@@ -2255,6 +2321,7 @@ class BoundedTrustedLaptopWorker:
         job: Mapping[str, object],
     ) -> dict[str, object]:
         self._assert_capability_covers_job(capability, job)
+        self._assert_capability_current(capability)
         try:
             completed = self.control_plane.get_completed_result(
                 str(job["job_id"])
@@ -2269,7 +2336,8 @@ class BoundedTrustedLaptopWorker:
             result = _validate_result(completed)
             if (
                 result["job_id"] != job["job_id"]
-                or result["job_contract_sha256"] != _digest(job)
+                or result["job_contract_sha256"]
+                != _job_contract_sha256(job)
                 or result["transformation_id"] != job["transformation_id"]
                 or result["input_receipt_id"] != job["input_receipt_id"]
                 or result["source_id"] != job["source_id"]
@@ -2293,6 +2361,7 @@ class BoundedTrustedLaptopWorker:
                 lease=lease,
                 job=job,
             )
+            self._assert_capability_current(capability)
             self._current_authority(
                 job=job, stage="before_completed_resume"
             )
@@ -2457,6 +2526,7 @@ class BoundedTrustedLaptopWorker:
                     lease=lease,
                     job=job,
                 )
+                self._assert_capability_current(capability)
                 self._assert_elapsed(job=job, started_at=started_at)
                 self._current_authority(
                     job=job, stage="at_input_download"
@@ -2488,6 +2558,7 @@ class BoundedTrustedLaptopWorker:
                 self._current_authority(
                     job=job, stage="before_transform"
                 )
+                self._assert_capability_current(capability)
                 self._assert_not_tombstoned(
                     str(job["input_object_key"]),
                     code="input_object_tombstoned",
@@ -2551,6 +2622,7 @@ class BoundedTrustedLaptopWorker:
                     code="input_object_tombstoned_before_create",
                 )
                 output_boundary = self._create_boundary_guard(
+                    capability=capability,
                     pairing=pairing,
                     lease=lease,
                     job=job,
@@ -2605,6 +2677,7 @@ class BoundedTrustedLaptopWorker:
                 _manifest_key: str,
             ) -> Callable[[str], None]:
                 return self._create_boundary_guard(
+                    capability=capability,
                     pairing=pairing,
                     lease=lease,
                     job=job,
@@ -2674,8 +2747,11 @@ class BoundedTrustedLaptopWorker:
             pairing = _validate_pairing(
                 self.control_plane.pair_outbound(capability, now=now)
             )
-            if _time(pairing["expires_at"], "expires_at") <= now:
-                raise TrustedLaptopWorkerError("outbound pairing is expired")
+            if (
+                _time(pairing["paired_at"], "paired_at") > now
+                or _time(pairing["expires_at"], "expires_at") <= now
+            ):
+                raise TrustedLaptopWorkerError("outbound pairing is not current")
             reservation = self.control_plane.claim_one(
                 pairing, capability, now=self._now()
             )

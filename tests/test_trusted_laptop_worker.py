@@ -805,6 +805,21 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
                 output.control.blockers[0]["code"], "output_limit_exceeded"
             )
 
+        with tempfile.TemporaryDirectory() as directory:
+            expired_capability = Harness(Path(directory))
+            self.assertIsNone(
+                expired_capability.worker.run_once(
+                    capability(
+                        expires_at=utc(NOW + timedelta(seconds=1))
+                    )
+                )
+            )
+            self.assertEqual(expired_capability.storage.created, [])
+            self.assertEqual(
+                expired_capability.control.blockers[0]["code"],
+                "capability_expired",
+            )
+
     def test_lost_create_response_recovers_only_from_matching_exact_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = Harness(Path(directory))
@@ -867,6 +882,7 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             )
 
             harness.control.fail_checkpoint_stage_after_store = None
+            harness.control.job_value = job(attempt=2)
             result = harness.worker.run_once(capability())
             self.assertIsNotNone(result)
             self.assertEqual(harness.transformer.calls, 1)
@@ -1004,6 +1020,15 @@ class TrustedLaptopWorkerTests(unittest.TestCase):
             self.assertEqual(
                 mismatch.control.blockers[0]["code"],
                 "required_capability_unavailable",
+            )
+
+            disk = Harness(Path(directory))
+            disk.control.job_value = job(maximum_disk_bytes=4096)
+            self.assertIsNone(disk.worker.run_once(capability()))
+            self.assertEqual(disk.storage.downloads, [])
+            self.assertEqual(
+                disk.control.blockers[0]["code"],
+                "job_disk_bound_inconsistent",
             )
 
 
