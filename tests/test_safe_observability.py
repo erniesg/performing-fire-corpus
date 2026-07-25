@@ -146,7 +146,10 @@ class SafeSerializerTests(unittest.TestCase):
             MACHINE_LOCAL_PATH,
             "file:///tmp/download.bin",
             "curator@example.invalid",
-            "https://bucket.invalid/object?signature=abcdef",
+            # Assembled at runtime: a literal signed URL trips the Rucksack
+            # publisher secret scan on every later edit of this file
+            # (rucksack#258). Identical string at runtime.
+            "https://bucket.invalid/object?signa" + "ture=" + "abcdef",
             "AKIA" + "QWERTYUIOPASDFGH",
             "bearer " + "inventedcanarytokenvalue0001",
             "line one\nline two",
@@ -511,7 +514,8 @@ class SelectedLogTests(unittest.TestCase):
             f"wrote {MACHINE_LOCAL_PATH}",
             "contact curator@example.invalid for the transcript",
             "authorization bearer " + "inventedcanarytokenvalue0001",
-            "signed https://bucket.invalid/object?x-amz-signature=abcdef",
+            # Assembled at runtime for the same rucksack#258 scanner reason.
+            "signed https://bucket.invalid/object?x-amz-signature=" + "abcdef",
         ):
             with self.subTest(line=line[:24]):
                 with self.assertRaises(ObservabilityError):
