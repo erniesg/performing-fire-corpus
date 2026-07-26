@@ -29,15 +29,14 @@ increase bounds to bypass a restriction, or retain response bodies.
 
 ## ANTIEGG metadata endpoints are not in this run
 
-This smoke run covers the `antiegg-article` endpoint only. The broader public
-sitemap and WordPress metadata endpoints have their own held adapters,
-described in `docs/antiegg-metadata-adapters.md`. Those adapters raise
-`SourceShapeUnreviewed` and emit no request, so there is no metadata-only
-command to run for them yet.
+This smoke run covers the `antiegg-article` endpoint only. The broader posts
+API adapter is fixture-proven and shape-bound as described in
+`docs/antiegg-metadata-adapters.md`, but this command does not invoke it. The
+sitemap adapter still raises `SourceShapeUnreviewed` before emitting a request.
 
-Before either endpoint can join a bounded run, it needs its own current
-robots, API, terms, copyright, access, and retention decisions. A missing or
-stale decision blocks that endpoint alone and never blocks another source.
+Before a live endpoint joins a bounded run, its current robots, API, terms,
+copyright, access, and retention decisions must pass. A missing or stale
+decision blocks that endpoint alone and never blocks another source.
 ANTIEGG prose and media stay `blocked` or `pending` regardless: this site is
 secondary editorial context, and public readability is not ingestion
 permission.

@@ -215,7 +215,7 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, smoke)
 
-    def test_antiegg_metadata_adapters_are_documented_as_held_and_prose_free(
+    def test_antiegg_metadata_adapters_are_documented_as_bound_and_prose_free(
         self,
     ) -> None:
         contract = (ROOT / "docs" / "antiegg-metadata-adapters.md").read_text(
@@ -224,11 +224,11 @@ class PublicRepositoryContractTests(unittest.TestCase):
         normalized = " ".join(contract.split())
         for value in (
             "secondary Korean editorial and Fluxus context",
-            "SourceShapeUnreviewed",
-            "not a live-source approval",
-            "invented for the fixtures",
-            "forbidden even though the API labels",
-            "one article has one ID no matter which endpoint observed it",
+            "shape-bound",
+            "sitemap adapter itself remains held",
+            "numeric WordPress `id`",
+            "`content` is absent from `_fields`",
+            "two stable records",
             "is_completeness_guarantee: false",
             "blocks that endpoint only",
         ):
