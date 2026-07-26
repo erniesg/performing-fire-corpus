@@ -36,7 +36,7 @@ Two rules keep the states honest:
 | Capability | Current CLI or surface | Implementation path | Passing test | Evidence lane | Live proof or durable blocker | Readiness | Next issue |
 |---|---|---|---|---|---|---|---|
 | Source-universe inventory (bounded public metadata) | `inventory-public --source antiegg-fluxus`; `discover-fixture` | `src/performing_fire_corpus/acquisition.py`, `discovery.py`, `bounded_discovery.py`, `registry.py`, `governance.py` | `tests/test_network_acquisition.py`, `tests/test_fixture_discovery.py`, `tests/test_bounded_discovery.py`, `tests/test_source_registry.py`, `tests/test_governance.py` | `network-acquisition` on the trusted VM | Live proof: `docs/metadata-readiness-proof.md` (issue 7, checkout `900e63b`, two bounded public `GET`s, ended on a durable `response_oversized` blocker). Marked historical; issue 11 has produced no current observation. | `live-proven` for the one antiegg article endpoint only; `implemented-offline` elsewhere | 011 revalidation |
-| ANTIEGG catalogue expansion beyond the one article | none | `src/performing_fire_corpus/antiegg_metadata_adapters.py` | `tests/test_antiegg_metadata_adapters.py` | `network-acquisition` | Held: adapters raise `SourceShapeUnreviewed`; `docs/antiegg-metadata-adapters.md` states this is "not a live-source approval". | `held` | 017 |
+| ANTIEGG catalogue expansion beyond the one article | none | `src/performing_fire_corpus/antiegg_metadata_adapters.py` | `tests/test_antiegg_metadata_adapters.py` | `network-acquisition` | Current blocked proof: `docs/antiegg-inventory-proof.md` (issue 27, exact commit `fcda3289f261687bd84a43e9bcf5f7bb26d5d8f6`). Robots allowed both registered paths, but endpoint terms, lawful-basis, retention, access, and live-shape decisions remain unresolved; no source endpoint was requested. | `held` | endpoint-specific policy and shape review |
 | NJP Art Center site and video-archive inventory | none | `src/performing_fire_corpus/njp_center_adapters.py` | `tests/test_njp_center_adapters.py` | `network-acquisition` | Held: no reviewed live source shape. See `docs/njp-center-adapters.md`. | `held` | 019 |
 | NJP Video Library inventory | none | `src/performing_fire_corpus/njp_video_library_adapter.py` | `tests/test_njp_video_library_adapter.py` | `network-acquisition` | Held: no reviewed live source shape. See `docs/njp-video-library-adapter.md`. | `held` | 021 |
 | Official YouTube metadata proof | none | `src/performing_fire_corpus/youtube_metadata_adapter.py` | `tests/test_youtube_metadata_adapter.py` | `network-acquisition` | Durable blocker: `docs/issues/023-approve-and-run-official-youtube-metadata-proof.md` carries `rucksack-blocked` pending API-key approval. | `held` | 023 |
@@ -60,17 +60,20 @@ above.
 
 ## Live proof register
 
-The repository contains exactly one live proof.
+The repository contains one historical live source proof and one current
+policy-gate proof.
 
 | Proof | Scope | Record |
 |---|---|---|
 | Issue 7 metadata-only readiness proof | Two unauthenticated public `GET`s against the `antiegg-fluxus` adapter at documented bounds, from checkout `900e63b`. No body, credential, media, or object transfer. | `docs/metadata-readiness-proof.md` |
+| Issue 27 bounded ANTIEGG inventory | One bounded unauthenticated robots-policy request from exact commit `fcda3289f261687bd84a43e9bcf5f7bb26d5d8f6`; both source endpoints stopped on missing current policy, retention, and reviewed-shape decisions before request. | `docs/antiegg-inventory-proof.md` |
 
-That proof is explicitly recorded there as historical evidence and as expired
-hypotheses, not a current source fact. Nothing else in this repository is
-live-proven. In particular, no R2 object exists, no worker has processed media,
-no index has been built from a real corpus, and no CI job success is claimed as
-capability evidence.
+The issue 7 proof is explicitly recorded there as historical evidence and as
+expired hypotheses, not a current source fact. The issue 27 proof establishes
+only that its current policy gate held; it did not observe either ANTIEGG source
+endpoint and does not establish catalogue completeness. No R2 object exists,
+no worker has processed media, no index has been built from a real corpus, and
+no CI job success is claimed as capability evidence.
 
 ## Source boundary
 
