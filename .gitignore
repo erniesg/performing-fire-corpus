@@ -11,6 +11,7 @@
 **/.agent/vm-runs/
 .rucksack/secrets/
 .env.live
+.local/antiegg-inventory/
 .local/network-smoke/
 .local/njp-center-inventory/
 .local/r2-proof/
