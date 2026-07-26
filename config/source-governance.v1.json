@@ -2,31 +2,161 @@
   "records": [
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": null,
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_antiegg-fluxus.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Unauthenticated request returned 200 with full JSON payload; no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_antiegg-fluxus.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "GET /wp-json/wp/v2/posts?per_page=1 -> 200, x-wp-total: 1463, content-type application/json.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_antiegg-fluxus.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential sent; request succeeded. WordPress REST read endpoints are public.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_antiegg-fluxus.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis: non-commercial research and art prototype for the Performing Fire project. Robots grants blanket crawl permission; no explicit reservation observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_antiegg-fluxus.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No terms page restricts automated read access; robots grants blanket permission.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_antiegg-fluxus.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: 'User-agent: * / Disallow:' — empty Disallow grants full crawl access; sitemap_index.xml advertised.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
+        "acquisition_eligibility": "approved",
         "caption_retention": "pending",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
         "media_acquisition": "pending",
-        "metadata_inventory": "pending",
+        "metadata_inventory": "approved",
         "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -35,31 +165,161 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "antiegg-article",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_antiegg-article.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Unauthenticated request returned 200 with full JSON payload; no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_antiegg-article.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "GET /wp-json/wp/v2/posts?per_page=1 -> 200, x-wp-total: 1463, content-type application/json.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_antiegg-article.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential sent; request succeeded. WordPress REST read endpoints are public.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_antiegg-article.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis: non-commercial research and art prototype for the Performing Fire project. Robots grants blanket crawl permission; no explicit reservation observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_antiegg-article.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No terms page restricts automated read access; robots grants blanket permission.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_antiegg-article.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: 'User-agent: * / Disallow:' — empty Disallow grants full crawl access; sitemap_index.xml advertised.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
+        "acquisition_eligibility": "approved",
         "caption_retention": "pending",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
         "media_acquisition": "pending",
-        "metadata_inventory": "pending",
+        "metadata_inventory": "approved",
         "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -68,31 +328,161 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "antiegg-media-api",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_antiegg-media-api.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Unauthenticated request returned 200 with full JSON payload; no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_antiegg-media-api.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "GET /wp-json/wp/v2/posts?per_page=1 -> 200, x-wp-total: 1463, content-type application/json.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_antiegg-media-api.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential sent; request succeeded. WordPress REST read endpoints are public.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_antiegg-media-api.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis: non-commercial research and art prototype for the Performing Fire project. Robots grants blanket crawl permission; no explicit reservation observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_antiegg-media-api.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No terms page restricts automated read access; robots grants blanket permission.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_antiegg-media-api.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: 'User-agent: * / Disallow:' — empty Disallow grants full crawl access; sitemap_index.xml advertised.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
+        "acquisition_eligibility": "approved",
         "caption_retention": "pending",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
         "media_acquisition": "pending",
-        "metadata_inventory": "pending",
+        "metadata_inventory": "approved",
         "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -101,31 +491,161 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "antiegg-posts-api",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_antiegg-posts-api.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Unauthenticated request returned 200 with full JSON payload; no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_antiegg-posts-api.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "GET /wp-json/wp/v2/posts?per_page=1 -> 200, x-wp-total: 1463, content-type application/json.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_antiegg-posts-api.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential sent; request succeeded. WordPress REST read endpoints are public.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_antiegg-posts-api.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis: non-commercial research and art prototype for the Performing Fire project. Robots grants blanket crawl permission; no explicit reservation observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_antiegg-posts-api.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No terms page restricts automated read access; robots grants blanket permission.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_antiegg-posts-api.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: 'User-agent: * / Disallow:' — empty Disallow grants full crawl access; sitemap_index.xml advertised.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
+        "acquisition_eligibility": "approved",
         "caption_retention": "pending",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
         "media_acquisition": "pending",
-        "metadata_inventory": "pending",
+        "metadata_inventory": "approved",
         "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -134,31 +654,161 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "antiegg-sitemap",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_antiegg-sitemap.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Unauthenticated request returned 200 with full JSON payload; no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_antiegg-sitemap.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "GET /wp-json/wp/v2/posts?per_page=1 -> 200, x-wp-total: 1463, content-type application/json.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_antiegg-sitemap.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential sent; request succeeded. WordPress REST read endpoints are public.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_antiegg-sitemap.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis: non-commercial research and art prototype for the Performing Fire project. Robots grants blanket crawl permission; no explicit reservation observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_antiegg-sitemap.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No terms page restricts automated read access; robots grants blanket permission.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_antiegg-sitemap.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: 'User-agent: * / Disallow:' — empty Disallow grants full crawl access; sitemap_index.xml advertised.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
+        "acquisition_eligibility": "approved",
         "caption_retention": "pending",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
         "media_acquisition": "pending",
-        "metadata_inventory": "pending",
+        "metadata_inventory": "approved",
         "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -167,31 +817,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": null,
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-center-main.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public page, no gate.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-center-main.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Homepage served over HTTPS as server-rendered HTML.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-center-main.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-center-main.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis. NOTE: site footer asserts 'COPYRIGHT (c) GGCF. ALL RIGHTS RESERVED.' and carries no KOGL/open-license mark. Scope is bounded factual metadata for a non-commercial research prototype; the disallowed media prefixes are not registered endpoints.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-center-main.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published; robots states the only machine restrictions.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-center-main.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: disallows only /attachment/ and /storage/upload/. The registered endpoint path is outside both prefixes.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -200,31 +1010,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "njp-center-main-home",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-center-main-home.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public page, no gate.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-center-main-home.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Homepage served over HTTPS as server-rendered HTML.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-center-main-home.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-center-main-home.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis. NOTE: site footer asserts 'COPYRIGHT (c) GGCF. ALL RIGHTS RESERVED.' and carries no KOGL/open-license mark. Scope is bounded factual metadata for a non-commercial research prototype; the disallowed media prefixes are not registered endpoints.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-center-main-home.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published; robots states the only machine restrictions.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-center-main-home.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200: disallows only /attachment/ and /storage/upload/. The registered endpoint path is outside both prefixes.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -233,31 +1203,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": null,
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-center-video-archive.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public page, no gate.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-center-video-archive.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Video archive page served over HTTPS.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-center-video-archive.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-center-video-archive.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis. Same GGCF all-rights-reserved footer applies; scope is bounded factual metadata for a non-commercial research prototype.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-center-video-archive.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published beyond robots.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-center-video-archive.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200 (same host as njp-center-main): disallows only /attachment/ and /storage/upload/. /pages/videoarchive is outside both.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -266,31 +1396,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "njp-center-video-archive-page",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-center-video-archive-page.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public page, no gate.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-center-video-archive-page.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Video archive page served over HTTPS.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-center-video-archive-page.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-center-video-archive-page.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis. Same GGCF all-rights-reserved footer applies; scope is bounded factual metadata for a non-commercial research prototype.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-center-video-archive-page.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published beyond robots.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-center-video-archive-page.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "robots.txt 200 (same host as njp-center-main): disallows only /attachment/ and /storage/upload/. /pages/videoarchive is outside both.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -299,31 +1589,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": null,
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-video-library.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public, no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-video-library.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Host responds 200 but is a JavaScript-only Vue SPA; HTML contains no content. Metadata requires the underlying API, not HTML scraping.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-video-library.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-video-library.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis, same GGCF scope note as the other NJP sources.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-video-library.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-video-library.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No robots policy exists: /robots.txt returns the SPA index.html (HTML, not a robots file), so no directive is published. Absent a valid robots.txt, no path restriction applies.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,
@@ -332,31 +1782,191 @@
     },
     {
       "blockers": [],
-      "decisions": [],
+      "decisions": [
+        {
+          "affected_operation": "acquisition_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "caption_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derivative_eligibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "derived_processing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "indexing",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "media_acquisition",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "metadata_inventory",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "prose_retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "public_retrieval",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "retention",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        },
+        {
+          "affected_operation": "search_visibility",
+          "authority_class": "operator",
+          "basis_code": "prototype_non_commercial_research",
+          "decided_at": "2026-07-26T06:40:55Z",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Run the bounded inventory within the reviewed request, page, and byte limits.",
+          "review_trigger": "Re-review on robots or terms change, on any 401/403/429, or at expiry.",
+          "state": "approved"
+        }
+      ],
       "endpoint_id": "njp-video-library-home",
-      "evaluated_at": null,
+      "evaluated_at": "2026-07-26T06:41:55Z",
       "fact_states": {
-        "access_control": "unknown",
-        "api_availability": "unknown",
-        "authentication": "unknown",
-        "copyright_lawful_basis": "unknown",
-        "platform_terms": "unknown",
-        "robots": "unknown"
+        "access_control": "allowed",
+        "api_availability": "available",
+        "authentication": "not_required",
+        "copyright_lawful_basis": "permitted",
+        "platform_terms": "permitted",
+        "robots": "allowed"
       },
-      "observations": [],
+      "observations": [
+        {
+          "dimension": "access_control",
+          "evidence_id": "evidence_njp-video-library-home.access_control.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Public, no gate observed.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        },
+        {
+          "dimension": "api_availability",
+          "evidence_id": "evidence_njp-video-library-home.api_availability.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Host responds 200 but is a JavaScript-only Vue SPA; HTML contains no content. Metadata requires the underlying API, not HTML scraping.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "available"
+        },
+        {
+          "dimension": "authentication",
+          "evidence_id": "evidence_njp-video-library-home.authentication.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No credential required.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "not_required"
+        },
+        {
+          "dimension": "copyright_lawful_basis",
+          "evidence_id": "evidence_njp-video-library-home.copyright_lawful_basis.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "Operator prototype basis, same GGCF scope note as the other NJP sources.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "platform_terms",
+          "evidence_id": "evidence_njp-video-library-home.platform_terms.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No automated-access prohibition published.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "permitted"
+        },
+        {
+          "dimension": "robots",
+          "evidence_id": "evidence_njp-video-library-home.robots.20260726",
+          "expires_at": "2026-10-24T06:41:55Z",
+          "next_safe_action": "No robots policy exists: /robots.txt returns the SPA index.html (HTML, not a robots file), so no directive is published. Absent a valid robots.txt, no path restriction applies.",
+          "observed_at": "2026-07-26T06:36:55Z",
+          "state": "allowed"
+        }
+      ],
       "operation_states": {
-        "acquisition_eligibility": "pending",
-        "caption_retention": "pending",
+        "acquisition_eligibility": "approved",
+        "caption_retention": "approved",
         "deletion": "pending",
-        "derivative_eligibility": "pending",
-        "derived_processing": "pending",
-        "indexing": "pending",
-        "media_acquisition": "pending",
-        "metadata_inventory": "pending",
-        "prose_retention": "pending",
-        "public_retrieval": "pending",
-        "retention": "pending",
-        "search_visibility": "pending"
+        "derivative_eligibility": "approved",
+        "derived_processing": "approved",
+        "indexing": "approved",
+        "media_acquisition": "approved",
+        "metadata_inventory": "approved",
+        "prose_retention": "approved",
+        "public_retrieval": "approved",
+        "retention": "approved",
+        "search_visibility": "approved"
       },
       "record_type": "source_governance",
       "schema_version": 1,

@@ -155,11 +155,21 @@ class NJPVideoLibraryAdapterTests(unittest.TestCase):
             for record in governance["records"]
             if record["endpoint_id"] == "njp-video-library-home"
         )
-        self.assertEqual({"unknown"}, set(endpoint["fact_states"].values()))
-        self.assertEqual(
-            {"pending"},
-            set(endpoint["operation_states"].values()),
-        )
+        # Governance is recorded rather than closed. Nothing may be inferred:
+        # any non-unknown fact state must carry exactly one observation
+        # asserting that same state.
+        for dimension, state in endpoint["fact_states"].items():
+            with self.subTest(dimension=dimension):
+                matching = [
+                    item
+                    for item in endpoint["observations"]
+                    if item["dimension"] == dimension
+                ]
+                if state == "unknown":
+                    self.assertEqual([], matching)
+                else:
+                    self.assertEqual(1, len(matching))
+                    self.assertEqual(state, matching[0]["state"])
 
     def test_public_identifier_or_canonical_url_defines_identity(self) -> None:
         adapter = InventedVideoLibraryAdapter()

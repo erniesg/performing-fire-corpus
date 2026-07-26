@@ -163,14 +163,21 @@ class NJPCenterAdapterTests(unittest.TestCase):
             "njp-center-video-archive-page",
         ):
             record = by_endpoint[endpoint_id]
-            self.assertEqual(
-                {"unknown"},
-                set(record["fact_states"].values()),
-            )
-            self.assertEqual(
-                {"pending"},
-                set(record["operation_states"].values()),
-            )
+            # Governance is now recorded rather than closed. The invariant that
+            # matters is that nothing is inferred: any non-unknown fact state
+            # must carry exactly one observation asserting that same state.
+            for dimension, state in record["fact_states"].items():
+                with self.subTest(dimension=dimension):
+                    matching = [
+                        item
+                        for item in record["observations"]
+                        if item["dimension"] == dimension
+                    ]
+                    if state == "unknown":
+                        self.assertEqual([], matching)
+                    else:
+                        self.assertEqual(1, len(matching))
+                        self.assertEqual(state, matching[0]["state"])
 
     def test_sources_remain_distinct_and_titles_do_not_define_identity(self) -> None:
         item = invented_item("record-001")

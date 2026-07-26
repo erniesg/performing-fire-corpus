@@ -300,12 +300,20 @@ class ANTIEGGAdapterHoldTests(unittest.TestCase):
                     for item in GOVERNANCE["records"]
                     if item["endpoint_id"] == adapter.endpoint_id
                 )
-                self.assertEqual(
-                    {"unknown"}, set(record["fact_states"].values())
-                )
-                self.assertEqual(
-                    {"pending"}, set(record["operation_states"].values())
-                )
+                # Governance is recorded rather than closed. Nothing may be
+                # inferred: any non-unknown fact state must carry exactly one
+                # observation asserting that same state.
+                for dimension, state in record["fact_states"].items():
+                    matching = [
+                        item
+                        for item in record["observations"]
+                        if item["dimension"] == dimension
+                    ]
+                    if state == "unknown":
+                        self.assertEqual([], matching)
+                    else:
+                        self.assertEqual(1, len(matching))
+                        self.assertEqual(state, matching[0]["state"])
 
 
 class ANTIEGGIdentityTests(unittest.TestCase):

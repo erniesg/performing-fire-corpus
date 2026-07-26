@@ -14,6 +14,7 @@ from performing_fire_corpus.governance import (
     CANONICAL_ENDPOINT_IDS,
     CANONICAL_SOURCE_IDS,
     GovernanceError,
+    PASSING_FACT_STATES,
     PROJECT_NATIVE_SOURCE_IDS,
     canonical_governance_registry_bytes,
     evaluate_project_native_use,
@@ -194,15 +195,54 @@ class GovernanceTests(unittest.TestCase):
             canonical_governance_registry_bytes(governance),
         )
         for record in governance["records"]:
-            self.assertEqual(
-                {"unknown"}, set(record["fact_states"].values())
-            )
-            self.assertEqual(
-                {"pending"}, set(record["operation_states"].values())
-            )
-            self.assertEqual([], record["observations"])
-            self.assertEqual([], record["decisions"])
-            self.assertEqual([], record["blockers"])
+            with self.subTest(
+                source=record["source_id"], endpoint=record["endpoint_id"]
+            ):
+                if record["source_id"] in PROJECT_NATIVE_SOURCE_IDS:
+                    # Project-native sources are gated on consent and lifecycle,
+                    # never on a source-governance approval. They stay closed.
+                    self.assertEqual(
+                        {"unknown"}, set(record["fact_states"].values())
+                    )
+                    self.assertEqual(
+                        {"pending"}, set(record["operation_states"].values())
+                    )
+                    self.assertEqual([], record["observations"])
+                    self.assertEqual([], record["decisions"])
+                    self.assertEqual([], record["blockers"])
+                    continue
+
+                # No permission may be inferred: a passing fact state requires
+                # exactly one recorded observation carrying that same state, and
+                # an approved operation requires exactly one matching decision.
+                for dimension, state in record["fact_states"].items():
+                    self.assertIn(
+                        state, {"unknown", PASSING_FACT_STATES[dimension]}
+                    )
+                    matching = [
+                        item
+                        for item in record["observations"]
+                        if item["dimension"] == dimension
+                    ]
+                    if state == "unknown":
+                        self.assertEqual([], matching)
+                    else:
+                        self.assertEqual(1, len(matching))
+                        self.assertEqual(state, matching[0]["state"])
+
+                for operation, state in record["operation_states"].items():
+                    matching = [
+                        item
+                        for item in record["decisions"]
+                        if item["affected_operation"] == operation
+                    ]
+                    if state == "approved":
+                        self.assertEqual(1, len(matching))
+                        self.assertEqual("approved", matching[0]["state"])
+                        self.assertTrue(matching[0]["authority_class"])
+                        self.assertTrue(matching[0]["basis_code"])
+                    else:
+                        self.assertEqual([], matching)
 
     def test_registry_supports_multiple_endpoint_specific_records_per_source(
         self,
