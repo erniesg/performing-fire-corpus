@@ -283,8 +283,19 @@ def validate_adapter_declaration(
             )
         if (
             contract.get("value_type") == "cursor_integer"
-            and set(contract) == {"cursor_prefix", "value_type"}
+            and set(contract)
+            in (
+                {"cursor_prefix", "value_type"},
+                {"cursor_prefix", "first_value", "value_type"},
+            )
             and contract["cursor_prefix"] in {"offset-", "page-"}
+            and (
+                "first_value" not in contract
+                or (
+                    parameter == "page"
+                    and contract["first_value"] == "1"
+                )
+            )
         ):
             cursor_contracts += 1
             continue
@@ -430,7 +441,15 @@ def validate_adapter_declaration(
             "required metadata fields must be in the approved projection"
         )
     if any(
-        part in field for field in approved for part in _FORBIDDEN_FIELD_PARTS
+        part in field
+        and not (
+            part == "title"
+            and isinstance(adapter.metadata_field_contracts, Mapping)
+            and adapter.metadata_field_contracts.get(field, {}).get("value_type")
+            == "bounded_text"
+        )
+        for field in approved
+        for part in _FORBIDDEN_FIELD_PARTS
     ):
         raise AdapterConformanceError(
             "approved metadata projection contains content-bearing fields"
@@ -443,6 +462,20 @@ def validate_adapter_declaration(
     for field, contract in contracts.items():
         if not isinstance(contract, Mapping):
             raise AdapterConformanceError(f"{field} has an invalid metadata contract")
+        if (
+            contract.get("value_type") == "bounded_text"
+            and set(contract) == {"max_length", "value_type"}
+            and isinstance(contract["max_length"], int)
+            and not isinstance(contract["max_length"], bool)
+            and 1 <= contract["max_length"] <= 512
+        ):
+            continue
+        if (
+            contract.get("value_type")
+            in {"positive_integer_string", "public_url"}
+            and set(contract) == {"value_type"}
+        ):
+            continue
         if (
             contract.get("value_type")
             in {"duration_iso8601", "timestamp", "year"}
@@ -558,7 +591,14 @@ def _validate_request(
         if value_type in {"cursor_integer", "cursor_opaque"}:
             cursor_parameters.append(parameter)
             if cursor is None:
-                if parameter in query_values:
+                first_value = contract.get("first_value")
+                if (
+                    first_value is None
+                    and parameter in query_values
+                ) or (
+                    first_value is not None
+                    and query_values.get(parameter) != first_value
+                ):
                     raise AdapterConformanceError(
                         "first-page request cannot invent a pagination cursor"
                     )
@@ -715,17 +755,41 @@ def _checkpoint_state_is_sanitized(
 def _metadata_value_matches(value: Any, contract: Mapping[str, Any]) -> bool:
     if not isinstance(value, str):
         return False
-    if (
-        "://" in value
-        or "<html" in value.lower()
-        or sanitize(value, environ={}) != value
-    ):
+    value_type = contract["value_type"]
+    if "<html" in value.lower() or sanitize(value, environ={}) != value:
         return False
-    if contract["value_type"] == "year":
+    if value_type == "bounded_text":
+        return (
+            0 < len(value) <= contract["max_length"]
+            and value == value.strip()
+            and not any(ord(character) < 32 for character in value)
+        )
+    if value_type == "positive_integer_string":
+        return re.fullmatch(r"[1-9][0-9]{0,17}", value) is not None
+    if value_type == "public_url":
+        try:
+            parsed = urlsplit(value)
+            return (
+                parsed.scheme == "https"
+                and parsed.hostname is not None
+                and parsed.hostname == parsed.hostname.lower()
+                and parsed.username is None
+                and parsed.password is None
+                and parsed.port in {None, 443}
+                and not parsed.query
+                and not parsed.fragment
+                and parsed.path.startswith("/")
+                and "//" not in parsed.path
+            )
+        except ValueError:
+            return False
+    if "://" in value:
+        return False
+    if value_type == "year":
         return _YEAR.fullmatch(value) is not None
-    if contract["value_type"] == "timestamp":
+    if value_type == "timestamp":
         return is_valid_utc_timestamp(value)
-    if contract["value_type"] == "duration_iso8601":
+    if value_type == "duration_iso8601":
         return _DURATION.fullmatch(value) is not None
     return value in contract["allowed_values"]
 

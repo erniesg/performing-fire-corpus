@@ -101,8 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     njp_inventory.add_argument(
         "--governance", default="config/source-governance.v1.json"
     )
-    njp_inventory.add_argument("--max-requests", type=int, default=3)
-    njp_inventory.add_argument("--max-pages", type=int, default=2)
+    njp_inventory.add_argument("--max-requests", type=int, default=6)
+    njp_inventory.add_argument("--max-pages", type=int, default=5)
     njp_inventory.add_argument("--max-response-bytes", type=int, default=65536)
     njp_inventory.add_argument("--aggregate-bytes", type=int, default=131072)
     njp_inventory.add_argument("--retries", type=int, default=1)

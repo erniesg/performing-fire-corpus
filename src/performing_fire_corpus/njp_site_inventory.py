@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from urllib import error as urlerror
 from urllib import request as urlrequest
 from urllib.robotparser import RobotFileParser
+from urllib.parse import parse_qs, urlsplit
 
 from performing_fire_corpus.njp_center_adapters import (
     NJPCenterMainAdapter,
@@ -32,7 +33,7 @@ SOURCE_ADAPTERS = {
     "njp-center-video-archive": NJPCenterVideoArchiveAdapter,
 }
 SOURCE_MECHANISMS = {
-    "njp-center-main": "registered_homepage_html",
+    "njp-center-main": "reviewed_mediaobjects_fragment_html",
     "njp-center-video-archive": "registered_archive_page_html",
 }
 _RUN_LABEL = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -45,8 +46,8 @@ class NJPInventoryError(RuntimeError):
 
 @dataclass(frozen=True)
 class InventoryLimits:
-    max_requests: int = 3
-    max_pages: int = 2
+    max_requests: int = 6
+    max_pages: int = 5
     max_response_bytes: int = 65536
     aggregate_bytes: int = 131072
     max_retries: int = 1
@@ -154,10 +155,7 @@ class UrllibPreflightTransport:
         timeout_seconds: float,
         max_response_bytes: int,
     ) -> MetadataSafeResponse:
-        if method not in {"GET", "HEAD"} or url not in {
-            ROBOTS_URL,
-            *(adapter.public_url for adapter in SOURCE_ADAPTERS.values()),
-        }:
+        if not _reviewed_request(method, url):
             raise NJPInventoryError("request_outside_reviewed_boundary")
         request = urlrequest.Request(
             url,
@@ -211,6 +209,33 @@ class UrllibPreflightTransport:
                 location=headers.get("Location"),
                 oversized=oversized,
             )
+
+
+def _reviewed_request(method: str, url: str) -> bool:
+    if method == "GET" and url == ROBOTS_URL:
+        return True
+    if method == "HEAD" and url == NJPCenterVideoArchiveAdapter.public_url:
+        return True
+    if method != "GET":
+        return False
+    try:
+        parsed = urlsplit(url)
+        query = parse_qs(
+            parsed.query,
+            keep_blank_values=True,
+            strict_parsing=True,
+        )
+        return (
+            parsed.scheme == "https"
+            and parsed.netloc == "njp.ggcf.kr"
+            and parsed.path == "/mediaObjects/more"
+            and not parsed.fragment
+            and set(query) == {"page"}
+            and len(query["page"]) == 1
+            and re.fullmatch(r"[1-9][0-9]{0,3}", query["page"][0]) is not None
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _canonical(value: Any) -> str:
@@ -514,6 +539,12 @@ def run_source_preflight(
     if source_id not in SOURCE_ADAPTERS or not _RUN_LABEL.fullmatch(run_label):
         raise NJPInventoryError("invalid_inventory_identity")
     adapter = SOURCE_ADAPTERS[source_id]
+    shape_bound = source_id == "njp-center-main"
+    endpoint_url = (
+        adapter().build_request(None).url
+        if shape_bound
+        else adapter.public_url
+    )
     observed_at = _utc_text(now())
     source_root = state_root / source_id
     run_id = f"njp_inventory_{run_label}_{source_id.replace('-', '_')}"
@@ -527,11 +558,15 @@ def run_source_preflight(
         "adapter_id": adapter.adapter_id,
         "adapter_version": adapter.adapter_version,
         "robots_url": ROBOTS_URL,
-        "endpoint_url": adapter.public_url,
+        "endpoint_url": endpoint_url,
         "limits": limits.as_dict(),
-        "allowed_methods": ["GET robots.txt", "HEAD registered endpoint"],
+        "allowed_methods": (
+            ["GET robots.txt", "GET mediaObjects fragments"]
+            if shape_bound
+            else ["GET robots.txt", "HEAD registered endpoint"]
+        ),
         "attachment_requests_allowed": False,
-        "catalogue_body_requests_allowed": False,
+        "catalogue_body_requests_allowed": shape_bound,
     }
     checkpoint = {
         "record_type": "njp_inventory_checkpoint",
@@ -540,6 +575,8 @@ def run_source_preflight(
         "requests_attempted": 0,
         "aggregate_bytes": 0,
         "pages_committed": 0,
+        "next_cursor": None,
+        "records": [],
     }
     _write_json(source_root / "run-plan.json", plan)
     _write_json(source_root / "policy-snapshot.json", policy)
@@ -564,7 +601,7 @@ def run_source_preflight(
                 sleeper=sleeper,
                 requests_used=requests_used,
             )
-            robots_outcome = _classify_robots(response, adapter.public_url)
+            robots_outcome = _classify_robots(response, endpoint_url)
             checkpoint.update(
                 {
                     "phase": "robots_checked",
@@ -603,7 +640,121 @@ def run_source_preflight(
                     "Review current robots behavior; do not request the source page.",
                 )
             )
-        if not blockers and checkpoint["phase"] == "robots_checked":
+        if shape_bound and not blockers and checkpoint["phase"] == "robots_checked":
+            live_adapter = adapter()
+            while checkpoint["phase"] == "robots_checked":
+                if checkpoint["pages_committed"] >= limits.max_pages:
+                    blockers.append(
+                        _blocker(
+                            "page_budget_exhausted",
+                            "Start a new reviewed run with a sufficient page bound.",
+                        )
+                    )
+                    break
+                if requests_used >= limits.max_requests:
+                    blockers.append(
+                        _blocker(
+                            "request_budget_exhausted",
+                            "Start a new reviewed run with a sufficient request bound.",
+                        )
+                    )
+                    break
+                request = live_adapter.build_request(checkpoint["next_cursor"])
+                sleeper(limits.per_host_interval_seconds)
+                response, attempt, requests_used, attempts = _perform_request(
+                    transport,
+                    request.method,
+                    request.url,
+                    limits,
+                    sequence=2 + checkpoint["pages_committed"],
+                    now=now,
+                    sleeper=sleeper,
+                    requests_used=requests_used,
+                )
+                sequence = 2 + checkpoint["pages_committed"]
+                if response.failure_code is not None:
+                    outcome = "transport_error"
+                elif response.url != request.url or response.status in _REDIRECTS:
+                    outcome = "disallowed_redirect"
+                elif response.status in {401, 403}:
+                    outcome = "access_forbidden"
+                elif response.status == 429:
+                    outcome = "rate_limited"
+                elif response.status != 200:
+                    outcome = "public_access_unconfirmed"
+                elif response.oversized:
+                    outcome = "response_oversized"
+                elif response.mime_type != "text/html":
+                    outcome = "mime_mismatch"
+                elif (
+                    checkpoint["aggregate_bytes"] + len(response.body)
+                    > limits.aggregate_bytes
+                ):
+                    outcome = "aggregate_byte_bound"
+                else:
+                    outcome = "public_get_available"
+                for attempted_response, attempted_number in attempts:
+                    ledger.commit_request(
+                        run_id,
+                        _request_fact(
+                            attempted_response,
+                            method=request.method,
+                            sequence=sequence,
+                            attempt=attempted_number,
+                            observed_at=_utc_text(now()),
+                            outcome=(
+                                outcome
+                                if attempted_number == attempt
+                                else "retry_scheduled"
+                            ),
+                        ),
+                        checkpoint,
+                    )
+                checkpoint["requests_attempted"] = requests_used
+                if outcome != "public_get_available":
+                    checkpoint["access_outcome"] = outcome
+                    blockers.append(
+                        _blocker(
+                            outcome,
+                            "Keep the source blocked and review the sanitized request fact.",
+                        )
+                    )
+                    break
+                try:
+                    page = live_adapter.parse_page(
+                        response.body,
+                        cursor=checkpoint["next_cursor"],
+                    )
+                except ValueError:
+                    checkpoint["access_outcome"] = "public_get_available"
+                    blockers.append(
+                        _blocker(
+                            "source_shape_changed",
+                            "Review the current fragment before another inventory.",
+                        )
+                    )
+                    break
+                existing_ids = {
+                    record["record_id"] for record in checkpoint["records"]
+                }
+                new_ids = [record["record_id"] for record in page["records"]]
+                if existing_ids.intersection(new_ids):
+                    blockers.append(
+                        _blocker(
+                            "duplicate_record",
+                            "Review pagination before claiming completeness.",
+                        )
+                    )
+                    break
+                checkpoint["records"].extend(page["records"])
+                checkpoint["pages_committed"] += 1
+                checkpoint["aggregate_bytes"] += len(response.body)
+                checkpoint["access_outcome"] = "public_get_available"
+                checkpoint["next_cursor"] = page["next_cursor"]
+                if page["terminal"]:
+                    checkpoint["phase"] = "shape_bound_terminal"
+                _write_json(source_root / "checkpoint.json", checkpoint)
+        if not shape_bound and not blockers and checkpoint["phase"] == "robots_checked":
             sleeper(limits.per_host_interval_seconds)
             response, attempt, requests_used, attempts = _perform_request(
                 transport,
@@ -652,7 +803,10 @@ def run_source_preflight(
                     checkpoint,
                 )
             _write_json(source_root / "checkpoint.json", checkpoint)
-        if not blockers and checkpoint.get("access_outcome") != "public_head_available":
+        expected_access = (
+            "public_get_available" if shape_bound else "public_head_available"
+        )
+        if not blockers and checkpoint.get("access_outcome") != expected_access:
             access_code = str(
                 checkpoint.get("access_outcome", "public_access_unconfirmed")
             )
@@ -691,11 +845,12 @@ def run_source_preflight(
                 # until an adapter is bound to a reviewed live page shape.
                 "source_shape_unreviewed",
                 "Bind the adapter to a current bounded factual page shape.",
-                False,
+                shape_bound,
             ),
         ):
             if not satisfied:
                 blockers.append(_blocker(code, action))
+        reached_terminal = checkpoint["phase"] == "shape_bound_terminal"
         checkpoint["phase"] = "terminal"
         _write_json(source_root / "checkpoint.json", checkpoint)
         report = {
@@ -705,21 +860,31 @@ def run_source_preflight(
             "source_id": source_id,
             "endpoint_id": adapter.endpoint_id,
             "generated_at": observed_at,
-            "state": "blocked",
+            "state": (
+                "complete_for_observed_endpoint"
+                if shape_bound and reached_terminal and not blockers
+                else "blocked"
+            ),
+            "shape_state": "shape_bound" if shape_bound else "source_shape_unreviewed",
             "robots_state": checkpoint.get("robots_outcome", "not_checked"),
             "access_state": checkpoint.get("access_outcome", "not_checked"),
             "requests_attempted": checkpoint["requests_attempted"],
-            "pages_committed": 0,
-            "observed_unique_records": 0,
+            "pages_committed": checkpoint["pages_committed"],
+            "observed_unique_records": len(checkpoint["records"]),
             "duplicate_records": 0,
             "alias_records": 0,
             "attachment_candidates": 0,
+            "records": checkpoint["records"],
             "unvisited_remainder": None,
             "page_mechanism": policy["page_mechanism"],
             "policy_states": {
                 "access_control": (
-                    "current_public_head_observation"
-                    if checkpoint.get("access_outcome") == "public_head_available"
+                    (
+                        "current_public_metadata_observation"
+                        if shape_bound
+                        else "current_public_head_observation"
+                    )
+                    if checkpoint.get("access_outcome") == expected_access
                     else "blocked_or_unconfirmed"
                 ),
                 "platform_terms": policy["fact_states"]["platform_terms"],
@@ -790,6 +955,7 @@ def run_njp_site_inventories(
                 "source_id": report["source_id"],
                 "endpoint_id": report["endpoint_id"],
                 "state": report["state"],
+                "shape_state": report["shape_state"],
                 "robots_state": report["robots_state"],
                 "access_state": report["access_state"],
                 "observed_unique_records": report["observed_unique_records"],

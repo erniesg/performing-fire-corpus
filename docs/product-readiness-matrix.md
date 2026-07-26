@@ -37,7 +37,7 @@ Two rules keep the states honest:
 |---|---|---|---|---|---|---|---|
 | Source-universe inventory (bounded public metadata) | `inventory-public --source antiegg-fluxus`; `discover-fixture` | `src/performing_fire_corpus/acquisition.py`, `discovery.py`, `bounded_discovery.py`, `registry.py`, `governance.py` | `tests/test_network_acquisition.py`, `tests/test_fixture_discovery.py`, `tests/test_bounded_discovery.py`, `tests/test_source_registry.py`, `tests/test_governance.py` | `network-acquisition` on the trusted VM | Live proof: `docs/metadata-readiness-proof.md` (issue 7, checkout `900e63b`, two bounded public `GET`s, ended on a durable `response_oversized` blocker). Marked historical; issue 11 has produced no current observation. | `live-proven` for the one antiegg article endpoint only; `implemented-offline` elsewhere | 011 revalidation |
 | ANTIEGG catalogue expansion beyond the one article | none | `src/performing_fire_corpus/antiegg_metadata_adapters.py` | `tests/test_antiegg_metadata_adapters.py` | `network-acquisition` | Governance recorded 2026-07-26 (robots grants blanket crawl; `/wp-json/wp/v2/posts` returns 200 unauthenticated with `x-wp-total: 1463`). A bounded run then reached the network and stopped on `response_structure_changed`: the adapter no longer matches the live page shape. Prior blocked proof: `docs/antiegg-inventory-proof.md`. | `held` on adapter shape only | bind the adapter to the current live shape |
-| NJP Art Center site and video-archive inventory | `inventory-njp-sites` | `src/performing_fire_corpus/njp_center_adapters.py`, `njp_site_inventory.py` | `tests/test_njp_center_adapters.py`, `tests/test_njp_site_inventory.py` | `network-acquisition` on the trusted VM | Bounded preflight proof: `docs/njp-center-site-inventory-report.json`. Robots allowed both registered pages on 2026-07-26. Terms, lawful-basis and retention decisions are now recorded, so the preflight reports `source_shape_unreviewed` as its only blocker. See `docs/njp-center-site-inventory.md`. | `held` on adapter shape only | bind the adapter to the current live shape |
+| NJP Art Center site and video-archive inventory | `inventory-njp-sites` | `src/performing_fire_corpus/njp_center_adapters.py`, `njp_site_inventory.py` | `tests/test_njp_center_adapters.py`, `tests/test_njp_site_inventory.py` | `network-acquisition` on the trusted VM | Bounded preflight proof: `docs/njp-center-site-inventory-report.json`. On 2026-07-26 the shape-bound `/mediaObjects/more` endpoint completed with 29 reachable records and no blocker. The separate Video Archive adapter remains held on `source_shape_unreviewed`. See `docs/njp-center-site-inventory.md`. | `live-proven` for mediaObjects; `held` for Video Archive | review the Video Archive shape independently |
 | NJP Video Library inventory | none | `src/performing_fire_corpus/njp_video_library_adapter.py` | `tests/test_njp_video_library_adapter.py` | `network-acquisition` | Governance recorded 2026-07-26, but the bounded run stopped before any catalogue request on `robots_ambiguous`: `/robots.txt` returns the SPA `index.html` (`text/html`), not a robots policy, so the adapter refused to interpret it. All catalogue pages remain unvisited. See `docs/njp-video-library-inventory.md`. | `held` | resolve the ambiguous robots response, then bind the adapter |
 | Official YouTube metadata proof | none | `src/performing_fire_corpus/youtube_metadata_adapter.py` | `tests/test_youtube_metadata_adapter.py` | `network-acquisition` | Durable blocker: `docs/issues/023-approve-and-run-official-youtube-metadata-proof.md` carries `rucksack-blocked` pending API-key approval. | `held` | 023 |
 | Offline source-adapter conformance harness | none | `src/performing_fire_corpus/adapter_conformance.py` | `tests/test_adapter_conformance.py` | `portable` | Offline by design; `docs/adapter-conformance.md` names the evidence required before any live proof. | `implemented-offline` | — |
@@ -60,22 +60,25 @@ above.
 
 ## Live proof register
 
-The repository contains one historical live source proof and two dated blocked
-preflight proofs. A blocked preflight is live evidence that its gates held at
-that moment, not evidence that inventory succeeded.
+The repository contains one historical live source proof, one current bounded
+endpoint proof, and dated blocked preflight proofs. A blocked preflight is live
+evidence that its gates held at that moment, not evidence that inventory
+succeeded.
 
 | Proof | Scope | Record |
 |---|---|---|
 | Issue 7 metadata-only readiness proof | Two unauthenticated public `GET`s against the `antiegg-fluxus` adapter at documented bounds, from checkout `900e63b`. No body, credential, media, or object transfer. | `docs/metadata-readiness-proof.md` |
 | Issue 27 bounded ANTIEGG inventory | One bounded unauthenticated robots-policy request from exact commit `fcda3289f261687bd84a43e9bcf5f7bb26d5d8f6`; both source endpoints stopped on missing policy decisions before request. Superseded 2026-07-26: those decisions are now recorded, and a later bounded run reached the network and stopped on `response_structure_changed`. | `docs/antiegg-inventory-proof.md` |
 | Issue 29 NJP Center site preflight | Independent bounded robots and registered-page access checks for `njp-center-main` and `njp-center-video-archive`. Both robots checks allowed; both bounded `HEAD` checks ended in transport errors. No catalogue or attachment body was requested. | `docs/njp-center-site-inventory-report.json` |
+| Issue 84 NJP Center mediaObjects proof | One bounded unauthenticated inventory of the reviewed `/mediaObjects/more?page=<n>` fragments. It reached the first zero-item page with 29 unique factual records, no blocker, and no attachment request. The Video Archive result remains independent and blocked. | `docs/njp-center-site-inventory-report.json`, `docs/njp-center-mediaobjects-shape.md` |
 
 The issue 7 proof is explicitly recorded there as historical evidence and as
 expired hypotheses, not a current source fact. Neither the issue 27 nor the
 issue 29 record establishes catalogue completeness; each shows only what its
-gates did at its own commit. No R2 object exists, no worker has processed
-media, no index has been built from a real corpus, and no CI job success is
-claimed as capability evidence.
+gates did at its own commit. Issue 84 establishes completeness only for the
+observed mediaObjects endpoint and bounds. No R2 object exists, no worker has
+processed media, no index has been built from a real corpus, and no CI job
+success is claimed as capability evidence.
 
 ## Source boundary
 
@@ -84,9 +87,11 @@ The approved public source universe is fixed in `docs/PROJECT_BRIEF.md` and
 human decision owned by `docs/issues/040-decide-whether-to-add-a-later-source.md`,
 which carries `rucksack-blocked`. Public readability is not ingestion approval.
 
-Counts are unverified. Corpus-size and API observations in the brief are
-hypotheses that bounded public requests must verify; this repository does not
-claim a complete or verified source count for any source.
+Counts are unverified. The sole scoped exception is the dated, bounded
+mediaObjects endpoint proof above. Corpus-size and API observations in the
+brief are otherwise hypotheses that bounded public requests must verify; this
+repository does not generalize the 29-record endpoint count to another source
+or the whole NJP Center universe.
 
 The repository does not mirror source sites in bulk. It records public URLs and
 factual metadata only, and commits no source prose, HTML bodies, media,
@@ -140,7 +145,7 @@ post-implementation commands documented in this repository.
 | `performing-fire-corpus progress --database <path>` | `portable` | none | Reads a local ledger. | Fails closed on a missing or unreadable ledger. |
 | `performing-fire-corpus discover-fixture --fixture <path> --database <path> --output <path>` | `portable` | none | Writes a local ledger and sanitized manifest. | Offline only; rejects any non-fixture input. |
 | `performing-fire-corpus inventory-public --source antiegg-fluxus --max-requests 2 --ledger <path> --sanitized-manifest <path>` | `network-acquisition`, trusted VM | none; runs unauthenticated | Makes bounded public `GET` requests. | Stops on the request, timeout, rate, elapsed, or response-byte bound, on a robots restriction, or on any durable blocker. Bounds must not be raised to bypass a result. See `docs/network-acquisition-smoke.md`. |
-| `performing-fire-corpus inventory-njp-sites --run-label <id> --state-root <path> --aggregate-report <path>` | `network-acquisition`, trusted VM | none; runs unauthenticated | Writes independent ignored ledgers and sanitized reports; requests bounded robots metadata and registered-page `HEAD` responses only. | Stops each source independently on robots, access, retry, request, rate, elapsed, or response-byte bounds. Catalogue and attachment bodies remain held. See `docs/njp-center-site-inventory.md`. |
+| `performing-fire-corpus inventory-njp-sites --run-label <id> --state-root <path> --aggregate-report <path>` | `network-acquisition`, trusted VM | none; runs unauthenticated | Writes independent ignored ledgers and sanitized reports; requests bounded robots metadata, shape-bound mediaObjects fragments, and a Video Archive `HEAD`. | Stops each source independently on robots, access, shape, retry, request, page, rate, elapsed, or byte bounds. Attachment bodies remain held. See `docs/njp-center-site-inventory.md`. |
 | `performing-fire-corpus r2 readiness --config .agent/storage.yaml --output <path>` | `trusted-vm` | `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` | Reports secret presence only; may probe configured storage scope. | Reports `missing` and fails closed rather than guessing; never records a secret value. |
 | `performing-fire-corpus r2 transfer-approved --plan <path> --ledger <path> --config <path> --cache-directory <path> --output <path>` | `object-storage`, trusted VM | same four names | Would write one immutable R2 object. | **Held.** A reviewed plan does not authorize a live transfer; see `docs/r2-object-storage.md`. |
 | `performing-fire-corpus trusted-vm acquire-one-to-r2 --approval <path> --database <path> --storage-config .agent/storage.yaml --cache-directory <path> --sanitized-output <path>` | `trusted-vm` | same four names | Would acquire, verify, and delete exactly one approved object. | **Held** behind issues 010 and 025. Delete-after-verification only; retention is unsupported. |

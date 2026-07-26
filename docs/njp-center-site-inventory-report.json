@@ -3,9 +3,9 @@
   "attachment_bytes_requested": false,
   "counts_are_additive": false,
   "duplicate_scope_semantics": "unknown_across_sources",
-  "generated_at": "2026-07-26T06:00:54Z",
+  "generated_at": "2026-07-26T09:34:58Z",
   "record_type": "njp_center_source_universe_gap_report",
-  "run_label": "issue29-20260726-final2",
+  "run_label": "issue84-20260726-final",
   "safe_scope_statement": "These are two independent endpoint proofs; their counts do not measure the whole NJP Center universe.",
   "schema_version": 1,
   "source_scope": [
@@ -14,36 +14,28 @@
   ],
   "sources": [
     {
-      "access_state": "transport_error",
-      "blocker_codes": [
-        "transport_error",
-        "platform_terms_pending",
-        "copyright_rights_pending",
-        "retention_pending",
-        "source_shape_unreviewed"
-      ],
+      "access_state": "public_get_available",
+      "blocker_codes": [],
       "endpoint_id": "njp-center-main-home",
-      "observed_unique_records": 0,
-      "page_mechanism": "registered_homepage_html",
+      "observed_unique_records": 29,
+      "page_mechanism": "reviewed_mediaobjects_fragment_html",
       "policy_states": {
-        "access_control": "blocked_or_unconfirmed",
-        "copyright_lawful_basis": "unknown",
-        "metadata_inventory": "pending",
-        "platform_terms": "unknown",
-        "retention": "pending"
+        "access_control": "current_public_metadata_observation",
+        "copyright_lawful_basis": "permitted",
+        "metadata_inventory": "approved",
+        "platform_terms": "permitted",
+        "retention": "approved"
       },
       "robots_state": "robots_allowed",
+      "shape_state": "shape_bound",
       "source_id": "njp-center-main",
-      "state": "blocked",
+      "state": "complete_for_observed_endpoint",
       "unvisited_remainder": null
     },
     {
       "access_state": "transport_error",
       "blocker_codes": [
         "transport_error",
-        "platform_terms_pending",
-        "copyright_rights_pending",
-        "retention_pending",
         "source_shape_unreviewed"
       ],
       "endpoint_id": "njp-center-video-archive-page",
@@ -51,12 +43,13 @@
       "page_mechanism": "registered_archive_page_html",
       "policy_states": {
         "access_control": "blocked_or_unconfirmed",
-        "copyright_lawful_basis": "unknown",
-        "metadata_inventory": "pending",
-        "platform_terms": "unknown",
-        "retention": "pending"
+        "copyright_lawful_basis": "permitted",
+        "metadata_inventory": "approved",
+        "platform_terms": "permitted",
+        "retention": "approved"
       },
       "robots_state": "robots_allowed",
+      "shape_state": "source_shape_unreviewed",
       "source_id": "njp-center-video-archive",
       "state": "blocked",
       "unvisited_remainder": null

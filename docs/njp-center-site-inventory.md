@@ -6,25 +6,24 @@ gets its own run plan, SQLite ledger, policy snapshot, checkpoint, sanitized
 request facts, blockers, and completeness report under the ignored
 `.local/njp-center-inventory/` root.
 
-The current adapters remain held because the factual page shape, platform
-terms, copyright or lawful basis, and retention projection are pending. The
-command therefore performs only the pre-catalogue checks that are safe now:
-an unauthenticated bounded `GET` of `robots.txt`, followed—only when robots
-allows the registered endpoint—by a metadata-safe `HEAD` of that endpoint.
-Redirects are not followed. No catalogue body, attachment, prose, image,
-audio, video, caption, transcript, cookie, credential, or browser state is
-requested or retained.
+The `njp-center-main` proof now inventories the shape-bound
+`/mediaObjects/more?page=<n>` fragments after an allowed `robots.txt` result.
+It stops on the first valid zero-item page and retains only public identifier,
+canonical detail URL, and title. The separate Video Archive source remains
+held and performs only its metadata-safe `HEAD`. Redirects are not followed.
+No response body, attachment, image, audio, video, caption, transcript,
+cookie, credential, or browser state is retained.
 
 Run the current proof only on a trusted VM:
 
 ```bash
 PYTHONPATH=src python3 -m performing_fire_corpus inventory-njp-sites \
-  --run-label issue29-20260726-final2 \
-  --state-root .local/njp-center-inventory/issue29-20260726-final2 \
+  --run-label issue84-20260726-final \
+  --state-root .local/njp-center-inventory/issue84-20260726-final \
   --aggregate-report docs/njp-center-site-inventory-report.json \
   --governance config/source-governance.v1.json \
-  --max-requests 3 \
-  --max-pages 2 \
+  --max-requests 6 \
+  --max-pages 5 \
   --max-response-bytes 65536 \
   --aggregate-bytes 131072 \
   --retries 1 \

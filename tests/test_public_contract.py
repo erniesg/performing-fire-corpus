@@ -581,9 +581,17 @@ class ProductReadinessContractTests(unittest.TestCase):
         rows = table_rows(self.matrix, "Capability")
         self.assertGreaterEqual(len(rows), 10)
         live = [row for row in rows if "`live-proven`" in row[6]]
-        self.assertEqual(1, len(live), "only the issue 7 metadata run is live-proven")
-        self.assertIn("metadata-readiness-proof.md", live[0][5])
-        self.assertIn("antiegg", live[0][6])
+        self.assertEqual(
+            2,
+            len(live),
+            "only issue 7 and the bounded mediaObjects run are live-proven",
+        )
+        self.assertTrue(
+            any("metadata-readiness-proof.md" in row[5] for row in live)
+        )
+        self.assertTrue(
+            any("29 reachable records" in row[5] for row in live)
+        )
 
         for capability in (
             "Selected rich corpus",
