@@ -3,9 +3,9 @@
   "attachment_bytes_requested": false,
   "counts_are_additive": false,
   "duplicate_scope_semantics": "unknown_across_sources",
-  "generated_at": "2026-07-26T09:34:58Z",
+  "generated_at": "2026-07-26T11:03:37Z",
   "record_type": "njp_center_source_universe_gap_report",
-  "run_label": "issue84-20260726-final",
+  "run_label": "live-20260726",
   "safe_scope_statement": "These are two independent endpoint proofs; their counts do not measure the whole NJP Center universe.",
   "schema_version": 1,
   "source_scope": [
