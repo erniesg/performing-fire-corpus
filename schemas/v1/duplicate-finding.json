@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/duplicate-finding.json",
+  "title": "Explainable non-destructive duplicate finding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "duplicate_finding_id",
+    "finding_class",
+    "confidence",
+    "duplicate_cluster_id",
+    "members",
+    "matched_field_names",
+    "conflicting_field_names",
+    "evidence_summary",
+    "review_state",
+    "merge_action"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "duplicate_finding"},
+    "duplicate_finding_id": {"type": "string", "pattern": "^duplicate_finding_[0-9a-f]{24}$"},
+    "finding_class": {
+      "enum": [
+        "conflicting_duplicate",
+        "exact_hash_duplicate",
+        "likely_metadata_duplicate",
+        "stable_id_alias"
+      ]
+    },
+    "confidence": {"enum": ["exact", "high", "medium", "low"]},
+    "duplicate_cluster_id": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^duplicate_cluster_[a-z0-9][a-z0-9._-]{0,127}$"}
+      ]
+    },
+    "members": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/member"}
+    },
+    "matched_field_names": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/fieldName"}
+    },
+    "conflicting_field_names": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/fieldName"}
+    },
+    "evidence_summary": {"$ref": "#/$defs/safeText"},
+    "review_state": {"const": "requires_human_review"},
+    "merge_action": {"const": "none"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["finding_class"],
+        "properties": {"finding_class": {"const": "conflicting_duplicate"}}
+      },
+      "then": {"properties": {"conflicting_field_names": {"minItems": 1}}}
+    },
+    {
+      "if": {
+        "required": ["finding_class"],
+        "properties": {"finding_class": {"not": {"const": "conflicting_duplicate"}}}
+      },
+      "then": {"properties": {"conflicting_field_names": {"maxItems": 0}}}
+    }
+  ],
+  "$defs": {
+    "fieldName": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index_document_id", "source_id", "asset_id", "field_ids", "value_sha256"],
+      "properties": {
+        "index_document_id": {"type": "string", "pattern": "^index_document_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "asset_id": {"type": "string", "pattern": "^asset_[a-z0-9][a-z0-9._-]{0,127}$"},
+        "field_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"}
+        },
+        "value_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/hash"}]}
+      }
+    },
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}
