@@ -5,11 +5,15 @@ provenance boundaries even though both use the reviewed public
 `njp.ggcf.kr` host. Each adapter is bound to its own canonical endpoint and
 completeness checkpoint.
 
-The portable implementation is deliberately held: constructing either
-production adapter without a reviewed source-shape binding raises
-`SourceShapeUnreviewed` before it can build a request. The endpoint governance
-records remain `unknown`/`pending`. This is a durable conservative outcome,
-not a claim that the current site uses the fixture shape.
+The `njp-center-main` adapter is bound only to the reviewed
+`/mediaObjects/more?page=<n>` fragment. It retains the stable positive-integer
+identifier, canonical detail URL, and decoded title, and terminates on the
+first structurally valid zero-item fragment. See
+`docs/njp-center-mediaobjects-shape.md`.
+
+The separate `njp-center-video-archive` adapter remains held:
+constructing it without a reviewed source-shape binding raises
+`SourceShapeUnreviewed` before it can build a request.
 
 Tests alone enable a private invented-fixture contract. Those fixtures use
 HTML-shaped factual fields as explicit data attributes:

@@ -16,7 +16,8 @@ from performing_fire_corpus.njp_site_inventory import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN_URL = "https://njp.ggcf.kr/"
+MEDIA_MORE = "https://njp.ggcf.kr/mediaObjects/more"
+MAIN_URL = f"{MEDIA_MORE}?page=1"
 ARCHIVE_URL = "https://njp.ggcf.kr/pages/videoarchive"
 NOW = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
 
@@ -77,12 +78,33 @@ def response(
 
 def allowed_responses(*, archive_status: int = 200) -> list[MetadataSafeResponse]:
     robots = b"User-agent: *\nAllow: /\n"
+    fragments = [
+        media_fragment(1, 8),
+        media_fragment(9, 8),
+        media_fragment(17, 8),
+        media_fragment(25, 5),
+        b'<ul class="pagination"><a class="next"></a></ul>',
+    ]
     return [
         response(ROBOTS_URL, mime_type="text/plain", body=robots),
-        response(MAIN_URL),
+        *[
+            response(f"{MEDIA_MORE}?page={page}", body=body)
+            for page, body in enumerate(fragments, 1)
+        ],
         response(ROBOTS_URL, mime_type="text/plain", body=robots),
         response(ARCHIVE_URL, status=archive_status),
     ]
+
+
+def media_fragment(first: int, count: int) -> bytes:
+    anchors = "".join(
+        (
+            f'<li><a class="subject" href="/mediaObjects/{identifier}">'
+            f"합성 기록 {identifier}</a></li>"
+        )
+        for identifier in range(first, first + count)
+    )
+    return f'<ul class="media-list">{anchors}</ul>'.encode()
 
 
 class NJPSiteInventoryTests(unittest.TestCase):
@@ -118,7 +140,11 @@ class NJPSiteInventoryTests(unittest.TestCase):
             self.assertEqual(
                 [
                     ("GET", ROBOTS_URL),
-                    ("HEAD", MAIN_URL),
+                    ("GET", f"{MEDIA_MORE}?page=1"),
+                    ("GET", f"{MEDIA_MORE}?page=2"),
+                    ("GET", f"{MEDIA_MORE}?page=3"),
+                    ("GET", f"{MEDIA_MORE}?page=4"),
+                    ("GET", f"{MEDIA_MORE}?page=5"),
                     ("GET", ROBOTS_URL),
                     ("HEAD", ARCHIVE_URL),
                 ],
@@ -137,8 +163,20 @@ class NJPSiteInventoryTests(unittest.TestCase):
                 report = json.loads(
                     (source_root / "completeness-report.json").read_text()
                 )
-                self.assertEqual("blocked", report["state"])
-                self.assertEqual(0, report["pages_committed"])
+                expected_bound = source_id == "njp-center-main"
+                self.assertEqual(
+                    (
+                        "complete_for_observed_endpoint"
+                        if expected_bound
+                        else "blocked"
+                    ),
+                    report["state"],
+                )
+                self.assertEqual(5 if expected_bound else 0, report["pages_committed"])
+                self.assertEqual(
+                    29 if expected_bound else 0,
+                    report["observed_unique_records"],
+                )
                 self.assertEqual(0, report["attachment_candidates"])
                 self.assertIn("page_mechanism", report)
                 # The operator has recorded the terms, lawful-basis and
@@ -151,8 +189,15 @@ class NJPSiteInventoryTests(unittest.TestCase):
                 )
                 self.assertEqual("approved", report["policy_states"]["retention"])
                 self.assertEqual(
-                    {"source_shape_unreviewed"},
+                    set() if expected_bound else {"source_shape_unreviewed"},
                     {blocker["code"] for blocker in report["blockers"]},
+                )
+                self.assertTrue(
+                    all(
+                        "/attachment/" not in call[1]
+                        and "/storage/upload/" not in call[1]
+                        for call in transport.calls
+                    )
                 )
 
     def test_terminal_rerun_is_byte_identical_and_makes_no_requests(self) -> None:
@@ -171,8 +216,11 @@ class NJPSiteInventoryTests(unittest.TestCase):
                 with sqlite3.connect(
                     root / "state" / source_id / "ledger.sqlite3"
                 ) as connection:
+                    expected_requests = (
+                        6 if source_id == "njp-center-main" else 2
+                    )
                     self.assertEqual(
-                        2,
+                        expected_requests,
                         connection.execute(
                             "SELECT COUNT(*) FROM njp_inventory_request"
                         ).fetchone()[0],
@@ -180,7 +228,7 @@ class NJPSiteInventoryTests(unittest.TestCase):
                     # Only the adapter shape gate remains; the three policy
                     # blockers clear against the recorded governance decisions.
                     self.assertEqual(
-                        1,
+                        0 if source_id == "njp-center-main" else 1,
                         connection.execute(
                             "SELECT COUNT(*) FROM njp_inventory_blocker"
                         ).fetchone()[0],
@@ -197,7 +245,7 @@ class NJPSiteInventoryTests(unittest.TestCase):
                 item["source_id"]: item for item in aggregate["sources"]
             }
             self.assertEqual(
-                "public_head_available",
+                "public_get_available",
                 by_source["njp-center-main"]["access_state"],
             )
             self.assertEqual(

@@ -45,8 +45,8 @@
       "endpoints": [
         {
           "endpoint_id": "njp-center-main-home",
-          "endpoint_kind": "homepage",
-          "public_url": "https://njp.ggcf.kr/",
+          "endpoint_kind": "metadata_api",
+          "public_url": "https://njp.ggcf.kr/mediaObjects/more",
           "verification_state": "registered"
         }
       ],

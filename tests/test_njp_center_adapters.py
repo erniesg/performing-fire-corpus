@@ -8,6 +8,7 @@ from adapter_conformance_suite import StandardAdapterConformanceMixin
 from performing_fire_corpus.adapter_conformance import (
     MetadataResponse,
     OfflineConformanceHarness,
+    validate_adapter_declaration,
 )
 from performing_fire_corpus.njp_center_adapters import (
     AttachmentCandidate,
@@ -101,7 +102,12 @@ def identity_variants(item: dict[str, str]) -> list[dict[str, str]]:
     return [item, changed]
 
 
-class InventedMainAdapter(NJPCenterMainAdapter):
+class InventedMainAdapter(NJPCenterVideoArchiveAdapter):
+    adapter_id = "invented-njp-center-main-html"
+    source_id = "njp-center-main"
+    endpoint_id = "njp-center-main-home"
+    public_url = "https://njp.ggcf.kr/mediaObjects/more"
+
     def _require_reviewed_shape(self) -> None:
         return None
 
@@ -137,17 +143,83 @@ class VideoArchiveAdapterConformance(
 
 
 class NJPCenterAdapterTests(unittest.TestCase):
-    def test_production_adapters_are_held_until_source_shape_is_reviewed(
+    def test_mediaobjects_is_bound_while_video_archive_remains_held(self) -> None:
+        validate_adapter_declaration(NJPCenterMainAdapter(), REGISTRY)
+        self.assertEqual(
+            "https://njp.ggcf.kr/mediaObjects/more?page=1",
+            NJPCenterMainAdapter().build_request(None).url,
+        )
+        with self.assertRaises(SourceShapeUnreviewed):
+            NJPCenterVideoArchiveAdapter().build_request(None)
+
+    def test_mediaobjects_request_and_identity_are_strictly_bound(self) -> None:
+        adapter = NJPCenterMainAdapter()
+        self.assertEqual(
+            "https://njp.ggcf.kr/mediaObjects/more?page=4",
+            adapter.build_request("page-4").url,
+        )
+        for cursor in ("4", "page-0", "page-04", "page-x"):
+            with self.subTest(cursor=cursor), self.assertRaises(ValueError):
+                adapter.build_request(cursor)
+        original = adapter.stable_record_id({"id": "101", "title": "old"})
+        self.assertEqual(
+            original,
+            adapter.stable_record_id({"id": "101", "title": "new"}),
+        )
+        self.assertNotEqual(original, adapter.stable_record_id({"id": "102"}))
+
+    def test_mediaobjects_fixtures_extract_only_factual_fields_and_terminate(
         self,
     ) -> None:
-        for adapter in (
-            NJPCenterMainAdapter(),
-            NJPCenterVideoArchiveAdapter(),
-        ):
-            with self.subTest(source=adapter.source_id), self.assertRaises(
-                SourceShapeUnreviewed
-            ):
-                adapter.build_request(None)
+        adapter = NJPCenterMainAdapter()
+        full = adapter.parse_page(
+            (ROOT / "tests/fixtures/njp/mediaobjects-page-1.html").read_bytes(),
+            cursor=None,
+        )
+        self.assertEqual(8, len(full["records"]))
+        self.assertFalse(full["terminal"])
+        self.assertEqual("page-2", full["next_cursor"])
+        self.assertEqual(
+            {
+                "canonical_detail_url": "https://njp.ggcf.kr/mediaObjects/101",
+                "public_identifier": "101",
+                "title": "첫 번째 & 기록",
+            },
+            full["records"][0]["metadata"],
+        )
+
+        short = adapter.parse_page(
+            (ROOT / "tests/fixtures/njp/mediaobjects-page-4.html").read_bytes(),
+            cursor="page-4",
+        )
+        self.assertEqual(5, len(short["records"]))
+        self.assertEqual("page-5", short["next_cursor"])
+
+        empty = adapter.parse_page(
+            (
+                ROOT / "tests/fixtures/njp/mediaobjects-page-5-empty.html"
+            ).read_bytes(),
+            cursor="page-5",
+        )
+        self.assertEqual([], empty["records"])
+        self.assertTrue(empty["terminal"])
+        self.assertIsNone(empty["next_cursor"])
+
+    def test_mediaobjects_mutation_fails_closed(self) -> None:
+        adapter = NJPCenterMainAdapter()
+        body = (
+            ROOT / "tests/fixtures/njp/mediaobjects-page-1.html"
+        ).read_bytes()
+        with self.assertRaises(ValueError):
+            adapter.parse_page(
+                body.replace(b"/mediaObjects/101", b"/mediaObjects/not-an-id"),
+                cursor=None,
+            )
+        with self.assertRaises(ValueError):
+            adapter.parse_page(
+                body.replace(b"/mediaObjects/", b"/articles/"),
+                cursor=None,
+            )
 
     def test_each_adapter_has_an_endpoint_specific_closed_policy(self) -> None:
         governance = json.loads(

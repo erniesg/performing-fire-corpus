@@ -18,6 +18,8 @@ _BLOCKERS = (
     "rate_limited",
     "subscription_required",
 )
+_MEDIA_OBJECT_PATH = re.compile(r"/mediaObjects/([1-9][0-9]{0,17})")
+_PAGE_CURSOR = re.compile(r"page-([1-9][0-9]{0,3})")
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,72 @@ class _MetadataHTMLParser(HTMLParser):
         if tag in {"html", "head", "body", "article", "a"}:
             if not self.stack or self.stack.pop() != tag:
                 raise ValueError("metadata HTML structure changed")
+
+
+class _MediaObjectsFragmentParser(HTMLParser):
+    """Extract only the reviewed factual projection from one live fragment."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.records: list[dict[str, str]] = []
+        self._active: dict[str, str] | None = None
+        self._title_parts: list[str] = []
+        self._saw_wrapper = False
+        self._saw_item_container = False
+        self._nonblank_text = False
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        values = {key: value for key, value in attrs if value is not None}
+        self._saw_wrapper = self._saw_wrapper or tag == "ul"
+        self._saw_item_container = self._saw_item_container or tag == "li"
+        if self._active is not None:
+            raise ValueError("mediaObjects item anchor shape changed")
+        if tag != "a":
+            return
+        href = values.get("href", "")
+        if href.startswith("/mediaObjects/"):
+            match = _MEDIA_OBJECT_PATH.fullmatch(href)
+            if match is None:
+                raise ValueError("mediaObjects item identifier changed")
+            self._active = {"id": match.group(1), "href": href}
+            self._title_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self._nonblank_text = True
+        if self._active is not None:
+            self._title_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._active is None or tag != "a":
+            return
+        title = " ".join("".join(self._title_parts).split())
+        if (
+            not title
+            or len(title) > 512
+            or any(ord(character) < 32 for character in title)
+        ):
+            raise ValueError("mediaObjects item title changed")
+        record = dict(self._active)
+        record["title"] = title
+        self.records.append(record)
+        self._active = None
+        self._title_parts = []
+
+    def finish(self) -> None:
+        if self._active is not None or not self._saw_wrapper:
+            raise ValueError("mediaObjects fragment structure changed")
+        if not self.records and (self._saw_item_container or self._nonblank_text):
+            raise ValueError("mediaObjects anchor pattern is absent")
+        if len(self.records) > 8:
+            raise ValueError("mediaObjects page exceeds the reviewed bound")
+        identifiers = [record["id"] for record in self.records]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("mediaObjects page repeats an identifier")
 
 
 def _parsed(body: bytes) -> _MetadataHTMLParser:
@@ -322,10 +390,113 @@ class _BaseNJPCenterAdapter:
 
 
 class NJPCenterMainAdapter(_BaseNJPCenterAdapter):
-    adapter_id = "njp-center-main-html"
+    adapter_id = "njp-center-mediaobjects-fragment-html"
+    adapter_version = "2.0.0"
     source_id = "njp-center-main"
     endpoint_id = "njp-center-main-home"
-    public_url = "https://njp.ggcf.kr/"
+    public_url = "https://njp.ggcf.kr/mediaObjects/more"
+    query_parameter_contracts = {
+        "page": {
+            "cursor_prefix": "page-",
+            "first_value": "1",
+            "value_type": "cursor_integer",
+        }
+    }
+    approved_metadata_fields = (
+        "canonical_detail_url",
+        "public_identifier",
+        "title",
+    )
+    required_metadata_fields = approved_metadata_fields
+    metadata_field_contracts = {
+        "canonical_detail_url": {"value_type": "public_url"},
+        "public_identifier": {"value_type": "positive_integer_string"},
+        "title": {"max_length": 512, "value_type": "bounded_text"},
+    }
+
+    def _require_reviewed_shape(self) -> None:
+        return None
+
+    @staticmethod
+    def _page_number(cursor: str | None) -> int:
+        if cursor is None:
+            return 1
+        match = _PAGE_CURSOR.fullmatch(cursor)
+        if match is None:
+            raise ValueError("invalid mediaObjects page cursor")
+        return int(match.group(1))
+
+    def build_request(self, cursor: str | None) -> MetadataRequest:
+        page = self._page_number(cursor)
+        url = f"{self.public_url}?{urlencode({'page': page})}"
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "njp.ggcf.kr"
+            or parsed.path != "/mediaObjects/more"
+            or parsed.query != f"page={page}"
+            or parsed.fragment
+        ):
+            raise ValueError("mediaObjects request is outside the reviewed boundary")
+        return MetadataRequest(self.endpoint_id, "GET", url)
+
+    def stable_record_id(self, item: Mapping[str, Any]) -> str:
+        identifier = item.get("id") or item.get("public_identifier")
+        if (
+            not isinstance(identifier, str)
+            or re.fullmatch(r"[1-9][0-9]{0,17}", identifier) is None
+        ):
+            raise ValueError("record lacks a stable mediaObjects identifier")
+        digest = hashlib.sha256(
+            f"{self.source_id}\0mediaObjects:{identifier}".encode()
+        ).hexdigest()[:24]
+        return f"{self.source_id}-{digest}"
+
+    def detect_access_blocker(self, body: bytes) -> str | None:
+        del body
+        return None
+
+    def parse_page(
+        self,
+        body: bytes,
+        *,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        current_page = self._page_number(cursor)
+        try:
+            text = body.decode("utf-8", "strict")
+        except UnicodeDecodeError as error:
+            raise ValueError("mediaObjects fragment is not UTF-8") from error
+        parser = _MediaObjectsFragmentParser()
+        parser.feed(text)
+        parser.close()
+        parser.finish()
+        records = []
+        for item in parser.records:
+            identifier = item["id"]
+            detail_url = f"https://njp.ggcf.kr/mediaObjects/{identifier}"
+            records.append(
+                {
+                    "record_id": self.stable_record_id(item),
+                    "source_identity": hashlib.sha256(
+                        f"{self.source_id}\0mediaObjects:{identifier}".encode()
+                    ).hexdigest(),
+                    "metadata": {
+                        "canonical_detail_url": detail_url,
+                        "public_identifier": identifier,
+                        "title": item["title"],
+                    },
+                }
+            )
+        terminal = not records
+        return {
+            "records": records,
+            "next_cursor": None if terminal else f"page-{current_page + 1}",
+            "next_ordinal": None if terminal else current_page,
+            "terminal": terminal,
+            "expected_total": None,
+            "rejected_count": 0,
+        }
 
 
 class NJPCenterVideoArchiveAdapter(_BaseNJPCenterAdapter):

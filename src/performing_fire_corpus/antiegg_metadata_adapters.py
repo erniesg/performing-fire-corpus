@@ -457,7 +457,13 @@ class ANTIEGGPostsMetadataAdapter(_BaseANTIEGGAdapter):
             "allowed_values": list(POSTS_RESPONSE_FIELDS),
             "value_type": "metadata_projection",
         },
-        "page": {"cursor_prefix": "page-", "value_type": "cursor_integer"},
+        "page": {
+            "cursor_prefix": "page-",
+            # This adapter always sends page=1 on the first request rather than
+            # omitting it, so the contract declares that first value explicitly.
+            "first_value": "1",
+            "value_type": "cursor_integer",
+        },
         "per_page": {
             "exact_value": str(POSTS_PER_PAGE),
             "value_type": "literal",
