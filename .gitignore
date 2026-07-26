@@ -15,6 +15,8 @@
 .local/network-smoke/
 .local/njp-center-inventory/
 .local/njpvideo/
+.local/antiegg/
+.local/njp-center/
 .local/r2-proof/
 .local/rucksack-vm-sessions.json
 .local/rucksack-vm-sessions.json.lock
