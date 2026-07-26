@@ -25,6 +25,14 @@ from performing_fire_corpus.governance import (
 )
 from performing_fire_corpus.registry import load_registry
 
+# Every state the source-governance schema permits for a fact dimension.
+FACT_STATE_VALUES = frozenset(
+    json.loads(
+        (Path(__file__).resolve().parents[1] / "schemas" / "v1" / "source-governance.json")
+        .read_text(encoding="utf-8")
+    )["$defs"]["factState"]["enum"]
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "schemas" / "v1"
@@ -216,9 +224,10 @@ class GovernanceTests(unittest.TestCase):
                 # exactly one recorded observation carrying that same state, and
                 # an approved operation requires exactly one matching decision.
                 for dimension, state in record["fact_states"].items():
-                    self.assertIn(
-                        state, {"unknown", PASSING_FACT_STATES[dimension]}
-                    )
+                    # Any schema-valid state may be recorded, including a
+                    # negative finding such as authentication: required. What
+                    # may never happen is a state without evidence behind it.
+                    self.assertIn(state, FACT_STATE_VALUES)
                     matching = [
                         item
                         for item in record["observations"]

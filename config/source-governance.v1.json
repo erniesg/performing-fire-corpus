@@ -1702,11 +1702,11 @@
         }
       ],
       "endpoint_id": null,
-      "evaluated_at": "2026-07-26T06:41:55Z",
+      "evaluated_at": "2026-07-26T09:09:00Z",
       "fact_states": {
         "access_control": "allowed",
         "api_availability": "available",
-        "authentication": "not_required",
+        "authentication": "required",
         "copyright_lawful_basis": "permitted",
         "platform_terms": "permitted",
         "robots": "allowed"
@@ -1731,10 +1731,10 @@
         {
           "dimension": "authentication",
           "evidence_id": "evidence_njp-video-library.authentication.20260726",
-          "expires_at": "2026-10-24T06:41:55Z",
-          "next_safe_action": "No credential required.",
-          "observed_at": "2026-07-26T06:36:55Z",
-          "state": "not_required"
+          "expires_at": "2026-10-24T09:09:00Z",
+          "next_safe_action": "Corrected 2026-07-26: the catalogue requires an account. POST /cms-api-fe/v1/login returns invalid_login_name for an empty body, so the API expects a login name and password; the page loads Naver, Kakao, Google and Facebook login SDKs; every endpoint found across 73 route chunks is auth-scoped (/login, /users, /auth/users/, /auth/watchedlists, /auth/wishedlists) and no public catalogue endpoint exists. The earlier not_required observation was taken from the unauthenticated SPA shell, not the catalogue.",
+          "observed_at": "2026-07-26T09:04:00Z",
+          "state": "required"
         },
         {
           "dimension": "copyright_lawful_basis",
@@ -1895,11 +1895,11 @@
         }
       ],
       "endpoint_id": "njp-video-library-home",
-      "evaluated_at": "2026-07-26T06:41:55Z",
+      "evaluated_at": "2026-07-26T09:09:00Z",
       "fact_states": {
         "access_control": "allowed",
         "api_availability": "available",
-        "authentication": "not_required",
+        "authentication": "required",
         "copyright_lawful_basis": "permitted",
         "platform_terms": "permitted",
         "robots": "allowed"
@@ -1924,10 +1924,10 @@
         {
           "dimension": "authentication",
           "evidence_id": "evidence_njp-video-library-home.authentication.20260726",
-          "expires_at": "2026-10-24T06:41:55Z",
-          "next_safe_action": "No credential required.",
-          "observed_at": "2026-07-26T06:36:55Z",
-          "state": "not_required"
+          "expires_at": "2026-10-24T09:09:00Z",
+          "next_safe_action": "Corrected 2026-07-26: the catalogue requires an account. POST /cms-api-fe/v1/login returns invalid_login_name for an empty body, so the API expects a login name and password; the page loads Naver, Kakao, Google and Facebook login SDKs; every endpoint found across 73 route chunks is auth-scoped (/login, /users, /auth/users/, /auth/watchedlists, /auth/wishedlists) and no public catalogue endpoint exists. The earlier not_required observation was taken from the unauthenticated SPA shell, not the catalogue.",
+          "observed_at": "2026-07-26T09:04:00Z",
+          "state": "required"
         },
         {
           "dimension": "copyright_lawful_basis",
