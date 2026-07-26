@@ -666,25 +666,36 @@ def run_source_preflight(
                     ),
                 )
             )
-        for code, action in (
+        # Each policy blocker is derived from the governance record this run
+        # already loaded. Appending them unconditionally would report a source
+        # as rights-pending even after the operator recorded the decision, so a
+        # recorded approval could never take effect.
+        for code, action, satisfied in (
             (
                 "platform_terms_pending",
                 "Review and time-bound the terms decision for metadata inventory.",
+                policy["fact_states"]["platform_terms"] == "permitted",
             ),
             (
                 "copyright_rights_pending",
                 "Record the lawful-basis and attachment-rights decision.",
+                policy["fact_states"]["copyright_lawful_basis"] == "permitted",
             ),
             (
                 "retention_pending",
                 "Approve the narrow factual metadata retention projection.",
+                policy["operation_states"]["retention"] == "approved",
             ),
             (
+                # The adapter shape gate is not governance-derived: it stays
+                # until an adapter is bound to a reviewed live page shape.
                 "source_shape_unreviewed",
                 "Bind the adapter to a current bounded factual page shape.",
+                False,
             ),
         ):
-            blockers.append(_blocker(code, action))
+            if not satisfied:
+                blockers.append(_blocker(code, action))
         checkpoint["phase"] = "terminal"
         _write_json(source_root / "checkpoint.json", checkpoint)
         report = {

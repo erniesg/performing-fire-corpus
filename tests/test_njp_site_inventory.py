@@ -141,14 +141,17 @@ class NJPSiteInventoryTests(unittest.TestCase):
                 self.assertEqual(0, report["pages_committed"])
                 self.assertEqual(0, report["attachment_candidates"])
                 self.assertIn("page_mechanism", report)
-                self.assertEqual("unknown", report["policy_states"]["platform_terms"])
+                # The operator has recorded the terms, lawful-basis and
+                # retention decisions, so those policy blockers must clear.
+                # Only the adapter shape gate is genuinely outstanding, and it
+                # is not governance-derived.
+                self.assertEqual("permitted", report["policy_states"]["platform_terms"])
                 self.assertEqual(
-                    {
-                        "copyright_rights_pending",
-                        "platform_terms_pending",
-                        "retention_pending",
-                        "source_shape_unreviewed",
-                    },
+                    "permitted", report["policy_states"]["copyright_lawful_basis"]
+                )
+                self.assertEqual("approved", report["policy_states"]["retention"])
+                self.assertEqual(
+                    {"source_shape_unreviewed"},
                     {blocker["code"] for blocker in report["blockers"]},
                 )
 
@@ -174,8 +177,10 @@ class NJPSiteInventoryTests(unittest.TestCase):
                             "SELECT COUNT(*) FROM njp_inventory_request"
                         ).fetchone()[0],
                     )
+                    # Only the adapter shape gate remains; the three policy
+                    # blockers clear against the recorded governance decisions.
                     self.assertEqual(
-                        4,
+                        1,
                         connection.execute(
                             "SELECT COUNT(*) FROM njp_inventory_blocker"
                         ).fetchone()[0],
