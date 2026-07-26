@@ -13,6 +13,12 @@ availability, platform terms, and copyright or lawful basis, and every
 operation remains `pending`. A production request or parse raises
 `SourceShapeUnreviewed`.
 
+The current trusted-VM observation is recorded in
+[`njp-video-library-inventory.md`](njp-video-library-inventory.md). The robots
+endpoint returned HTML rather than a robots policy, so issue 31 stopped with
+`robots_ambiguous` before making a catalogue request. This live blocker does
+not remove the hold or validate the invented fixture shape.
+
 The hold can be removed only after a bounded trusted-VM observation records
 the current catalogue mechanism and narrow factual projection, together with
 reviewed request, page, byte, retry, rate, and elapsed-time bounds. Historical
