@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/evaluation-metric.json",
+  "title": "Evidence-scoped corpus evaluation metric v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "metric_id",
+    "metric_key",
+    "dimension",
+    "scope",
+    "source_id",
+    "endpoint_id",
+    "observed_value",
+    "denominator",
+    "completeness_state",
+    "is_whole_source_total",
+    "evidence_at",
+    "evidence_expires_at",
+    "input_record_ids",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "evaluation_metric"},
+    "metric_id": {"type": "string", "pattern": "^metric_[0-9a-f]{24}$"},
+    "metric_key": {
+      "enum": [
+        "observed_unique_records",
+        "duplicate_records",
+        "rejected_records",
+        "blocked_pages",
+        "pages_committed",
+        "requests_attempted",
+        "bounded_remainder",
+        "declared_coverage_targets",
+        "met_coverage_targets",
+        "selected_documents",
+        "indexed_documents",
+        "indexed_fields",
+        "duplicate_findings",
+        "failing_quality_checks",
+        "failing_retrieval_cases"
+      ]
+    },
+    "dimension": {
+      "enum": [
+        "source_completeness",
+        "selection_coverage",
+        "duplicates",
+        "metadata_quality",
+        "retrieval_behavior"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "source_endpoint",
+        "source",
+        "selection_manifest",
+        "corpus_index",
+        "retrieval_suite"
+      ]
+    },
+    "source_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sourceId"}]},
+    "endpoint_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/label"}]},
+    "observed_value": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]},
+    "denominator": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]},
+    "completeness_state": {
+      "enum": [
+        "blocked",
+        "bounded_partial",
+        "changed",
+        "complete_for_observed_endpoint",
+        "not_applicable",
+        "unknown"
+      ]
+    },
+    "is_whole_source_total": {"type": "boolean"},
+    "evidence_at": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/time"}]},
+    "evidence_expires_at": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/time"}]},
+    "input_record_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/recordId"}
+    },
+    "rationale": {"$ref": "#/$defs/safeText"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["is_whole_source_total"],
+        "properties": {"is_whole_source_total": {"const": true}}
+      },
+      "then": {
+        "properties": {
+          "completeness_state": {"const": "complete_for_observed_endpoint"},
+          "observed_value": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["completeness_state"],
+        "properties": {
+          "completeness_state": {
+            "enum": ["blocked", "bounded_partial", "changed", "unknown"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "denominator": {"type": "null"},
+          "is_whole_source_total": {"const": false}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "recordId": {"type": "string", "pattern": "^[a-z][a-z0-9_]*_[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+    "time": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}

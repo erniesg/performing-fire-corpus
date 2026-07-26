@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/evaluation-recommendation.json",
+  "title": "Bounded corpus evaluation recommendation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "recommendation_id",
+    "priority",
+    "next_action_class",
+    "blocker_class",
+    "source_id",
+    "finding_refs",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "evaluation_recommendation"},
+    "recommendation_id": {"type": "string", "pattern": "^recommendation_[0-9a-f]{24}$"},
+    "priority": {"type": "integer", "minimum": 1, "maximum": 99},
+    "next_action_class": {
+      "enum": [
+        "bounded_adapter_run",
+        "duplicate_review",
+        "human_decision",
+        "index_repair",
+        "metadata_correction",
+        "retention_review",
+        "rights_review",
+        "transformation_review"
+      ]
+    },
+    "blocker_class": {
+      "enum": ["access", "none", "platform", "privacy", "retention", "rights", "robots"]
+    },
+    "source_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sourceId"}]},
+    "finding_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/findingRef"}
+    },
+    "rationale": {"$ref": "#/$defs/safeText"}
+  },
+  "allOf": [
+    {
+      "$comment": "A bounded adapter run may never be recommended past a live blocker.",
+      "if": {
+        "required": ["next_action_class"],
+        "properties": {"next_action_class": {"const": "bounded_adapter_run"}}
+      },
+      "then": {"properties": {"blocker_class": {"const": "none"}}}
+    }
+  ],
+  "$defs": {
+    "findingRef": {
+      "type": "string",
+      "pattern": "^(?:metric|coverage_gap|duplicate_finding|quality_finding|retrieval_case)_[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"
+    },
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}

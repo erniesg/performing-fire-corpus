@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/quality-finding.json",
+  "title": "Metadata, rights, and index quality finding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "quality_finding_id",
+    "check",
+    "state",
+    "severity",
+    "source_id",
+    "index_document_id",
+    "field_id",
+    "next_action_class",
+    "detail"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "quality_finding"},
+    "quality_finding_id": {"type": "string", "pattern": "^quality_finding_[0-9a-f]{24}$"},
+    "check": {
+      "enum": [
+        "deletion_propagation",
+        "derived_confidence",
+        "index_consistency",
+        "metadata_normalization",
+        "provenance_completeness",
+        "retention_readiness",
+        "rights_freshness"
+      ]
+    },
+    "state": {"enum": ["pass", "fail", "blocked", "unknown"]},
+    "severity": {"enum": ["blocker", "high", "medium", "low", "info"]},
+    "source_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sourceId"}]},
+    "index_document_id": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^index_document_[a-z0-9][a-z0-9._-]{0,127}$"}
+      ]
+    },
+    "field_id": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"}
+      ]
+    },
+    "next_action_class": {
+      "enum": [
+        "bounded_adapter_run",
+        "duplicate_review",
+        "human_decision",
+        "index_repair",
+        "metadata_correction",
+        "retention_review",
+        "rights_review",
+        "transformation_review"
+      ]
+    },
+    "detail": {"$ref": "#/$defs/safeText"}
+  },
+  "allOf": [
+    {
+      "if": {"required": ["state"], "properties": {"state": {"const": "pass"}}},
+      "then": {"properties": {"severity": {"const": "info"}}}
+    }
+  ],
+  "$defs": {
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}
