@@ -14,6 +14,10 @@ from performing_fire_corpus.acquisition import (
 )
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
+from performing_fire_corpus.njp_site_inventory import (
+    InventoryLimits,
+    run_njp_site_inventories,
+)
 from performing_fire_corpus.search_index import SearchIndexError
 from performing_fire_corpus.search_service import (
     build_corpus_index,
@@ -87,6 +91,25 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--max-response-bytes", type=int, default=262144)
     inventory.add_argument("--ledger", required=True)
     inventory.add_argument("--sanitized-manifest", required=True)
+    njp_inventory = subparsers.add_parser(
+        "inventory-njp-sites",
+        help="run independent bounded NJP site preflights on a trusted VM",
+    )
+    njp_inventory.add_argument("--run-label", required=True)
+    njp_inventory.add_argument("--state-root", required=True)
+    njp_inventory.add_argument("--aggregate-report", required=True)
+    njp_inventory.add_argument(
+        "--governance", default="config/source-governance.v1.json"
+    )
+    njp_inventory.add_argument("--max-requests", type=int, default=3)
+    njp_inventory.add_argument("--max-pages", type=int, default=2)
+    njp_inventory.add_argument("--max-response-bytes", type=int, default=65536)
+    njp_inventory.add_argument("--aggregate-bytes", type=int, default=131072)
+    njp_inventory.add_argument("--retries", type=int, default=1)
+    njp_inventory.add_argument("--max-retry-after", type=float, default=2.0)
+    njp_inventory.add_argument("--rate-limit", type=float, default=1.0)
+    njp_inventory.add_argument("--timeout", type=float, default=10.0)
+    njp_inventory.add_argument("--max-elapsed", type=float, default=30.0)
     r2 = subparsers.add_parser("r2", help="R2 object-storage boundary commands")
     r2_subparsers = r2.add_subparsers(dest="r2_command", required=True)
     readiness = r2_subparsers.add_parser(
@@ -318,6 +341,37 @@ def _trusted_vm_paths(arguments: argparse.Namespace) -> dict[str, Path]:
     return selected
 
 
+def _njp_inventory_paths(arguments: argparse.Namespace) -> dict[str, Path]:
+    root = Path.cwd().resolve()
+    raw = {
+        "state_root": Path(arguments.state_root),
+        "aggregate_report": Path(arguments.aggregate_report),
+        "governance": Path(arguments.governance),
+    }
+    if any(
+        path.is_absolute()
+        or not path.parts
+        or any(part in ("", ".", "..") for part in path.parts)
+        for path in raw.values()
+    ):
+        raise ValueError("NJP inventory paths must be repository-relative")
+    selected = {name: (root / path).resolve() for name, path in raw.items()}
+    local_root = (root / ".local" / "njp-center-inventory").resolve()
+    docs_root = (root / "docs").resolve()
+    if (
+        selected["state_root"] == local_root
+        or not selected["state_root"].is_relative_to(local_root)
+        or not selected["aggregate_report"].is_relative_to(docs_root)
+        or selected["aggregate_report"].suffix != ".json"
+        or raw["governance"].as_posix() != "config/source-governance.v1.json"
+    ):
+        raise ValueError(
+            "keep NJP live state under .local/njp-center-inventory and "
+            "the sanitized aggregate under docs"
+        )
+    return selected
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -347,6 +401,38 @@ def main(
                 manifest_path=arguments.sanitized_manifest,
             )
         )
+    elif arguments.command == "inventory-njp-sites":
+        selected_paths = _njp_inventory_paths(arguments)
+        result = run_njp_site_inventories(
+            run_label=arguments.run_label,
+            state_root=selected_paths["state_root"],
+            aggregate_report=selected_paths["aggregate_report"],
+            governance_path=selected_paths["governance"],
+            limits=InventoryLimits(
+                max_requests=arguments.max_requests,
+                max_pages=arguments.max_pages,
+                max_response_bytes=arguments.max_response_bytes,
+                aggregate_bytes=arguments.aggregate_bytes,
+                max_retries=arguments.retries,
+                retry_after_seconds=arguments.max_retry_after,
+                per_host_interval_seconds=arguments.rate_limit,
+                timeout_seconds=arguments.timeout,
+                elapsed_seconds=arguments.max_elapsed,
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "complete",
+                    "source_states": {
+                        item["source_id"]: item["state"]
+                        for item in result["sources"]
+                    },
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     elif arguments.command == "r2" and arguments.r2_command == "readiness":
         config = load_r2_config(arguments.config)
         selected_storage = storage_client
