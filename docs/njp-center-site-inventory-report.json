@@ -1,0 +1,66 @@
+{
+  "alias_scope_semantics": "source_local_only",
+  "attachment_bytes_requested": false,
+  "counts_are_additive": false,
+  "duplicate_scope_semantics": "unknown_across_sources",
+  "generated_at": "2026-07-26T06:00:54Z",
+  "record_type": "njp_center_source_universe_gap_report",
+  "run_label": "issue29-20260726-final2",
+  "safe_scope_statement": "These are two independent endpoint proofs; their counts do not measure the whole NJP Center universe.",
+  "schema_version": 1,
+  "source_scope": [
+    "njp-center-main",
+    "njp-center-video-archive"
+  ],
+  "sources": [
+    {
+      "access_state": "transport_error",
+      "blocker_codes": [
+        "transport_error",
+        "platform_terms_pending",
+        "copyright_rights_pending",
+        "retention_pending",
+        "source_shape_unreviewed"
+      ],
+      "endpoint_id": "njp-center-main-home",
+      "observed_unique_records": 0,
+      "page_mechanism": "registered_homepage_html",
+      "policy_states": {
+        "access_control": "blocked_or_unconfirmed",
+        "copyright_lawful_basis": "unknown",
+        "metadata_inventory": "pending",
+        "platform_terms": "unknown",
+        "retention": "pending"
+      },
+      "robots_state": "robots_allowed",
+      "source_id": "njp-center-main",
+      "state": "blocked",
+      "unvisited_remainder": null
+    },
+    {
+      "access_state": "transport_error",
+      "blocker_codes": [
+        "transport_error",
+        "platform_terms_pending",
+        "copyright_rights_pending",
+        "retention_pending",
+        "source_shape_unreviewed"
+      ],
+      "endpoint_id": "njp-center-video-archive-page",
+      "observed_unique_records": 0,
+      "page_mechanism": "registered_archive_page_html",
+      "policy_states": {
+        "access_control": "blocked_or_unconfirmed",
+        "copyright_lawful_basis": "unknown",
+        "metadata_inventory": "pending",
+        "platform_terms": "unknown",
+        "retention": "pending"
+      },
+      "robots_state": "robots_allowed",
+      "source_id": "njp-center-video-archive",
+      "state": "blocked",
+      "unvisited_remainder": null
+    }
+  ],
+  "whole_njp_center_universe_state": "unknown"
+}
