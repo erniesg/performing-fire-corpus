@@ -29,7 +29,7 @@
         {
           "endpoint_id": "antiegg-sitemap",
           "endpoint_kind": "sitemap",
-          "public_url": "https://antiegg.kr/wp-sitemap.xml",
+          "public_url": "https://antiegg.kr/sitemap_index.xml",
           "verification_state": "registered"
         }
       ],

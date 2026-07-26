@@ -16,6 +16,9 @@ from performing_fire_corpus.antiegg_metadata_adapters import (
     ANTIEGGSitemapAdapter,
     CONTROL_NAMESPACE,
     FORBIDDEN_POST_FIELDS,
+    POSTS_PER_PAGE,
+    POSTS_RESPONSE_FIELDS,
+    POSTS_REVIEWED_MAX_PER_PAGE,
     SITEMAP_NAMESPACE,
     SourceShapeUnreviewed,
     XML_PROLOGUE,
@@ -36,6 +39,17 @@ GOVERNANCE = json.loads(
 )
 NOW = datetime(2026, 7, 24, 0, 0, 0, tzinfo=timezone.utc)
 FLUXUS_ARTICLE_URL = "https://antiegg.kr/25502"
+FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "antiegg"
+POSTS_PAGE_ONE = (FIXTURE_ROOT / "posts-page-1.json").read_bytes()
+POSTS_PAGE_ONE_HEADERS = json.loads(
+    (FIXTURE_ROOT / "posts-page-1.headers.json").read_text(encoding="utf-8")
+)
+POSTS_BEYOND_END = (FIXTURE_ROOT / "posts-beyond-end.json").read_bytes()
+POSTS_BEYOND_END_HEADERS = json.loads(
+    (FIXTURE_ROOT / "posts-beyond-end.headers.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def invented_sitemap_item(
@@ -103,19 +117,25 @@ def invented_post_item(
     lang: str = "ko",
     post_type: str = "post",
     status: str = "publish",
-    date_gmt: str = "2026-01-02T03:04:05Z",
-    modified_gmt: str = "2026-02-03T04:05:06Z",
+    date_gmt: str = "2026-01-02T03:04:05",
+    modified_gmt: str = "2026-02-03T04:05:06",
 ) -> dict[str, object]:
+    del post_format, lang, post_type, status
     number = int(item_id)
     return {
+        "author": 7,
+        "categories": [4],
+        "date": date_gmt,
+        "excerpt": {
+            "protected": False,
+            "rendered": "<p>Invented fixture excerpt.</p>",
+        },
+        "featured_media": 31,
         "id": number,
         "link": f"https://antiegg.kr/{number}",
-        "type": post_type,
-        "status": status,
-        "format": post_format,
-        "lang": lang,
-        "date_gmt": date_gmt,
-        "modified_gmt": modified_gmt,
+        "modified": modified_gmt,
+        "slug": f"fixture-{number}",
+        "tags": [9],
         "title": {"rendered": "가상의 표시 제목"},
     }
 
@@ -130,18 +150,19 @@ def invented_posts_page(
     rejected_count: int = 0,
     access_state: str | None = None,
 ) -> bytes:
-    envelope: dict[str, object] = {
-        "items": [dict(item) for item in items],
-        "next_cursor": next_cursor,
-        "next_ordinal": next_ordinal,
-        "terminal": terminal,
-        "expected_total": expected_total,
-        "rejected_count": rejected_count,
-    }
-    if access_state is not None:
-        envelope["access_state"] = access_state
+    del (
+        next_cursor,
+        next_ordinal,
+        terminal,
+        expected_total,
+        rejected_count,
+        access_state,
+    )
     return json.dumps(
-        envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        [dict(item) for item in items],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     ).encode("utf-8")
 
 
@@ -224,38 +245,35 @@ class SitemapAdapterConformance(
     unexpected_mime_type = "text/html"
 
 
-class PostsAdapterConformance(
-    StandardAdapterConformanceMixin,
-    unittest.TestCase,
-):
-    adapter_factory = InventedPostsAdapter
-    registry = REGISTRY
-    make_item = staticmethod(invented_post_item)
-    make_page = staticmethod(invented_posts_page)
-    identity_variants = staticmethod(post_identity_variants)
-    expected_mime_type = "application/json"
-    unexpected_mime_type = "text/html"
-
-
 class ANTIEGGAdapterHoldTests(unittest.TestCase):
-    def test_production_adapters_are_held_until_shapes_are_reviewed(
+    def test_only_the_unreviewed_sitemap_adapter_remains_held(
         self,
     ) -> None:
-        for adapter, body in (
-            (ANTIEGGSitemapAdapter(), invented_sitemap_page([])),
-            (ANTIEGGPostsMetadataAdapter(), invented_posts_page([])),
-        ):
-            with self.subTest(adapter=adapter.adapter_id):
-                with self.assertRaises(SourceShapeUnreviewed):
-                    adapter.build_request(None)
-                with self.assertRaises(SourceShapeUnreviewed):
-                    adapter.parse_page(body, cursor=None)
-                with self.assertRaises(SourceShapeUnreviewed):
-                    adapter.detect_access_blocker(body)
-                with self.assertRaises(SourceShapeUnreviewed):
-                    adapter.declared_total_observation(
-                        body, observed_at="2026-07-24T00:00:00Z"
-                    )
+        adapter = ANTIEGGSitemapAdapter()
+        body = invented_sitemap_page([])
+        with self.assertRaises(SourceShapeUnreviewed):
+            adapter.build_request(None)
+        with self.assertRaises(SourceShapeUnreviewed):
+            adapter.parse_page(body, cursor=None)
+        with self.assertRaises(SourceShapeUnreviewed):
+            adapter.detect_access_blocker(body)
+        with self.assertRaises(SourceShapeUnreviewed):
+            adapter.declared_total_observation(
+                body, observed_at="2026-07-24T00:00:00Z"
+            )
+
+        posts = ANTIEGGPostsMetadataAdapter()
+        self.assertIn("page=1", posts.build_request(None).url)
+        self.assertEqual(
+            2,
+            len(
+                posts.parse_page(
+                    POSTS_PAGE_ONE,
+                    cursor=None,
+                    response_headers=POSTS_PAGE_ONE_HEADERS,
+                )["records"]
+            ),
+        )
 
     def test_adapters_expose_no_prose_or_acquisition_entry_points(self) -> None:
         for adapter in (
@@ -317,7 +335,7 @@ class ANTIEGGAdapterHoldTests(unittest.TestCase):
 
 
 class ANTIEGGIdentityTests(unittest.TestCase):
-    def test_one_public_url_gives_both_endpoints_one_stable_identity(
+    def test_posts_identity_comes_from_numeric_id_not_display_fields(
         self,
     ) -> None:
         sitemap = InventedSitemapAdapter()
@@ -329,14 +347,20 @@ class ANTIEGGIdentityTests(unittest.TestCase):
         posts_page = posts.parse_page(
             invented_posts_page([invented_post_item("25502")]),
             cursor=None,
+            response_headers={"x-wp-total": "1", "x-wp-totalpages": "1"},
         )
+        renamed = invented_post_item("25502")
+        renamed["title"] = {"rendered": "An entirely different invented title"}
+        moved = dict(renamed)
+        moved["link"] = "https://antiegg.kr/a-new-public-slug"
+        self.assertEqual(posts.stable_record_id(renamed), posts.stable_record_id(moved))
         self.assertEqual(
+            posts_page["records"][0]["record_id"],
+            posts.stable_record_id(moved),
+        )
+        self.assertNotEqual(
             sitemap_page["records"][0]["record_id"],
             posts_page["records"][0]["record_id"],
-        )
-        self.assertEqual(
-            sitemap_page["records"][0]["source_identity"],
-            posts_page["records"][0]["source_identity"],
         )
 
     def test_display_labels_and_trailing_slashes_never_change_identity(
@@ -357,6 +381,10 @@ class ANTIEGGIdentityTests(unittest.TestCase):
         self.assertNotEqual(
             sitemap.stable_record_id({"loc": FLUXUS_ARTICLE_URL}),
             sitemap.stable_record_id({"loc": "https://antiegg.kr/25503"}),
+        )
+        self.assertNotEqual(
+            posts.stable_record_id(invented_post_item("25502")),
+            posts.stable_record_id(invented_post_item("25503")),
         )
 
     def test_unsafe_or_ambiguous_public_urls_fail_closed(self) -> None:
@@ -395,39 +423,25 @@ class ANTIEGGProseBoundaryTests(unittest.TestCase):
     ) -> None:
         adapter = InventedPostsAdapter()
         item = invented_post_item("25502")
-        item.update(
-            {
-                "title": {"rendered": "가상의 기사 제목"},
-                "excerpt": {"rendered": "<p>Invented excerpt prose.</p>"},
-                "content": {"rendered": "<p>Invented body prose.</p>"},
-                "author": 7,
-                "author_email": "person@example.invalid",
-                "guid": {"rendered": "https://antiegg.kr/?p=25502"},
-                "comment_status": "open",
-                "featured_media_url": "https://antiegg.kr/uploads/invented.jpg",
-                "yoast_head": "<title>Invented</title>",
-            }
+        item["title"] = {"rendered": "가상의 기사 제목"}
+        item["excerpt"] = {
+            "protected": False,
+            "rendered": "<p>Invented excerpt prose.</p>",
+        }
+        page = adapter.parse_page(
+            invented_posts_page([item]),
+            cursor=None,
+            response_headers={"x-wp-total": "1", "x-wp-totalpages": "1"},
         )
-        page = adapter.parse_page(invented_posts_page([item]), cursor=None)
         self.assertEqual(
-            {
-                "format",
-                "language",
-                "modified_at",
-                "published_at",
-                "record_type",
-            },
+            {"record_type"},
             set(page["records"][0]["metadata"]),
         )
         serialized = json.dumps(page, ensure_ascii=False, sort_keys=True)
         for prose in (
             "가상의 기사 제목",
             "Invented excerpt prose",
-            "Invented body prose",
-            "person@example.invalid",
-            "invented.jpg",
             "<p>",
-            "?p=",
             *FORBIDDEN_POST_FIELDS,
         ):
             with self.subTest(prose=prose):
@@ -456,7 +470,7 @@ class ANTIEGGProseBoundaryTests(unittest.TestCase):
             index["records"][0]["metadata"]["entry_kind"],
         )
 
-    def test_optional_facts_stay_absent_instead_of_being_invented(
+    def test_missing_reviewed_post_fields_fail_closed(
         self,
     ) -> None:
         adapter = InventedSitemapAdapter()
@@ -467,14 +481,18 @@ class ANTIEGGProseBoundaryTests(unittest.TestCase):
         self.assertNotIn("modified_at", page["records"][0]["metadata"])
 
         posts = InventedPostsAdapter()
-        item = invented_post_item("25502")
-        for optional in ("date_gmt", "format", "lang", "modified_gmt"):
-            item.pop(optional)
-        bare = posts.parse_page(invented_posts_page([item]), cursor=None)
-        self.assertEqual(
-            {"record_type": "record_type_post"},
-            bare["records"][0]["metadata"],
-        )
+        for missing in POSTS_RESPONSE_FIELDS:
+            item = invented_post_item("25502")
+            item.pop(missing)
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                posts.parse_page(
+                    invented_posts_page([item]),
+                    cursor=None,
+                    response_headers={
+                        "x-wp-total": "1",
+                        "x-wp-totalpages": "1",
+                    },
+                )
 
 
 class ANTIEGGSitemapShapeTests(unittest.TestCase):
@@ -571,7 +589,7 @@ class ANTIEGGSitemapShapeTests(unittest.TestCase):
         )
         request = harness.next_request()
         self.assertEqual(
-            "https://antiegg.kr/wp-sitemap.xml", request.url
+            "https://antiegg.kr/sitemap_index.xml", request.url
         )
         first = harness.ingest(
             MetadataResponse(
@@ -599,7 +617,7 @@ class ANTIEGGSitemapShapeTests(unittest.TestCase):
         )
         request = resumed.next_request()
         self.assertEqual(
-            "https://antiegg.kr/wp-sitemap.xml?page=2", request.url
+            "https://antiegg.kr/sitemap_index.xml?page=2", request.url
         )
         final = resumed.ingest(
             MetadataResponse(
@@ -618,72 +636,146 @@ class ANTIEGGSitemapShapeTests(unittest.TestCase):
 
 
 class ANTIEGGPostsShapeTests(unittest.TestCase):
-    def test_identifier_and_canonical_url_must_agree(self) -> None:
-        adapter = InventedPostsAdapter()
+    def test_reviewed_fixture_extracts_stable_prose_free_records(self) -> None:
+        adapter = ANTIEGGPostsMetadataAdapter()
+        page = adapter.parse_page(
+            POSTS_PAGE_ONE,
+            cursor=None,
+            response_headers=POSTS_PAGE_ONE_HEADERS,
+        )
+        self.assertTrue(page["terminal"])
+        self.assertEqual(2, page["expected_total"])
+        self.assertEqual(
+            [
+                adapter.stable_record_id({"id": 25502}),
+                adapter.stable_record_id({"id": 25503}),
+            ],
+            [record["record_id"] for record in page["records"]],
+        )
+        self.assertEqual(
+            [{"record_type": "record_type_post"}] * 2,
+            [record["metadata"] for record in page["records"]],
+        )
+        serialized = json.dumps(page, ensure_ascii=False)
+        self.assertNotIn("Sanitized fixture title", serialized)
+        self.assertNotIn("fixture excerpt", serialized)
+
+        harness = OfflineConformanceHarness(adapter, REGISTRY)
+        request = harness.next_request()
+        manifest = harness.ingest(
+            MetadataResponse(
+                status=200,
+                mime_type="application/json",
+                body=POSTS_PAGE_ONE,
+                final_url=request.url,
+                headers=POSTS_PAGE_ONE_HEADERS,
+            )
+        )
+        self.assertEqual("complete_for_observed_endpoint", manifest["state"])
+        self.assertEqual(2, manifest["observed_unique_records"])
+        self.assertEqual(0, manifest["unvisited_remainder"])
+
+    def test_identifier_and_canonical_url_are_independently_required(self) -> None:
+        adapter = ANTIEGGPostsMetadataAdapter()
         for change in (
-            {"link": "https://antiegg.kr/25503"},
             {"id": "25502"},
             {"id": 0},
             {"id": True},
+            {"link": "https://unreviewed.invalid/25502"},
+            {"link": None},
         ):
             item = invented_post_item("25502")
             item.update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
-                adapter.parse_page(invented_posts_page([item]), cursor=None)
+                adapter.parse_page(
+                    invented_posts_page([item]),
+                    cursor=None,
+                    response_headers={
+                        "x-wp-total": "1",
+                        "x-wp-totalpages": "1",
+                    },
+                )
 
-    def test_unreviewed_status_type_format_or_language_fails_closed(
-        self,
-    ) -> None:
-        adapter = InventedPostsAdapter()
+    def test_mutated_reviewed_field_shape_fails_closed(self) -> None:
+        adapter = ANTIEGGPostsMetadataAdapter()
         for change in (
-            {"status": "draft"},
-            {"status": "private"},
-            {"type": "attachment"},
-            {"type": {"rendered": "post"}},
-            {"format": "unreviewed"},
-            {"lang": "ko-KR"},
-            {"date_gmt": "2026-01-02T03:04:05"},
-            {"modified_gmt": "2026-01-02"},
+            {"date": "2026-01-02T03:04:05Z"},
+            {"modified": "2026-01-02"},
+            {"categories": [4, True]},
+            {"tags": ["9"]},
+            {"title": "not-an-object"},
+            {"excerpt": {"rendered": "missing protected"}},
+            {"content": {"rendered": "not requested"}},
         ):
             item = invented_post_item("25502")
             item.update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
-                adapter.parse_page(invented_posts_page([item]), cursor=None)
+                adapter.parse_page(
+                    invented_posts_page([item]),
+                    cursor=None,
+                    response_headers={
+                        "x-wp-total": "1",
+                        "x-wp-totalpages": "1",
+                    },
+                )
 
-    def test_envelope_and_counter_drift_fails_closed(self) -> None:
-        adapter = InventedPostsAdapter()
-        canonical = invented_posts_page([invented_post_item("25502")])
-        malformed = (
-            b"[]",
-            b"{}",
-            canonical.replace(b'"terminal":true', b'"terminal":"true"'),
-            canonical.replace(b'"rejected_count":0', b'"rejected_count":-1'),
-            canonical.replace(b'"rejected_count":0', b'"rejected_count":true'),
-            canonical.replace(
-                b'"expected_total":null', b'"expected_total":0'
-            ),
-            canonical.replace(b'"items":', b'"unreviewed":0,"items":'),
+    def test_request_and_header_pagination_stay_within_reviewed_bounds(self) -> None:
+        adapter = ANTIEGGPostsMetadataAdapter()
+        self.assertLessEqual(POSTS_PER_PAGE, POSTS_REVIEWED_MAX_PER_PAGE)
+        first = adapter.build_request(None)
+        self.assertIn("page=1", first.url)
+        self.assertIn(f"per_page={POSTS_PER_PAGE}", first.url)
+        self.assertNotIn("content", first.url)
+        self.assertIn("_fields=", first.url)
+
+        continuing = adapter.parse_page(
+            POSTS_PAGE_ONE,
+            cursor=None,
+            response_headers={"x-wp-total": "4", "x-wp-totalpages": "2"},
         )
-        for body in malformed:
-            with self.subTest(body=body[:64]), self.assertRaises(ValueError):
-                adapter.parse_page(body, cursor=None)
+        self.assertFalse(continuing["terminal"])
+        self.assertEqual("page-002", continuing["next_cursor"])
+        self.assertIn("page=2", adapter.build_request("page-002").url)
+
+        beyond = adapter.parse_page(
+            POSTS_BEYOND_END,
+            cursor="page-002",
+            response_headers=POSTS_BEYOND_END_HEADERS,
+        )
+        self.assertTrue(beyond["terminal"])
+        self.assertEqual([], beyond["records"])
+
+        for headers in (
+            None,
+            {},
+            {"x-wp-total": "2"},
+            {"x-wp-total": "02", "x-wp-totalpages": "1"},
+            {"x-wp-total": "2", "x-wp-totalpages": "0"},
+        ):
+            with self.subTest(headers=headers), self.assertRaises(ValueError):
+                adapter.parse_page(
+                    POSTS_PAGE_ONE,
+                    cursor=None,
+                    response_headers=headers,
+                )
 
     def test_declared_total_is_only_a_timestamped_endpoint_observation(
         self,
     ) -> None:
-        adapter = InventedPostsAdapter()
-        body = invented_posts_page(
-            [invented_post_item("25502")], expected_total=812
-        )
+        adapter = ANTIEGGPostsMetadataAdapter()
+        body = invented_posts_page([invented_post_item("25502")])
+        headers = {"x-wp-total": "1463", "x-wp-totalpages": "732"}
         observation = adapter.declared_total_observation(
-            body, observed_at="2026-07-24T00:00:00Z"
+            body,
+            observed_at="2026-07-24T00:00:00Z",
+            response_headers=headers,
         )
         self.assertEqual(
             {
                 "observation_kind": "endpoint_declared_total",
                 "source_id": "antiegg-fluxus",
                 "endpoint_id": "antiegg-posts-api",
-                "declared_total": 812,
+                "declared_total": 1463,
                 "observed_records": 1,
                 "observed_at": "2026-07-24T00:00:00Z",
                 "is_completeness_guarantee": False,
@@ -694,7 +786,32 @@ class ANTIEGGPostsShapeTests(unittest.TestCase):
             with self.subTest(observed_at=invalid), self.assertRaises(
                 ValueError
             ):
-                adapter.declared_total_observation(body, observed_at=invalid)
+                adapter.declared_total_observation(
+                    body,
+                    observed_at=invalid,
+                    response_headers=headers,
+                )
+
+    def test_registry_uses_advertised_sitemap_and_fixture_records_redirect(
+        self,
+    ) -> None:
+        redirect = json.loads(
+            (FIXTURE_ROOT / "sitemap-redirect.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source = next(
+            item
+            for item in REGISTRY["sources"]
+            if item["source_id"] == "antiegg-fluxus"
+        )
+        sitemap = next(
+            item
+            for item in source["endpoints"]
+            if item["endpoint_id"] == "antiegg-sitemap"
+        )
+        self.assertEqual(301, redirect["status"])
+        self.assertEqual(redirect["location"], sitemap["public_url"])
 
 
 class ANTIEGGEndpointDecisionIsolationTests(unittest.TestCase):

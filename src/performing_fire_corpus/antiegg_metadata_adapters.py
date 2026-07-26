@@ -1,9 +1,7 @@
-"""Held ANTIEGG public metadata adapters for sitemap and WordPress discovery.
+"""ANTIEGG public metadata adapters for sitemap and WordPress discovery.
 
-Both adapters replace the earlier article-body-shaped discovery assumption with
-a bounded, prose-free metadata projection. Neither is source-useful yet: every
-production entry point raises :class:`SourceShapeUnreviewed` until a current
-bounded review defines the real endpoint shape and its rights decisions.
+The WordPress posts adapter is bound to the reviewed public REST projection.
+The sitemap adapter remains held pending a separate bounded shape review.
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 from xml.etree import ElementTree
@@ -35,34 +34,6 @@ _BLOCKERS = (
 _ENTRY_KINDS = (
     "entry_kind_child_sitemap",
     "entry_kind_public_document",
-)
-_LANGUAGES = (
-    "language_bilingual",
-    "language_en",
-    "language_ko",
-    "language_unknown",
-)
-_LANGUAGE_TOKENS = {
-    "bilingual": "language_bilingual",
-    "en": "language_en",
-    "ko": "language_ko",
-    "unknown": "language_unknown",
-}
-_RECORD_TYPES = {
-    "page": "record_type_page",
-    "post": "record_type_post",
-}
-_POST_FORMATS = (
-    "aside",
-    "audio",
-    "chat",
-    "gallery",
-    "image",
-    "link",
-    "quote",
-    "standard",
-    "status",
-    "video",
 )
 _CONTROL_NAMES = (
     "access-state",
@@ -88,15 +59,25 @@ _ENTRY_CONTAINERS = {
 _LOCATION_TAG = f"{{{SITEMAP_NAMESPACE}}}loc"
 _MODIFIED_TAG = f"{{{SITEMAP_NAMESPACE}}}lastmod"
 
-_POST_ENVELOPE_KEYS = frozenset(
-    {
-        "expected_total",
-        "items",
-        "next_cursor",
-        "next_ordinal",
-        "rejected_count",
-        "terminal",
-    }
+POSTS_PER_PAGE = 2
+POSTS_REVIEWED_MAX_PER_PAGE = 100
+POSTS_RESPONSE_FIELDS = (
+    "author",
+    "categories",
+    "date",
+    "excerpt",
+    "featured_media",
+    "id",
+    "link",
+    "modified",
+    "slug",
+    "tags",
+    "title",
+)
+_POST_RESPONSE_FIELD_SET = frozenset(POSTS_RESPONSE_FIELDS)
+_LOCAL_TIMESTAMP = re.compile(
+    r"^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
+    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$"
 )
 #: Source fields that may carry prose, media, or personal detail. The adapter
 #: never reads them, even where the WordPress API labels them metadata.
@@ -383,7 +364,7 @@ class ANTIEGGSitemapAdapter(_BaseANTIEGGAdapter):
 
     adapter_id = "antiegg-sitemap-xml"
     endpoint_id = "antiegg-sitemap"
-    public_url = "https://antiegg.kr/wp-sitemap.xml"
+    public_url = "https://antiegg.kr/sitemap_index.xml"
     expected_mime_types = ("application/xml", "text/xml")
     approved_metadata_fields = ("entry_kind", "modified_at")
     required_metadata_fields = ("entry_kind",)
@@ -464,124 +445,188 @@ class ANTIEGGSitemapAdapter(_BaseANTIEGGAdapter):
 
 
 class ANTIEGGPostsMetadataAdapter(_BaseANTIEGGAdapter):
-    """Held adapter for the public WordPress posts metadata projection."""
+    """Bound adapter for the public WordPress posts metadata projection."""
 
     adapter_id = "antiegg-posts-metadata-json"
+    adapter_version = "2.0.0"
     endpoint_id = "antiegg-posts-api"
     public_url = "https://antiegg.kr/wp-json/wp/v2/posts"
+    allowed_query_parameters = ("_fields", "page", "per_page")
+    query_parameter_contracts = {
+        "_fields": {
+            "allowed_values": list(POSTS_RESPONSE_FIELDS),
+            "value_type": "metadata_projection",
+        },
+        "page": {"cursor_prefix": "page-", "value_type": "cursor_integer"},
+        "per_page": {
+            "exact_value": str(POSTS_PER_PAGE),
+            "value_type": "literal",
+        },
+    }
     expected_mime_types = ("application/json",)
-    approved_metadata_fields = (
-        "format",
-        "language",
-        "modified_at",
-        "published_at",
-        "record_type",
-    )
+    approved_metadata_fields = ("record_type",)
     required_metadata_fields = ("record_type",)
     metadata_field_contracts = {
-        "format": {
-            "allowed_values": [f"format_{item}" for item in _POST_FORMATS],
-            "value_type": "enum",
-        },
-        "language": {
-            "allowed_values": list(_LANGUAGES),
-            "value_type": "enum",
-        },
-        "modified_at": {"value_type": "timestamp"},
-        "published_at": {"value_type": "timestamp"},
         "record_type": {
-            "allowed_values": sorted(_RECORD_TYPES.values()),
+            "allowed_values": ["record_type_post"],
             "value_type": "enum",
         },
     }
-    identity_fields = ("canonical_url", "link")
+    identity_fields = ("id",)
 
-    def _envelope(self, body: bytes) -> dict[str, Any]:
-        try:
-            value = json.loads(body.decode("utf-8", "strict"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError("posts metadata response is invalid") from error
-        if (
-            not isinstance(value, dict)
-            or set(value) - {"access_state"} != _POST_ENVELOPE_KEYS
-            or not isinstance(value["items"], list)
-        ):
-            raise ValueError("posts metadata response shape changed")
-        return value
+    def _require_reviewed_shape(self) -> None:
+        return None
 
-    def detect_access_blocker(self, body: bytes) -> str | None:
-        self._require_reviewed_shape()
-        state = self._envelope(body).get("access_state")
-        if state is None:
-            return None
-        if state not in self.blocker_states:
-            raise ValueError("unknown access state")
-        return state
+    def build_request(self, cursor: str | None) -> MetadataRequest:
+        page = 1 if cursor is None else _page_number(cursor)
+        if not 1 <= POSTS_PER_PAGE <= POSTS_REVIEWED_MAX_PER_PAGE:
+            raise ValueError("posts page size exceeds the reviewed bound")
+        query = {
+            "_fields": ",".join(POSTS_RESPONSE_FIELDS),
+            "page": page,
+            "per_page": POSTS_PER_PAGE,
+        }
+        return MetadataRequest(
+            endpoint_id=self.endpoint_id,
+            method="GET",
+            url=f"{self.public_url}?{urlencode(query)}",
+        )
 
-    def _metadata(self, item: Mapping[str, Any]) -> dict[str, str]:
-        if not isinstance(item, Mapping) or not {
-            "id",
-            "link",
-            "status",
-            "type",
-        }.issubset(item):
-            raise ValueError("post metadata record shape changed")
-        identifier = item["id"]
+    def _identity_value(self, item: Mapping[str, Any]) -> str:
+        if not isinstance(item, Mapping):
+            raise ValueError("record lacks a stable public identifier")
+        identifier = item.get("id")
         if (
             not isinstance(identifier, int)
             or isinstance(identifier, bool)
             or identifier < 1
         ):
             raise ValueError("post lacks an immutable public identifier")
-        if canonical_public_url(item["link"]) != f"https://{HOST}/{identifier}":
-            raise ValueError("post identifier and canonical URL disagree")
-        if item["status"] != "publish":
-            raise ValueError("post is not a current public record")
-        record_type = (
-            _RECORD_TYPES.get(item["type"])
-            if isinstance(item["type"], str)
-            else None
-        )
-        if record_type is None:
-            raise ValueError("post record type is unreviewed")
-        metadata = {"record_type": record_type}
-        if "format" in item:
-            if item["format"] not in _POST_FORMATS:
-                raise ValueError("post format is unreviewed")
-            metadata["format"] = f"format_{item['format']}"
-        if "lang" in item:
-            language = (
-                _LANGUAGE_TOKENS.get(item["lang"])
-                if isinstance(item["lang"], str)
-                else None
+        return f"post:{identifier}"
+
+    def _items(self, body: bytes) -> list[Any]:
+        try:
+            value = json.loads(body.decode("utf-8", "strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("posts metadata response is invalid") from error
+        if not isinstance(value, list):
+            raise ValueError("posts metadata response shape changed")
+        return value
+
+    def detect_access_blocker(self, body: bytes) -> str | None:
+        self._items(body)
+        return None
+
+    @staticmethod
+    def _local_timestamp(value: object) -> bool:
+        if not isinstance(value, str) or _LOCAL_TIMESTAMP.fullmatch(value) is None:
+            return False
+        try:
+            datetime.fromisoformat(value)
+        except ValueError:
+            return False
+        return True
+
+    @staticmethod
+    def _integer_list(value: object) -> bool:
+        return (
+            isinstance(value, list)
+            and all(
+                isinstance(item, int)
+                and not isinstance(item, bool)
+                and item >= 0
+                for item in value
             )
-            if language is None:
-                raise ValueError("post language token is unreviewed")
-            metadata["language"] = language
-        for source_field, approved_field in (
-            ("date_gmt", "published_at"),
-            ("modified_gmt", "modified_at"),
+        )
+
+    def _metadata(self, item: Mapping[str, Any]) -> dict[str, str]:
+        if not isinstance(item, Mapping) or set(item) != _POST_RESPONSE_FIELD_SET:
+            raise ValueError("post metadata record shape changed")
+        self._identity_value(item)
+        if (
+            canonical_public_url(item["link"]) != item["link"].rstrip("/")
+            or not self._local_timestamp(item["date"])
+            or not self._local_timestamp(item["modified"])
+            or not isinstance(item["slug"], str)
+            or not item["slug"]
+            or any(
+                character.isspace() or not character.isprintable()
+                for character in item["slug"]
+            )
+            or not isinstance(item["title"], Mapping)
+            or set(item["title"]) != {"rendered"}
+            or not isinstance(item["title"]["rendered"], str)
+            or not isinstance(item["excerpt"], Mapping)
+            or set(item["excerpt"]) != {"protected", "rendered"}
+            or not isinstance(item["excerpt"]["protected"], bool)
+            or not isinstance(item["excerpt"]["rendered"], str)
+            or not isinstance(item["author"], int)
+            or isinstance(item["author"], bool)
+            or item["author"] < 0
+            or not isinstance(item["featured_media"], int)
+            or isinstance(item["featured_media"], bool)
+            or item["featured_media"] < 0
+            or not self._integer_list(item["categories"])
+            or not self._integer_list(item["tags"])
         ):
-            if source_field in item:
-                if not is_valid_utc_timestamp(item[source_field]):
-                    raise ValueError("post time is not a UTC instant")
-                metadata[approved_field] = item[source_field]
-        return metadata
+            raise ValueError("post metadata record shape changed")
+        # The reviewed response includes display prose and relationship IDs,
+        # but governance does not approve retaining them. The bounded record
+        # therefore keeps only a source-type fact plus hashed identity.
+        return {"record_type": "record_type_post"}
+
+    @staticmethod
+    def _pagination_headers(
+        response_headers: Mapping[str, str] | None,
+    ) -> tuple[int, int]:
+        if not isinstance(response_headers, Mapping):
+            raise ValueError("posts pagination headers are missing")
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in response_headers.items()
+        ):
+            raise ValueError("posts pagination headers changed")
+        normalized = {
+            key.lower(): value for key, value in response_headers.items()
+        }
+        if len(normalized) != len(response_headers):
+            raise ValueError("posts pagination headers changed")
+        try:
+            total = _canonical_counter(normalized["x-wp-total"])
+            total_pages = _canonical_counter(normalized["x-wp-totalpages"])
+        except (KeyError, ValueError) as error:
+            raise ValueError("posts pagination headers changed") from error
+        if (
+            (total == 0) != (total_pages == 0)
+            or total_pages
+            != (
+                0
+                if total == 0
+                else (total + POSTS_PER_PAGE - 1) // POSTS_PER_PAGE
+            )
+        ):
+            raise ValueError("posts pagination headers are inconsistent")
+        return total, total_pages
 
     def parse_page(
         self,
         body: bytes,
         *,
         cursor: str | None,
+        response_headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
-        self._require_reviewed_shape()
         current_page = 1 if cursor is None else _page_number(cursor)
-        value = self._envelope(body)
-        if not isinstance(value["terminal"], bool):
-            raise ValueError("posts page has no bounded terminal marker")
+        items = self._items(body)
+        expected_total, total_pages = self._pagination_headers(response_headers)
+        if len(items) > POSTS_PER_PAGE:
+            raise ValueError("posts page exceeds the reviewed bound")
+        if current_page > total_pages and items:
+            raise ValueError("posts page exceeds its declared pagination")
+        if current_page <= total_pages and not items:
+            raise ValueError("posts page ended before its declared pagination")
 
         records: list[dict[str, Any]] = []
-        for item in value["items"]:
+        for item in items:
             metadata = self._metadata(item)
             identity = self._identity_value(item)
             records.append(
@@ -591,15 +636,40 @@ class ANTIEGGPostsMetadataAdapter(_BaseANTIEGGAdapter):
                     "metadata": metadata,
                 }
             )
-        rejected_count = _bounded_counter(value["rejected_count"])
-        if rejected_count is None:
-            raise ValueError("metadata counter is not canonical")
+        terminal = current_page >= total_pages
         return _bounded_page(
             records,
-            terminal=value["terminal"],
-            next_cursor=value["next_cursor"],
-            next_ordinal=_bounded_counter(value["next_ordinal"]),
-            expected_total=_bounded_counter(value["expected_total"]),
-            rejected_count=rejected_count,
+            terminal=terminal,
+            next_cursor=(
+                None if terminal else f"page-{current_page + 1:03d}"
+            ),
+            next_ordinal=None if terminal else current_page,
+            expected_total=expected_total,
+            rejected_count=0,
             current_page=current_page,
         )
+
+    def declared_total_observation(
+        self,
+        body: bytes,
+        *,
+        observed_at: str,
+        cursor: str | None = None,
+        response_headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        if not is_valid_utc_timestamp(observed_at):
+            raise ValueError("a declared total needs a UTC observation time")
+        page = self.parse_page(
+            body,
+            cursor=cursor,
+            response_headers=response_headers,
+        )
+        return {
+            "observation_kind": "endpoint_declared_total",
+            "source_id": self.source_id,
+            "endpoint_id": self.endpoint_id,
+            "declared_total": page["expected_total"],
+            "observed_records": len(page["records"]),
+            "observed_at": observed_at,
+            "is_completeness_guarantee": False,
+        }

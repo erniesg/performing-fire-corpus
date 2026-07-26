@@ -23,7 +23,9 @@ from performing_fire_corpus.registry import require_source
 
 
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$")
-_QUERY_PARAMETER = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+_QUERY_PARAMETER = re.compile(
+    r"^(?:_fields|[A-Za-z][A-Za-z0-9_]{0,63})$"
+)
 _RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
 _CURSOR = re.compile(
     r"^(?:(?:page|offset)-[0-9]{1,18}"
@@ -160,6 +162,7 @@ class MetadataResponse:
     body: bytes
     final_url: str
     error_reason: str | None = None
+    headers: Mapping[str, str] | None = None
 
 
 class ConformantMetadataAdapter(Protocol):
@@ -380,6 +383,22 @@ def validate_adapter_declaration(
             and parameter == "part"
         ):
             continue
+        if (
+            contract.get("value_type") == "metadata_projection"
+            and set(contract) == {"allowed_values", "value_type"}
+            and parameter == "_fields"
+            and isinstance(contract["allowed_values"], list)
+            and contract["allowed_values"]
+            == sorted(set(contract["allowed_values"]))
+            and contract["allowed_values"]
+            and all(
+                isinstance(item, str)
+                and _IDENTIFIER.fullmatch(item)
+                and item not in {"body", "content"}
+                for item in contract["allowed_values"]
+            )
+        ):
+            continue
         raise AdapterConformanceError(
             f"{parameter} has an invalid query contract"
         )
@@ -558,7 +577,13 @@ def _validate_request(
         if value_type in {"cursor_integer", "cursor_opaque"}:
             cursor_parameters.append(parameter)
             if cursor is None:
-                if parameter in query_values:
+                if (
+                    parameter in query_values
+                    and not (
+                        value_type == "cursor_integer"
+                        and query_values[parameter] == "1"
+                    )
+                ):
                     raise AdapterConformanceError(
                         "first-page request cannot invent a pagination cursor"
                     )
@@ -598,6 +623,13 @@ def _validate_request(
             ):
                 raise AdapterConformanceError(
                     "request metadata parts exceed the reviewed projection"
+                )
+        elif value_type == "metadata_projection":
+            if query_values.get(parameter) != ",".join(
+                contract["allowed_values"]
+            ):
+                raise AdapterConformanceError(
+                    "request metadata fields exceed the reviewed projection"
                 )
         elif (
             parameter in query_values
@@ -770,9 +802,17 @@ def _normalize_page(
     declaration: Mapping[str, Any],
     body: bytes,
     cursor: str | None,
+    response_headers: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     try:
-        page = adapter.parse_page(body, cursor=cursor)
+        if response_headers is None:
+            page = adapter.parse_page(body, cursor=cursor)
+        else:
+            page = adapter.parse_page(
+                body,
+                cursor=cursor,
+                response_headers=response_headers,
+            )
     except Exception as error:
         raise AdapterConformanceError("shape_drift") from error
     expected = {
@@ -1265,6 +1305,19 @@ class OfflineConformanceHarness:
             or not isinstance(response.body, bytes)
             or not isinstance(response.final_url, str)
             or (
+                response.headers is not None
+                and (
+                    not isinstance(response.headers, Mapping)
+                    or any(
+                        not isinstance(key, str)
+                        or not isinstance(value, str)
+                        or sanitize(key, environ={}) != key
+                        or sanitize(value, environ={}) != value
+                        for key, value in response.headers.items()
+                    )
+                )
+            )
+            or (
                 response.error_reason is not None
                 and (
                     not isinstance(response.error_reason, str)
@@ -1315,6 +1368,7 @@ class OfflineConformanceHarness:
                     self.declaration,
                     response.body,
                     self._state["next_cursor"],
+                    response.headers,
                 )
             except AdapterConformanceError:
                 return self._stop("changed", "shape_drift")
