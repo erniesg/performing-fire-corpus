@@ -30,5 +30,9 @@ response and compare it with the value above before its metadata parser can
 retain a record. Merely copying the reviewed digest into a plan or report is
 not sufficient.
 
+That comparison passed on the trusted VM at exact commit `bda79f0` and the
+bounded inventory retained eight unique link-metadata records with no blocker.
+See `docs/njp-center-video-archive-inventory-report.json`.
+
 Linked objects remain outside this proof. The adapter issues no PDF, image,
 audio, video, caption, transcript, OCR, ASR, or transformed-byte request.

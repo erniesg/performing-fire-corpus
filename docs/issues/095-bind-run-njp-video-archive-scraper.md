@@ -78,6 +78,13 @@ PYTHONPATH=src python3 -m performing_fire_corpus inventory-njp-sites \
   --max-elapsed 30
 ```
 
+The exact VM run at commit
+`bda79f0ef7d098c9acea5d9845e031ed39d98e40` completed on 2026-07-27.
+It made two requests, committed one page, retained eight unique metadata
+records, matched the reviewed structure digest exactly, and reported no
+blocker. It requested no linked-object bytes and did not use the laptop
+fallback. See `docs/njp-center-video-archive-inventory-report.json`.
+
 ## Scope
 
 Retain only stable source identities, canonical public PDF-link URLs, and
