@@ -409,6 +409,14 @@ def _matches(candidate: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
     return target["value"] == observed
 
 
+def candidate_matches_coverage_target(
+    candidate: Mapping[str, Any], target: Mapping[str, Any]
+) -> bool:
+    """Report whether one candidate observes the declared stratum of a target."""
+
+    return _matches(candidate, target)
+
+
 def _reason_for(
     candidate: Mapping[str, Any],
     *,

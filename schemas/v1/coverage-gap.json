@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/coverage-gap.json",
+  "title": "Rich-corpus coverage gap v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "coverage_gap_id",
+    "coverage_target_id",
+    "dimension",
+    "value",
+    "minimum_selected",
+    "observed_candidates",
+    "eligible_candidates",
+    "selected_candidates",
+    "excluded_candidates",
+    "blocked_candidates",
+    "unavailable_candidates",
+    "unresolved_candidates",
+    "shortfall",
+    "state",
+    "next_action_class",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "coverage_gap"},
+    "coverage_gap_id": {"type": "string", "pattern": "^coverage_gap_[0-9a-f]{24}$"},
+    "coverage_target_id": {"type": "string", "pattern": "^coverage_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "dimension": {"enum": ["source", "period", "language", "medium", "topic", "performance_context"]},
+    "value": {"$ref": "#/$defs/label"},
+    "minimum_selected": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "observed_candidates": {"$ref": "#/$defs/count"},
+    "eligible_candidates": {"$ref": "#/$defs/count"},
+    "selected_candidates": {"$ref": "#/$defs/count"},
+    "excluded_candidates": {"$ref": "#/$defs/count"},
+    "blocked_candidates": {"$ref": "#/$defs/count"},
+    "unavailable_candidates": {"$ref": "#/$defs/count"},
+    "unresolved_candidates": {"$ref": "#/$defs/count"},
+    "shortfall": {"$ref": "#/$defs/count"},
+    "state": {"enum": ["met", "underrepresented", "blocked", "unavailable", "unresolved"]},
+    "next_action_class": {
+      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/nextActionClass"}]
+    },
+    "rationale": {"$ref": "#/$defs/safeText"}
+  },
+  "allOf": [
+    {
+      "$comment": "A met stratum has no shortfall and no next action.",
+      "if": {"required": ["state"], "properties": {"state": {"const": "met"}}},
+      "then": {
+        "properties": {
+          "shortfall": {"const": 0},
+          "next_action_class": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"required": ["state"], "properties": {"state": {"not": {"const": "met"}}}},
+      "then": {
+        "properties": {
+          "shortfall": {"minimum": 1},
+          "next_action_class": {"$ref": "#/$defs/nextActionClass"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "nextActionClass": {
+      "enum": [
+        "bounded_adapter_run",
+        "duplicate_review",
+        "human_decision",
+        "index_repair",
+        "metadata_correction",
+        "retention_review",
+        "rights_review",
+        "transformation_review"
+      ]
+    },
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}

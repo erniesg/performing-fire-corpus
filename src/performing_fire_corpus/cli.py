@@ -12,6 +12,10 @@ from performing_fire_corpus.acquisition import (
     UrllibGETTransport,
     inventory_public_source,
 )
+from performing_fire_corpus.antiegg_posts_inventory import (
+    PostsInventoryConfig,
+    inventory_antiegg_posts,
+)
 from performing_fire_corpus.discovery import discover_fixture
 from performing_fire_corpus.ledger import Ledger
 from performing_fire_corpus.njp_site_inventory import (
@@ -84,14 +88,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="inventory one reviewed public source with bounded metadata requests",
     )
     inventory.add_argument(
-        "--source", choices=("antiegg-fluxus",), default="antiegg-fluxus"
+        "--source",
+        choices=("antiegg-fluxus", "antiegg-posts"),
+        default="antiegg-fluxus",
     )
     inventory.add_argument("--max-requests", type=int, default=2)
+    inventory.add_argument(
+        "--max-pages",
+        type=int,
+        default=2,
+        help="page bound for the paginated antiegg-posts endpoint",
+    )
     inventory.add_argument("--timeout", type=float, default=10.0)
     inventory.add_argument("--rate-limit", type=float, default=2.0)
     inventory.add_argument("--retries", type=int, default=1)
     inventory.add_argument("--max-elapsed", type=float, default=30.0)
-    inventory.add_argument("--max-response-bytes", type=int, default=262144)
+    # Sized to a real article on this source rather than to a fixture: the live
+    # antiegg article is 262145 bytes, one byte over the previous 262144
+    # default, so the byte bound fired before the adapter could report drift.
+    inventory.add_argument("--max-response-bytes", type=int, default=1048576)
     inventory.add_argument("--ledger", required=True)
     inventory.add_argument("--sanitized-manifest", required=True)
     njp_inventory = subparsers.add_parser(
@@ -444,19 +459,33 @@ def main(
     elif arguments.command == "discover-fixture":
         discover_fixture(arguments.fixture, arguments.database, arguments.output)
     elif arguments.command == "inventory-public":
-        inventory_public_source(
-            AcquisitionConfig(
-                source=arguments.source,
-                max_requests=arguments.max_requests,
-                timeout_seconds=arguments.timeout,
-                rate_limit_seconds=arguments.rate_limit,
-                max_retries=arguments.retries,
-                max_elapsed_seconds=arguments.max_elapsed,
-                max_response_bytes=arguments.max_response_bytes,
-                ledger_path=arguments.ledger,
-                manifest_path=arguments.sanitized_manifest,
+        shared = {
+            "source": arguments.source,
+            "max_requests": arguments.max_requests,
+            "timeout_seconds": arguments.timeout,
+            "rate_limit_seconds": arguments.rate_limit,
+            "max_retries": arguments.retries,
+            "max_elapsed_seconds": arguments.max_elapsed,
+            "max_response_bytes": arguments.max_response_bytes,
+            "ledger_path": arguments.ledger,
+            "manifest_path": arguments.sanitized_manifest,
+        }
+        if arguments.source == "antiegg-posts":
+            manifest = inventory_antiegg_posts(
+                PostsInventoryConfig(max_pages=arguments.max_pages, **shared)
             )
-        )
+            print(
+                json.dumps(
+                    {
+                        "result": manifest["result"],
+                        "completeness": manifest["completeness"],
+                        "record_counts": manifest["record_counts"],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0 if manifest["result"] == "complete" else 1
+        inventory_public_source(AcquisitionConfig(**shared))
     elif arguments.command == "inventory-njp-sites":
         selected_paths = _njp_inventory_paths(arguments)
         result = run_njp_site_inventories(

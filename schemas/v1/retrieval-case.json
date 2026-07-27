@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/retrieval-case.json",
+  "title": "Rights-filtered retrieval case and observed outcome v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "retrieval_case_id",
+    "audience",
+    "query_terms",
+    "filters",
+    "expected_visible_field_ids",
+    "forbidden_field_ids",
+    "forbidden_facet_values",
+    "checked_surfaces",
+    "rationale",
+    "observed_field_ids",
+    "observed_facet_values",
+    "exported_field_ids",
+    "outcome",
+    "failure_reasons"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "retrieval_case"},
+    "retrieval_case_id": {"type": "string", "pattern": "^retrieval_case_[a-z0-9][a-z0-9._-]{0,127}$"},
+    "audience": {"enum": ["operator", "researcher", "public"]},
+    "query_terms": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 8,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$"}
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "language", "period", "medium", "selection_state"],
+      "properties": {
+        "source_id": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sourceId"}]},
+        "language": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/label"}]},
+        "period": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/label"}]},
+        "medium": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/label"}]},
+        "selection_state": {
+          "anyOf": [
+            {"type": "null"},
+            {"enum": ["inventory_only", "selected_rich_corpus", "excluded", "unresolved"]}
+          ]
+        }
+      }
+    },
+    "expected_visible_field_ids": {"$ref": "#/$defs/fieldIds"},
+    "forbidden_field_ids": {"$ref": "#/$defs/fieldIds"},
+    "forbidden_facet_values": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/facetValue"}
+    },
+    "checked_surfaces": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {"enum": ["facets", "results", "score_export"]}
+    },
+    "rationale": {"$ref": "#/$defs/safeText"},
+    "observed_field_ids": {"$ref": "#/$defs/fieldIds"},
+    "observed_facet_values": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/facetValue"}
+    },
+    "exported_field_ids": {"$ref": "#/$defs/fieldIds"},
+    "outcome": {"enum": ["pass", "fail"]},
+    "failure_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "expected_field_missing",
+          "forbidden_facet_value",
+          "forbidden_field_in_export",
+          "forbidden_field_in_results"
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["outcome"], "properties": {"outcome": {"const": "pass"}}},
+      "then": {"properties": {"failure_reasons": {"maxItems": 0}}}
+    },
+    {
+      "if": {"required": ["outcome"], "properties": {"outcome": {"const": "fail"}}},
+      "then": {"properties": {"failure_reasons": {"minItems": 1}}}
+    },
+    {
+      "if": {"required": ["audience"], "properties": {"audience": {"const": "public"}}},
+      "then": {
+        "properties": {
+          "checked_surfaces": {"items": {"enum": ["facets", "results"]}},
+          "exported_field_ids": {"maxItems": 0}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "fieldIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 256,
+      "items": {"type": "string", "pattern": "^field_[a-z0-9][a-z0-9._-]{0,127}$"}
+    },
+    "facetValue": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+    "label": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"},
+    "sourceId": {"enum": ["antiegg-fluxus", "njp-center-main", "njp-center-video-archive", "njp-video-library", "njp-youtube-official", "project-native-artist-submissions", "project-native-generated-scores", "project-native-performer-annotations", "project-native-visitor-inputs", "project-native-visual-system-state"]},
+    "safeText": {"type": "string", "format": "performing-fire-sanitized-text-v1", "minLength": 1, "maxLength": 512, "pattern": "^(?!.*(?:[Xx]-[Aa]mz-|[Ff]ull source prose))(?!.*[\\r\\n])[A-Za-z0-9 .,!?;'\"()\\[\\]{}_+\\-\\u00B7\\u00C0-\\u024F\\u1E00-\\u1EFF\\u3001\\u3002\\u300C\\u300D\\u3040-\\u3098\\u309B-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7A3\\u2013\\u2014\\u2018-\\u201D\\u2026\\uFF08\\uFF09]+$"}
+  }
+}

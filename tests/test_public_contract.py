@@ -518,6 +518,33 @@ class PublicRepositoryContractTests(unittest.TestCase):
         ):
             self.assertIn(value, normalized)
 
+    def test_corpus_evaluation_report_is_evidence_scoped_and_non_destructive(
+        self,
+    ) -> None:
+        contract = (ROOT / "docs" / "corpus-evaluation.md").read_text(
+            encoding="utf-8"
+        )
+        normalized = " ".join(contract.split())
+        for value in (
+            "A bounded observation is never widened into a total",
+            "a human has declared that source's reviewed endpoint list exhaustive",
+            "An endpoint-scoped metric is never a whole-source total",
+            "An unknown remainder is reported as unknown, never as zero",
+            "Blocked coverage is reported, not bypassed",
+            "No automatic destructive merge exists",
+            "An unproven outcome is `unknown`, never `pass`",
+            "contains no bulk-acquisition action at all",
+            "A durable blocker becomes a `human_decision`, never an acquisition",
+            "No source is a whole-source total",
+            "empty rather than clean",
+            "No live source was contacted",
+        ):
+            self.assertIn(value, normalized)
+
+        # The aggregate report must not restate a count as a source total.
+        self.assertNotIn("total of 29", normalized)
+        self.assertIsNone(PRIVATE_PATH.search(contract))
+
     def test_operator_gates_contract_is_actionable_and_resumable(self) -> None:
         contract = (ROOT / "docs" / "operator-gates.md").read_text(encoding="utf-8")
         normalized = " ".join(contract.split())
