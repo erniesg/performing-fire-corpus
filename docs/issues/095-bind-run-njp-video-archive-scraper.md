@@ -40,8 +40,10 @@ The probe requests `robots.txt`, then at most one public archive page. It
 follows no redirect and retains no raw HTML or prose. Its output contains only
 bounded request facts, response hashes, allowlisted tag categories, attribute
 name categories, categorical URL shapes, and embedded-JSON type/depth/count
-shapes with key-set digests. It stores no raw source-derived class, ID,
-data-attribute, URL, JSON-key, transport-error, or MIME strings.
+shapes with key-set digests. Ordinary HTML optional-end-tag recovery is
+reported as a count and is distinct from a capacity truncation. The report
+stores no raw source-derived class, ID, data-attribute, URL, JSON-key,
+transport-error, or MIME strings.
 
 ## Scope
 

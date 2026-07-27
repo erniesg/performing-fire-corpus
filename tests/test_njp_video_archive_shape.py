@@ -195,6 +195,10 @@ class NJPVideoArchiveShapeTests(unittest.TestCase):
             self.assertEqual(report, json.loads(output.read_text()))
             self.assertFalse(report["plan"]["raw_body_retained"])
             self.assertFalse(report["plan"]["prose_retained"])
+            self.assertEqual(
+                0,
+                report["structure"]["html_recovery_events"],
+            )
             shapes = report["structure"]["json_shapes"]
             type_counts = {
                 item["type"]: item["count"]
@@ -519,6 +523,35 @@ class NJPVideoArchiveShapeTests(unittest.TestCase):
 
             self.assertEqual(["shape_summary_bound"], report["blocker_codes"])
             self.assertTrue(report["structure"]["summary_truncated"])
+            verify.assert_called_once()
+
+    @mock.patch(VERIFY)
+    def test_html_recovery_is_not_reported_as_capacity_truncation(
+        self,
+        verify: mock.Mock,
+    ) -> None:
+        optional_end_tags = (
+            "<!doctype html><html><head><title>x</title></head><body>"
+            "<ul><li>one<li>two</ul></body></html>"
+        ).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            report = review(
+                Path(temporary) / "shape.json",
+                FakeTransport(
+                    [
+                        allowed_robots(),
+                        response(ARCHIVE_URL, body=optional_end_tags),
+                    ]
+                ),
+            )
+
+            self.assertEqual("shape_observed", report["state"])
+            self.assertEqual([], report["blocker_codes"])
+            self.assertGreater(
+                report["structure"]["html_recovery_events"],
+                0,
+            )
+            self.assertFalse(report["structure"]["summary_truncated"])
             verify.assert_called_once()
 
     @mock.patch(VERIFY)

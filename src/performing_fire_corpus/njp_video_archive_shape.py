@@ -159,6 +159,7 @@ _REPORT_KEYS = frozenset(
         "fragment_present",
         "governance",
         "host_scope",
+        "html_recovery_events",
         "json_shapes",
         "json_unreadable",
         "key_shape_sha256",
@@ -492,7 +493,8 @@ class _ShapeParser(HTMLParser):
         self._json_script_parts: list[str] = []
         self._json_script_type: str | None = None
         self._json_nodes = 0
-        self._truncated = False
+        self._summary_truncated = False
+        self._html_recovery_events = 0
         self._check_deadline = check_deadline
 
     def handle_decl(self, decl: str) -> None:
@@ -541,7 +543,7 @@ class _ShapeParser(HTMLParser):
             signature not in self.signatures
             and len(self.signatures) >= _MAX_SIGNATURES
         ):
-            self._truncated = True
+            self._summary_truncated = True
         else:
             self.signatures[signature] += 1
 
@@ -580,7 +582,7 @@ class _ShapeParser(HTMLParser):
             self._json_script_parts = []
             self._json_script_type = None
         if not self.stack or self.stack[-1] != tag:
-            self._truncated = True
+            self._html_recovery_events += 1
             if tag in self.stack:
                 while self.stack and self.stack[-1] != tag:
                     self.stack.pop()
@@ -607,7 +609,7 @@ class _ShapeParser(HTMLParser):
         def visit(item: Any, depth: int) -> None:
             self._check_deadline()
             if depth > _MAX_JSON_DEPTH or self._json_nodes >= _MAX_JSON_NODES:
-                self._truncated = True
+                self._summary_truncated = True
                 return
             self._json_nodes += 1
             if isinstance(item, Mapping):
@@ -659,10 +661,12 @@ class _ShapeParser(HTMLParser):
             or not self.seen_html
             or not self.seen_head
             or not self.seen_body
-            or self.stack
             or self._json_script_depth is not None
         ):
             raise VideoArchiveShapeError("html_structure_incomplete")
+        if self.stack:
+            self._html_recovery_events += len(self.stack)
+            self.stack.clear()
         signatures = [
             {**json.loads(serialized), "count": count}
             for serialized, count in sorted(self.signatures.items())
@@ -676,7 +680,8 @@ class _ShapeParser(HTMLParser):
             "json_shapes": json_shapes,
             "nonblank_text_nodes": self.nonblank_text_nodes,
             "json_unreadable": self.json_unreadable,
-            "summary_truncated": self._truncated,
+            "html_recovery_events": self._html_recovery_events,
+            "summary_truncated": self._summary_truncated,
         }
         return {
             **summary,
