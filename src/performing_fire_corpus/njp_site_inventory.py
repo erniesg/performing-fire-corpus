@@ -214,6 +214,8 @@ class UrllibPreflightTransport:
 def _reviewed_request(method: str, url: str) -> bool:
     if method == "GET" and url == ROBOTS_URL:
         return True
+    if method == "GET" and url == NJPCenterVideoArchiveAdapter.public_url:
+        return True
     if method == "HEAD" and url == NJPCenterVideoArchiveAdapter.public_url:
         return True
     if method != "GET":
