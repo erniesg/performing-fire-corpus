@@ -1,0 +1,50 @@
+{
+  "complete_for_declared_public_online_scope": true,
+  "explicit_limits": [
+    "The stated 2285 physical analogue tapes are not publicly digitized source files.",
+    "Original preservation masters are not exposed by njpvideo or YouTube.",
+    "Player sprite VTT, thumbnails, sprite sheets, and duplicate bitrate renditions are presentation derivatives and are outside this content-bearing scope."
+  ],
+  "generated_utc": "2026-07-27T12:38:35Z",
+  "manifest_sha256": "be111b8592bfe9fd8915b8a5193f35fa984e8f5bf186be8f80a30864df8b334f",
+  "manifest_type": "njp_cross_source_public_raw_archive_completeness",
+  "next_phase_not_in_this_manifest": [
+    "ASR",
+    "OCR",
+    "human transcript or OCR review",
+    "semantic indexing"
+  ],
+  "schema_version": 1,
+  "sources": {
+    "njp_center_main_metadata": {
+      "articles": 18,
+      "collections_endpoint": "HTTP 500; no records publicly recoverable",
+      "complete_for_working_endpoints": true,
+      "exhibitions": 109,
+      "media_objects": 29,
+      "total": 156
+    },
+    "njpvideo": {
+      "analogue_archive_linked_pdfs": 8,
+      "catalogue_records": 678,
+      "complete": true,
+      "human_srt_attachments": 38,
+      "manifest_sha256": "572b04fc384ba2d21a64c7a33518ca2f5dffe51e42898d921709f59d389a6e81",
+      "primary_assets": {
+        "image": 205,
+        "pdf": 72,
+        "total": 678,
+        "video": 401
+      },
+      "r2_manifest_key": "njpvideo/manifests/raw-completeness-20260727.json"
+    },
+    "official_youtube": {
+      "catalogue_records": 156,
+      "complete": true,
+      "manifest_sha256": "29b0f9d6be272b4941318dc4d340ffed2ed08f56582e9bf0b567402bfbf3dc56",
+      "playable_audio_video_assets": 156,
+      "r2_bytes": 3851248317,
+      "r2_manifest_key": "youtube/manifests/media-completeness-20260727.json"
+    }
+  }
+}

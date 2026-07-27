@@ -17,9 +17,11 @@
 .local/njpvideo/
 .local/antiegg/
 .local/njp-center/
+.local/njp-video-archive-shape/
 .local/r2-proof/
 .local/rucksack-vm-sessions.json
 .local/rucksack-vm-sessions.json.lock
+.venv/
 
 # Python caches and build artifacts
 __pycache__/

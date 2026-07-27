@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from typing import Any, Mapping
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
 
 from .adapter_conformance import MetadataRequest
 
@@ -20,6 +20,7 @@ _BLOCKERS = (
 )
 _MEDIA_OBJECT_PATH = re.compile(r"/mediaObjects/([1-9][0-9]{0,17})")
 _PAGE_CURSOR = re.compile(r"page-([1-9][0-9]{0,3})")
+_VIDEO_ARCHIVE_PDF_COUNT = 8
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,151 @@ class _MediaObjectsFragmentParser(HTMLParser):
         identifiers = [record["id"] for record in self.records]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("mediaObjects page repeats an identifier")
+
+
+def _video_archive_document_url(value: str) -> str | None:
+    try:
+        absolute = urlsplit(
+            urljoin(NJPCenterVideoArchiveAdapter.public_url, value)
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("Video Archive document URL is invalid") from error
+    decoded_path = unquote(absolute.path)
+    if not absolute.path.startswith("/storage/upload/"):
+        return None
+    try:
+        unsafe = (
+            absolute.scheme != "https"
+            or absolute.hostname != "njp.ggcf.kr"
+            or absolute.port not in {None, 443}
+            or absolute.username is not None
+            or absolute.password is not None
+            or absolute.query
+            or absolute.fragment
+            or "//" in absolute.path
+            or "//" in decoded_path
+            or "\\" in decoded_path
+            or "%" in decoded_path
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in decoded_path
+            )
+            or not decoded_path.startswith("/storage/upload/")
+            or any(
+                segment in {".", ".."}
+                for segment in decoded_path.split("/")
+            )
+            or not decoded_path.lower().endswith(".pdf")
+        )
+    except ValueError as error:
+        raise ValueError("Video Archive document URL is invalid") from error
+    if unsafe:
+        raise ValueError("Video Archive document URL left the reviewed shape")
+    canonical_path = quote(
+        decoded_path,
+        safe="/!$&'()*+,-.:;=@_~",
+    )
+    return f"https://njp.ggcf.kr{canonical_path}"
+
+
+class _VideoArchivePageParser(HTMLParser):
+    """Extract the eight reviewed public PDF catalogue entries."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.records: list[dict[str, str]] = []
+        self.seen_doctype = False
+        self.seen_html = False
+        self.seen_head = False
+        self.seen_body = False
+        self._active_url: str | None = None
+        self._title_parts: list[str] = []
+        self._paragraph_depth = 0
+
+    def handle_decl(self, decl: str) -> None:
+        self.seen_doctype = decl.lower() == "doctype html"
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.seen_html = self.seen_html or tag == "html"
+        self.seen_head = self.seen_head or tag == "head"
+        self.seen_body = self.seen_body or tag == "body"
+        if tag == "p":
+            self._paragraph_depth += 1
+        if self._active_url is not None and tag != "a":
+            raise ValueError("Video Archive document title markup changed")
+        if tag != "a":
+            return
+        if self._active_url is not None:
+            raise ValueError("Video Archive document anchors are nested")
+        names = [name.lower() for name, _value in attrs]
+        values = {
+            name.lower(): value
+            for name, value in attrs
+        }
+        if len(names) != len(set(names)):
+            raise ValueError("Video Archive document attributes repeat")
+        href = values.get("href")
+        if not isinstance(href, str):
+            return
+        document_url = _video_archive_document_url(href)
+        if document_url is not None:
+            if (
+                self._paragraph_depth < 1
+                or len(names) != 4
+                or not {"class", "href", "rel"}.issubset(names)
+                or not all(
+                    isinstance(values.get(name), str)
+                    for name in ("class", "href", "rel")
+                )
+            ):
+                raise ValueError(
+                    "Video Archive document anchor shape changed"
+                )
+            self._active_url = document_url
+            self._title_parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self._active_url is not None:
+            self._title_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "p":
+            self._paragraph_depth = max(0, self._paragraph_depth - 1)
+        if tag != "a" or self._active_url is None:
+            return
+        title = " ".join("".join(self._title_parts).split())
+        if (
+            not title
+            or len(title) > 512
+            or any(ord(character) < 32 for character in title)
+        ):
+            raise ValueError("Video Archive document title changed")
+        self.records.append(
+            {
+                "canonical_detail_url": self._active_url,
+                "title": title,
+            }
+        )
+        self._active_url = None
+        self._title_parts = []
+
+    def finish(self) -> None:
+        if (
+            not self.seen_doctype
+            or not self.seen_html
+            or not self.seen_head
+            or not self.seen_body
+            or self._active_url is not None
+            or len(self.records) != _VIDEO_ARCHIVE_PDF_COUNT
+        ):
+            raise ValueError("Video Archive page structure changed")
+        urls = [record["canonical_detail_url"] for record in self.records]
+        if len(urls) != len(set(urls)):
+            raise ValueError("Video Archive page repeats a document")
 
 
 def _parsed(body: bytes) -> _MetadataHTMLParser:
@@ -395,6 +541,9 @@ class NJPCenterMainAdapter(_BaseNJPCenterAdapter):
     source_id = "njp-center-main"
     endpoint_id = "njp-center-main-home"
     public_url = "https://njp.ggcf.kr/mediaObjects/more"
+    reviewed_shape_sha256 = (
+        "c5ddca73ddd4d4e2710320794e5c120ab32d3d7ad77916f1d1c7743481a384b5"
+    )
     query_parameter_contracts = {
         "page": {
             "cursor_prefix": "page-",
@@ -501,6 +650,91 @@ class NJPCenterMainAdapter(_BaseNJPCenterAdapter):
 
 class NJPCenterVideoArchiveAdapter(_BaseNJPCenterAdapter):
     adapter_id = "njp-center-video-archive-html"
+    adapter_version = "2.0.0"
     source_id = "njp-center-video-archive"
     endpoint_id = "njp-center-video-archive-page"
     public_url = "https://njp.ggcf.kr/pages/videoarchive"
+    reviewed_shape_sha256 = (
+        "e6f9a2911a325fb321202b5994b257ec50ae48bf91a60553f64e38cc33e8851b"
+    )
+    allowed_query_parameters = ()
+    query_parameter_contracts: Mapping[str, Mapping[str, Any]] = {}
+    approved_metadata_fields = ("canonical_detail_url", "title")
+    required_metadata_fields = approved_metadata_fields
+    metadata_field_contracts = {
+        "canonical_detail_url": {"value_type": "public_url"},
+        "title": {"max_length": 512, "value_type": "bounded_text"},
+    }
+
+    def _require_reviewed_shape(self) -> None:
+        return None
+
+    def build_request(self, cursor: str | None) -> MetadataRequest:
+        if cursor is not None:
+            raise ValueError("Video Archive page has no pagination cursor")
+        return MetadataRequest(self.endpoint_id, "GET", self.public_url)
+
+    def detect_access_blocker(self, body: bytes) -> str | None:
+        del body
+        return None
+
+    def stable_record_id(self, item: Mapping[str, Any]) -> str:
+        value = item.get("canonical_detail_url") or item.get("href")
+        if not isinstance(value, str):
+            raise ValueError("Video Archive record lacks its public URL")
+        canonical = _video_archive_document_url(value)
+        if canonical is None:
+            raise ValueError("Video Archive record URL is outside the reviewed shape")
+        digest = hashlib.sha256(
+            f"{self.source_id}\0document:{canonical}".encode()
+        ).hexdigest()
+        return f"{self.source_id}-{digest[:24]}"
+
+    def parse_page(
+        self,
+        body: bytes,
+        *,
+        cursor: str | None,
+    ) -> dict[str, Any]:
+        if cursor is not None:
+            raise ValueError("Video Archive page has no pagination cursor")
+        try:
+            text = body.decode("utf-8", "strict")
+        except UnicodeDecodeError as error:
+            raise ValueError("Video Archive page is not UTF-8") from error
+        parser = _VideoArchivePageParser()
+        parser.feed(text)
+        parser.close()
+        parser.finish()
+        records = []
+        for item in parser.records:
+            canonical = item["canonical_detail_url"]
+            records.append(
+                {
+                    "record_id": self.stable_record_id(item),
+                    "source_identity": hashlib.sha256(
+                        f"{self.source_id}\0document:{canonical}".encode()
+                    ).hexdigest(),
+                    "metadata": dict(item),
+                }
+            )
+        return {
+            "records": records,
+            "next_cursor": None,
+            "next_ordinal": None,
+            "terminal": True,
+            "expected_total": _VIDEO_ARCHIVE_PDF_COUNT,
+            "rejected_count": 0,
+        }
+
+    def attachment_candidates(self, body: bytes) -> tuple[AttachmentCandidate, ...]:
+        del body
+        return ()
+
+    def record_attachment_status(
+        self,
+        candidate: AttachmentCandidate,
+        status: int,
+    ) -> AttachmentCandidate:
+        del candidate, status
+        raise ValueError("Video Archive attachment requests are not reviewed")
