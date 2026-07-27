@@ -731,7 +731,10 @@ class ANTIEGGPostsShapeTests(unittest.TestCase):
         continuing = adapter.parse_page(
             POSTS_PAGE_ONE,
             cursor=None,
-            response_headers={"x-wp-total": "4", "x-wp-totalpages": "2"},
+            response_headers={
+                "x-wp-total": str(POSTS_PER_PAGE + 1),
+                "x-wp-totalpages": "2",
+            },
         )
         self.assertFalse(continuing["terminal"])
         self.assertEqual("page-002", continuing["next_cursor"])
@@ -764,7 +767,10 @@ class ANTIEGGPostsShapeTests(unittest.TestCase):
     ) -> None:
         adapter = ANTIEGGPostsMetadataAdapter()
         body = invented_posts_page([invented_post_item("25502")])
-        headers = {"x-wp-total": "1463", "x-wp-totalpages": "732"}
+        headers = {
+            "x-wp-total": "1463",
+            "x-wp-totalpages": str(-(-1463 // POSTS_PER_PAGE)),
+        }
         observation = adapter.declared_total_observation(
             body,
             observed_at="2026-07-24T00:00:00Z",

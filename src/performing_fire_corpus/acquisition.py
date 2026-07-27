@@ -42,6 +42,27 @@ USER_AGENT = "performing-fire-corpus/0.1"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 ROBOTS_OBSERVATION_TTL = timedelta(hours=24)
 _ROBOTS_OBSERVATION_ID = "evidence_antiegg_fluxus_robots_observation"
+REQUEST_EVIDENCE_PREFIX = "evidence_antiegg_fluxus_request"
+#: Ceiling on one ledger's request-evidence trail. Writer and reader share the
+#: `{index:03d}` spelling, so they agree past 999; this bound only keeps the
+#: reader's gap scan finite.
+MAX_REQUEST_EVIDENCE = 100_000
+_RECORDED_BOUNDS_ID = "evidence_antiegg_fluxus_recorded_bounds"
+#: Response headers this lane is allowed to keep. Everything else — cookies,
+#: server banners, cache keys — is dropped inside the transport and never
+#: reaches a record.
+CAPTURED_RESPONSE_HEADERS = ("x-wp-total", "x-wp-totalpages")
+#: Bounds that decide whether a stored terminal result still describes the run
+#: an operator is asking for. A stored blocker recorded under different bounds
+#: is a replay, not an answer, and the manifest has to say so.
+BOUND_FIELDS = (
+    "max_elapsed_seconds",
+    "max_requests",
+    "max_response_bytes",
+    "max_retries",
+    "rate_limit_seconds",
+    "timeout_seconds",
+)
 
 
 def _utc_wall_clock() -> datetime:
@@ -65,6 +86,9 @@ class HTTPResponse:
     retry_after: str | None = None
     location: str | None = None
     oversized: bool = False
+    #: Only `CAPTURED_RESPONSE_HEADERS`. Pagination totals are the one header
+    #: fact this lane needs, and they never enter a durable record.
+    headers: Mapping[str, str] | None = None
 
 
 class HTTPTransport(Protocol):
@@ -148,15 +172,16 @@ class _NoRedirect(urlrequest.HTTPRedirectHandler):
 class UrllibGETTransport:
     """Unauthenticated stdlib transport that never persists response bodies."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, accept: str = "text/html,text/plain") -> None:
         self._opener = urlrequest.build_opener(_NoRedirect)
+        self._accept = accept
 
     def get(
         self, url: str, *, timeout_seconds: float, max_response_bytes: int
     ) -> HTTPResponse:
         request = urlrequest.Request(
             url,
-            headers={"User-Agent": USER_AGENT, "Accept": "text/html,text/plain"},
+            headers={"User-Agent": USER_AGENT, "Accept": self._accept},
             method="GET",
         )
         try:
@@ -182,6 +207,11 @@ class UrllibGETTransport:
             if len(body) > max_response_bytes:
                 body = b""
                 oversized = True
+            captured = {
+                name: str(headers[name])
+                for name in CAPTURED_RESPONSE_HEADERS
+                if headers.get(name) is not None
+            }
             return HTTPResponse(
                 url=opened.geturl(),
                 status=int(opened.status),
@@ -192,6 +222,7 @@ class UrllibGETTransport:
                 retry_after=headers.get("Retry-After"),
                 location=headers.get("Location"),
                 oversized=oversized,
+                headers=captured,
             )
 
 
@@ -322,11 +353,11 @@ def _public_reference(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
-def _json_summary(value: Mapping[str, object]) -> str:
+def json_summary(value: Mapping[str, object]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-class _Runner:
+class BoundedRequestRunner:
     def __init__(
         self,
         config: AcquisitionConfig,
@@ -336,6 +367,8 @@ class _Runner:
         clock: Callable[[], float],
         wall_clock: Callable[[], datetime],
         sleep: Callable[[float], None],
+        source_id: str = SOURCE_ID,
+        evidence_prefix: str = REQUEST_EVIDENCE_PREFIX,
     ) -> None:
         self.config = config
         self.ledger = ledger
@@ -343,8 +376,10 @@ class _Runner:
         self.clock = clock
         self.wall_clock = wall_clock
         self.sleep = sleep
+        self.source_id = source_id
+        self.evidence_prefix = evidence_prefix
         self.started = clock()
-        self.requests = _request_facts(ledger)
+        self.requests = _request_facts(ledger, prefix=evidence_prefix)
         self.run_request_count = 0
         self.rate_limiter = HostRateLimiter(
             {"antiegg.kr": config.rate_limit_seconds},
@@ -401,14 +436,17 @@ class _Runner:
             "retry_outcome": retry_outcome,
             "response_sha256": body_hash,
         }
+        sequence = len(self.requests) + 1
+        if sequence > MAX_REQUEST_EVIDENCE:
+            raise AcquisitionError("request evidence trail is full; use a fresh ledger")
         evidence = {
             "schema_version": 1,
             "record_type": "evidence",
-            "evidence_id": f"evidence_antiegg_fluxus_request_{len(self.requests) + 1:03d}",
-            "subject_id": SOURCE_ID,
+            "evidence_id": f"{self.evidence_prefix}_{sequence:03d}",
+            "subject_id": self.source_id,
             "evidence_kind": "sanitized_public_request",
             "recorded_at": fact["recorded_at"],
-            "summary": _json_summary(
+            "summary": json_summary(
                 {key: value for key, value in fact.items() if key != "public_url"}
             ),
             "public_references": [fact["public_url"]],
@@ -533,7 +571,7 @@ class _Runner:
             return response, None
 
 
-def _write_manifest(path: Path, manifest: Mapping[str, object]) -> None:
+def write_manifest(path: Path, manifest: Mapping[str, object]) -> None:
     if not path.parent.is_dir():
         raise AcquisitionError("manifest parent directory must already exist")
     temporary_name: str | None = None
@@ -556,12 +594,12 @@ def _write_manifest(path: Path, manifest: Mapping[str, object]) -> None:
             os.unlink(temporary_name)
 
 
-def _request_facts(ledger: Ledger) -> list[dict[str, object]]:
+def _request_facts(
+    ledger: Ledger, *, prefix: str = REQUEST_EVIDENCE_PREFIX
+) -> list[dict[str, object]]:
     facts: list[dict[str, object]] = []
-    for index in range(1, 1000):
-        record = ledger.get_record(
-            "evidence", f"evidence_antiegg_fluxus_request_{index:03d}"
-        )
+    for index in range(1, MAX_REQUEST_EVIDENCE + 1):
+        record = ledger.get_record("evidence", f"{prefix}_{index:03d}")
         if record is None:
             break
         fact = json.loads(record["summary"])
@@ -573,6 +611,90 @@ def _request_facts(ledger: Ledger) -> list[dict[str, object]]:
 def _blocker(ledger: Ledger) -> dict[str, str] | None:
     record = ledger.get_record("evidence", "evidence_antiegg_fluxus_blocker")
     return None if record is None else json.loads(record["summary"])
+
+
+def bounds_of(config: object) -> dict[str, object]:
+    """The bounds a terminal result was produced under."""
+
+    return {name: getattr(config, name) for name in BOUND_FIELDS}
+
+
+def record_bounds(
+    ledger: Ledger,
+    config: object,
+    *,
+    subject_id: str,
+    evidence_id: str,
+) -> None:
+    """Pin the bounds a terminal result was produced under, for replay.
+
+    The first terminal result wins: these are the bounds that produced the
+    stored answer, not the bounds of whoever resumed the ledger later.
+    """
+
+    if ledger.get_record("evidence", evidence_id) is not None:
+        return
+    ledger.upsert(
+        {
+            "schema_version": 1,
+            "record_type": "evidence",
+            "evidence_id": evidence_id,
+            "subject_id": subject_id,
+            "evidence_kind": "sanitized_run_bounds",
+            "recorded_at": utc_text(),
+            "summary": json_summary(bounds_of(config)),
+            "public_references": [],
+        }
+    )
+
+
+def recorded_bounds(
+    ledger: Ledger, *, evidence_id: str
+) -> dict[str, object] | None:
+    record = ledger.get_record("evidence", evidence_id)
+    if record is None:
+        return None
+    try:
+        value = json.loads(str(record["summary"]))
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def stored_result_replay(
+    ledger: Ledger, config: object, *, evidence_id: str
+) -> dict[str, object]:
+    """Say plainly that a stored result is being replayed, and under which bounds.
+
+    A resumed run that silently reprints its stored blocker teaches an operator
+    that the flag they just raised does nothing. The bounds go in the manifest
+    so the two runs can be told apart.
+    """
+
+    current = bounds_of(config)
+    recorded = recorded_bounds(ledger, evidence_id=evidence_id)
+    if recorded is None:
+        next_safe_action = (
+            "this stored result predates bound recording; re-run with a fresh "
+            "ledger to re-attempt under the current bounds"
+        )
+    elif recorded != current:
+        next_safe_action = (
+            "this stored result was recorded under different bounds; re-run "
+            "with a fresh ledger to re-attempt under the current bounds"
+        )
+    else:
+        next_safe_action = (
+            "this stored result was recorded under these same bounds; no new "
+            "public request was made"
+        )
+    return {
+        "replayed_stored_result": True,
+        "recorded_bounds": recorded,
+        "current_bounds": current,
+        "bounds_changed": recorded is not None and recorded != current,
+        "next_safe_action": next_safe_action,
+    }
 
 
 def _robots_observation_records(
@@ -679,9 +801,9 @@ def _fresh_robots_observation(
         if request is not None:
             request_records.append(request)
     else:
-        for index in range(1, 1000):
+        for index in range(1, MAX_REQUEST_EVIDENCE + 1):
             request = ledger.get_record(
-                "evidence", f"evidence_antiegg_fluxus_request_{index:03d}"
+                "evidence", f"{REQUEST_EVIDENCE_PREFIX}_{index:03d}"
             )
             if request is None:
                 break
@@ -715,7 +837,7 @@ def _record_robots_observation(
             "subject_id": SOURCE_ID,
             "evidence_kind": "sanitized_robots_observation",
             "recorded_at": recorded_at,
-            "summary": _json_summary(observation),
+            "summary": json_summary(observation),
             "public_references": [ROBOTS_URL],
         }
     )
@@ -779,11 +901,17 @@ def _finish_blocked(
             "subject_id": ASSET_ID,
             "evidence_kind": "public_inventory_blocker",
             "recorded_at": utc_text(),
-            "summary": _json_summary(blocker),
+            "summary": json_summary(blocker),
             "public_references": [ARTICLE_URL],
         }
     )
     ledger.create_job(_job_record("blocked", config.max_retries + 1))
+    record_bounds(
+        ledger,
+        config,
+        subject_id=ASSET_ID,
+        evidence_id=_RECORDED_BOUNDS_ID,
+    )
     return _manifest(ledger)
 
 
@@ -808,10 +936,13 @@ def inventory_public_source(
             state = ledger.asset_state(ASSET_ID)
             if state in {"metadata_verified", "blocked"}:
                 manifest = _manifest(ledger)
-                _write_manifest(manifest_path, manifest)
+                manifest["stored_result_replay"] = stored_result_replay(
+                    ledger, config, evidence_id=_RECORDED_BOUNDS_ID
+                )
+                write_manifest(manifest_path, manifest)
                 return manifest
 
-            runner = _Runner(
+            runner = BoundedRequestRunner(
                 config,
                 ledger,
                 transport or UrllibGETTransport(),
@@ -980,8 +1111,14 @@ def inventory_public_source(
                                 config,
                             )
                         else:
+                            record_bounds(
+                                ledger,
+                                config,
+                                subject_id=ASSET_ID,
+                                evidence_id=_RECORDED_BOUNDS_ID,
+                            )
                             manifest = _manifest(ledger)
-            _write_manifest(manifest_path, manifest)
+            write_manifest(manifest_path, manifest)
             return manifest
     except (LedgerError, OSError) as error:
         raise AcquisitionError(

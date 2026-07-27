@@ -159,8 +159,12 @@ class NetworkAcquisitionTests(unittest.TestCase):
                 self.config(root), transport=resumed_transport
             )
 
+            replay = resumed.pop("stored_result_replay")
             self.assertEqual(first, resumed)
             self.assertEqual([], resumed_transport.calls)
+            self.assertTrue(replay["replayed_stored_result"])
+            self.assertFalse(replay["bounds_changed"])
+            self.assertEqual(replay["recorded_bounds"], replay["current_bounds"])
 
     def test_resume_after_robots_checkpoint_does_not_duplicate_records(
         self,
@@ -225,6 +229,9 @@ class NetworkAcquisitionTests(unittest.TestCase):
             final_transport = FakeTransport([])
             repeated = inventory_public_source(
                 self.config(root), transport=final_transport
+            )
+            self.assertTrue(
+                repeated.pop("stored_result_replay")["replayed_stored_result"]
             )
             self.assertEqual(resumed, repeated)
             self.assertEqual([], final_transport.calls)
@@ -386,6 +393,9 @@ class NetworkAcquisitionTests(unittest.TestCase):
             resumed_transport = FakeTransport([])
             resumed = inventory_public_source(
                 self.config(root), transport=resumed_transport
+            )
+            self.assertTrue(
+                resumed.pop("stored_result_replay")["replayed_stored_result"]
             )
             self.assertEqual(manifest, resumed)
             self.assertEqual([], resumed_transport.calls)
@@ -747,7 +757,89 @@ class NetworkAcquisitionTests(unittest.TestCase):
         self.assertGreater(arguments.rate_limit, 0)
         self.assertGreaterEqual(arguments.retries, 0)
         self.assertGreater(arguments.max_elapsed, arguments.timeout)
-        self.assertGreater(arguments.max_response_bytes, 0)
+        # The live antiegg article is 262145 bytes. A default fitted to a
+        # fixture makes every live run stop on byte count before the adapter
+        # can report what actually changed.
+        self.assertGreater(arguments.max_response_bytes, 262145)
+
+    def test_default_bounds_report_article_drift_not_byte_count(self) -> None:
+        robots = b"User-agent: *\nAllow: /\n"
+        drifted = b"<html><head><title>No open graph metadata</title></head></html>"
+        body = drifted + b"<!--" + b"x" * (262145 - len(drifted) - 7) + b"-->"
+        self.assertEqual(262145, len(body))
+        defaults = build_parser().parse_args(
+            [
+                "inventory-public",
+                "--ledger",
+                "ledger.sqlite3",
+                "--sanitized-manifest",
+                "manifest.json",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            transport = FakeTransport(
+                [
+                    response(ROBOTS_URL, mime_type="text/plain", body=robots),
+                    response(
+                        ARTICLE_URL,
+                        mime_type="text/html",
+                        body=body,
+                        declared_bytes=len(body),
+                    ),
+                ]
+            )
+
+            manifest = inventory_public_source(
+                self.config(
+                    root, max_response_bytes=defaults.max_response_bytes
+                ),
+                transport=transport,
+            )
+
+            self.assertEqual(
+                "response_structure_changed", manifest["blocker"]["code"]
+            )
+
+    def test_replay_names_the_bounds_a_stored_blocker_was_recorded_under(
+        self,
+    ) -> None:
+        robots = b"User-agent: *\nAllow: /\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            blocked = inventory_public_source(
+                self.config(root, max_response_bytes=64),
+                transport=FakeTransport(
+                    [
+                        response(ROBOTS_URL, mime_type="text/plain", body=robots),
+                        response(
+                            ARTICLE_URL,
+                            mime_type="text/html",
+                            body=b"",
+                            declared_bytes=65,
+                        ),
+                    ]
+                ),
+            )
+            self.assertEqual("response_oversized", blocked["blocker"]["code"])
+            self.assertNotIn("stored_result_replay", blocked)
+
+            raised_transport = FakeTransport([])
+            raised = inventory_public_source(
+                self.config(root, max_response_bytes=4096),
+                transport=raised_transport,
+            )
+
+            # The stored blocker is still reported, but never as though the
+            # raised bound had been tried and failed again.
+            self.assertEqual("response_oversized", raised["blocker"]["code"])
+            self.assertEqual([], raised_transport.calls)
+            replay = raised["stored_result_replay"]
+            self.assertTrue(replay["replayed_stored_result"])
+            self.assertTrue(replay["bounds_changed"])
+            self.assertEqual(64, replay["recorded_bounds"]["max_response_bytes"])
+            self.assertEqual(4096, replay["current_bounds"]["max_response_bytes"])
+            self.assertIn("fresh ledger", replay["next_safe_action"])
 
 
 if __name__ == "__main__":

@@ -59,8 +59,12 @@ _ENTRY_CONTAINERS = {
 _LOCATION_TAG = f"{{{SITEMAP_NAMESPACE}}}loc"
 _MODIFIED_TAG = f"{{{SITEMAP_NAMESPACE}}}lastmod"
 
-POSTS_PER_PAGE = 2
+#: The reviewed maximum this endpoint accepts, and the size the adapter asks
+#: for. A smaller page size costs one request per page for no safety gain: the
+#: `x-wp-totalpages` cross-check in `_pagination_headers` is what catches a
+#: silent undercount, not the page size.
 POSTS_REVIEWED_MAX_PER_PAGE = 100
+POSTS_PER_PAGE = POSTS_REVIEWED_MAX_PER_PAGE
 POSTS_RESPONSE_FIELDS = (
     "author",
     "categories",

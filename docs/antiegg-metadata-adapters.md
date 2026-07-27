@@ -14,13 +14,21 @@ already registered public endpoints:
 
 The posts adapter is shape-bound to the public WordPress REST v2 response
 reviewed on 2026-07-26. Requests always include canonical `page` and
-`per_page=2` controls plus an exact `_fields` projection; the reviewed
-WordPress maximum is 100, so the adapter cannot request above it. Pagination
-uses sanitized `x-wp-total` and `x-wp-totalpages` response headers. The checked
-fixture inventory reaches two stable records and terminates with no unvisited
-remainder. The live endpoint declared 1,463 records when reviewed; that header
-is an observation, not a claim that the offline fixture reached the live
-corpus.
+`per_page=100` controls plus an exact `_fields` projection; 100 is the reviewed
+WordPress maximum, so the adapter cannot request above it. Asking for fewer
+records per page buys no safety — the `x-wp-totalpages` cross-check below is
+what catches a silent undercount — and costs one request per page. Pagination
+uses sanitized `x-wp-total` and `x-wp-totalpages` response headers, and a page
+whose declared page count does not equal `ceil(x-wp-total / per_page)` fails
+closed. The checked fixture inventory reaches two stable records and terminates
+with no unvisited remainder. The live endpoint declared 1,463 records when
+reviewed; that header is an observation, not a claim that the offline fixture
+reached the live corpus.
+
+`inventory-public --source antiegg-posts` drives this adapter against the live
+endpoint under explicit bounds; see `docs/network-acquisition-smoke.md`. That
+lane reports `complete` only when the unique record ids retrieved equal the
+declared `x-wp-total`.
 
 The sitemap registry entry now uses the advertised `sitemap_index.xml`.
 A sanitized fixture records that the former `wp-sitemap.xml` locator returned
