@@ -14,7 +14,7 @@ from performing_fire_corpus.njp_center_adapters import (
     AttachmentCandidate,
     NJPCenterMainAdapter,
     NJPCenterVideoArchiveAdapter,
-    SourceShapeUnreviewed,
+    _BaseNJPCenterAdapter,
 )
 from performing_fire_corpus.registry import load_registry
 
@@ -102,7 +102,7 @@ def identity_variants(item: dict[str, str]) -> list[dict[str, str]]:
     return [item, changed]
 
 
-class InventedMainAdapter(NJPCenterVideoArchiveAdapter):
+class InventedMainAdapter(_BaseNJPCenterAdapter):
     adapter_id = "invented-njp-center-main-html"
     source_id = "njp-center-main"
     endpoint_id = "njp-center-main-home"
@@ -112,7 +112,12 @@ class InventedMainAdapter(NJPCenterVideoArchiveAdapter):
         return None
 
 
-class InventedVideoArchiveAdapter(NJPCenterVideoArchiveAdapter):
+class InventedVideoArchiveAdapter(_BaseNJPCenterAdapter):
+    adapter_id = "invented-njp-center-video-archive-html"
+    source_id = "njp-center-video-archive"
+    endpoint_id = "njp-center-video-archive-page"
+    public_url = "https://njp.ggcf.kr/pages/videoarchive"
+
     def _require_reviewed_shape(self) -> None:
         return None
 
@@ -143,14 +148,19 @@ class VideoArchiveAdapterConformance(
 
 
 class NJPCenterAdapterTests(unittest.TestCase):
-    def test_mediaobjects_is_bound_while_video_archive_remains_held(self) -> None:
+    def test_both_njp_center_adapters_are_bound_to_distinct_shapes(self) -> None:
         validate_adapter_declaration(NJPCenterMainAdapter(), REGISTRY)
+        validate_adapter_declaration(NJPCenterVideoArchiveAdapter(), REGISTRY)
         self.assertEqual(
             "https://njp.ggcf.kr/mediaObjects/more?page=1",
             NJPCenterMainAdapter().build_request(None).url,
         )
-        with self.assertRaises(SourceShapeUnreviewed):
-            NJPCenterVideoArchiveAdapter().build_request(None)
+        self.assertEqual(
+            "https://njp.ggcf.kr/pages/videoarchive",
+            NJPCenterVideoArchiveAdapter().build_request(None).url,
+        )
+        with self.assertRaises(ValueError):
+            NJPCenterVideoArchiveAdapter().build_request("page-2")
 
     def test_mediaobjects_request_and_identity_are_strictly_bound(self) -> None:
         adapter = NJPCenterMainAdapter()
@@ -220,6 +230,121 @@ class NJPCenterAdapterTests(unittest.TestCase):
                 body.replace(b"/mediaObjects/", b"/articles/"),
                 cursor=None,
             )
+
+    def test_video_archive_fixture_extracts_only_eight_link_facts(self) -> None:
+        adapter = NJPCenterVideoArchiveAdapter()
+        body = (
+            ROOT / "tests/fixtures/njp/videoarchive-page.html"
+        ).read_bytes()
+
+        page = adapter.parse_page(body, cursor=None)
+
+        self.assertTrue(page["terminal"])
+        self.assertEqual(8, page["expected_total"])
+        self.assertEqual(8, len(page["records"]))
+        self.assertEqual(
+            {
+                "canonical_detail_url": (
+                    "https://njp.ggcf.kr/storage/upload/2026/01/01/"
+                    "invented-catalogue-01.pdf"
+                ),
+                "title": "Invented analogue catalogue 01",
+            },
+            page["records"][0]["metadata"],
+        )
+        self.assertEqual(
+            8,
+            len({record["record_id"] for record in page["records"]}),
+        )
+        self.assertEqual((), adapter.attachment_candidates(body))
+
+    def test_video_archive_shape_mutations_fail_closed(self) -> None:
+        adapter = NJPCenterVideoArchiveAdapter()
+        body = (
+            ROOT / "tests/fixtures/njp/videoarchive-page.html"
+        ).read_bytes()
+        mutations = (
+            body.replace(
+                b"invented-catalogue-08.pdf",
+                b"invented-catalogue-08.jpg",
+            ),
+            body.replace(
+                b"/storage/upload/2026/01/08/"
+                b"invented-catalogue-08.pdf",
+                b"https://unreviewed.invalid/storage/upload/2026/01/08/"
+                b"invented-catalogue-08.pdf",
+            ),
+            body.replace(
+                b"/storage/upload/2026/01/08/invented-catalogue-08.pdf",
+                b"/storage/upload/2026/01/07/invented-catalogue-07.pdf",
+            ),
+            body.replace(
+                b"Invented analogue catalogue 08",
+                b"",
+            ),
+            body.replace(
+                b'href="/storage/upload/2026/01/01/'
+                b'invented-catalogue-01.pdf"',
+                b'href href="/storage/upload/2026/01/01/'
+                b'invented-catalogue-01.pdf"',
+            ),
+            body.replace(
+                b"Invented analogue catalogue 01",
+                b"<script>hidden source</script>"
+                b"Invented analogue catalogue 01",
+            ),
+            body.replace(
+                b"Invented analogue catalogue 01",
+                b"<style>hidden source</style>"
+                b"Invented analogue catalogue 01",
+            ),
+            body.replace(
+                b"Invented analogue catalogue 01",
+                b"<template>hidden source</template>"
+                b"Invented analogue catalogue 01",
+            ),
+            body.replace(
+                b"Invented analogue catalogue 01",
+                b"<textarea>hidden source</textarea>"
+                b"Invented analogue catalogue 01",
+            ),
+            body.replace(
+                b"/storage/upload/2026/01/01/"
+                b"invented-catalogue-01.pdf",
+                b"/storage/upload/2026/01/01/%0A"
+                b"invented-catalogue-01.pdf",
+            ),
+            body.replace(
+                b"/storage/upload/2026/01/01/"
+                b"invented-catalogue-01.pdf",
+                b"/storage/upload/%2F2026/01/01/"
+                b"invented-catalogue-01.pdf",
+            ),
+            body.replace(
+                b"/storage/upload/2026/01/01/"
+                b"invented-catalogue-01.pdf",
+                b"/storage/upload/2026/01/01/%252e%252e/"
+                b"invented-catalogue-01.pdf",
+            ),
+        )
+        for mutated in mutations:
+            with self.subTest(mutation=mutated[-100:]):
+                with self.assertRaises(ValueError):
+                    adapter.parse_page(mutated, cursor=None)
+
+    def test_video_archive_url_identity_is_canonical(self) -> None:
+        adapter = NJPCenterVideoArchiveAdapter()
+        plain = (
+            "https://njp.ggcf.kr/storage/upload/2026/01/01/"
+            "invented-catalogue-01.pdf"
+        )
+        encoded_unreserved = plain.replace("-", "%2d")
+        self.assertEqual(
+            adapter.stable_record_id({"canonical_detail_url": plain}),
+            adapter.stable_record_id(
+                {"canonical_detail_url": encoded_unreserved}
+            ),
+        )
 
     def test_each_adapter_has_an_endpoint_specific_closed_policy(self) -> None:
         governance = json.loads(

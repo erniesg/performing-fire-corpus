@@ -32,6 +32,7 @@ from performing_fire_corpus.njp_site_inventory import (
     PreflightTransport,
     UrllibPreflightTransport,
     _classify_robots,
+    _observed_response_bytes,
 )
 from performing_fire_corpus.redaction import sanitize
 
@@ -249,6 +250,7 @@ _REPORT_LITERALS = (
         "trusted-vm-first",
         "unknown",
         "1.0.0",
+        "2.0.0",
         USER_AGENT,
     }
 )
@@ -789,7 +791,7 @@ def review_video_archive_shape(
             "status": status,
             "mime_type": _mime_category(response.mime_type),
             "declared_bytes": declared,
-            "observed_bytes": len(response.body),
+            "observed_bytes": _observed_response_bytes(response),
             "response_sha256": (
                 hashlib.sha256(response.body).hexdigest()
                 if response.body
@@ -809,7 +811,7 @@ def review_video_archive_shape(
     ) -> bool:
         return (
             response.oversized
-            or len(response.body) > limit
+            or _observed_response_bytes(response) > limit
             or (
                 isinstance(response.declared_bytes, int)
                 and not isinstance(response.declared_bytes, bool)

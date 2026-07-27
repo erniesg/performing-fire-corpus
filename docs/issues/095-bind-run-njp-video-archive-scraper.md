@@ -45,13 +45,54 @@ reported as a count and is distinct from a capacity truncation. The report
 stores no raw source-derived class, ID, data-attribute, URL, JSON-key,
 transport-error, or MIME strings.
 
+The exact VM review at commit
+`4367446b1b092020ccb95181ade3a2c93a44b944` completed with no blocker.
+It observed a 53,358-byte HTML page, 98 categorical signature shapes, no
+embedded JSON, one ordinary HTML recovery event, no capacity truncation, and
+structure digest
+`e6f9a2911a325fb321202b5994b257ec50ae48bf91a60553f64e38cc33e8851b`.
+See `docs/njp-center-video-archive-shape.md`.
+
+## Stage-two bounded inventory
+
+The v2 adapter binds that receipt to exactly eight unique same-host public PDF
+catalogue links and their bounded anchor labels. Run it independently on the
+trusted VM:
+
+```bash
+PYTHONPATH=src python3 -m performing_fire_corpus inventory-njp-sites \
+  --source njp-center-video-archive \
+  --run-label issue95-video-archive \
+  --commit-sha <full-exact-head-sha> \
+  --state-root .local/njp-center-inventory/issue95-video-archive \
+  --aggregate-report docs/njp-center-video-archive-inventory-report.json \
+  --governance config/source-governance.v1.json \
+  --max-requests 2 \
+  --max-pages 1 \
+  --max-response-bytes 65536 \
+  --aggregate-bytes 65536 \
+  --retries 0 \
+  --max-retry-after 2 \
+  --rate-limit 1 \
+  --timeout 10 \
+  --max-elapsed 30
+```
+
 ## Scope
 
-Retain only stable public identifiers, canonical detail URLs, language/date/
-type/classification facts, and short content-neutral display titles required
-to identify records. Do not request or retain descriptions, attachments,
-images, audio, video, captions, transcripts, OCR, ASR, or transformed bytes.
-Keep counts separate from every other NJP source.
+Retain only stable source identities, canonical public PDF-link URLs, and
+bounded anchor labels required to identify the eight records. Do not request
+or retain descriptions, linked PDFs, images, audio, video, captions,
+transcripts, OCR, ASR, or transformed bytes. Keep counts separate from every
+other NJP source.
+
+Before any request, stage two requires the exact clean named commit and current
+endpoint authority for `metadata_inventory`, `public_retrieval`, and
+`retention` through the full run horizon. Its plan and receipts bind both the
+commit and stage-one structure digest. It recomputes that categorical digest
+from the live body and requires an exact match before retaining any of the
+eight records. The Video Archive source makes at most two requests:
+`robots.txt`, then the one reviewed archive page.
 
 ## Validation
 

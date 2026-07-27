@@ -99,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="run independent bounded NJP site preflights on a trusted VM",
     )
     njp_inventory.add_argument("--run-label", required=True)
+    njp_inventory.add_argument("--commit-sha", required=True)
+    njp_inventory.add_argument(
+        "--source",
+        choices=(
+            "all",
+            "njp-center-main",
+            "njp-center-video-archive",
+        ),
+        default="all",
+    )
     njp_inventory.add_argument("--state-root", required=True)
     njp_inventory.add_argument("--aggregate-report", required=True)
     njp_inventory.add_argument(
@@ -451,6 +461,13 @@ def main(
         selected_paths = _njp_inventory_paths(arguments)
         result = run_njp_site_inventories(
             run_label=arguments.run_label,
+            commit_sha=arguments.commit_sha,
+            repo_root=Path.cwd(),
+            source_ids=(
+                None
+                if arguments.source == "all"
+                else (arguments.source,)
+            ),
             state_root=selected_paths["state_root"],
             aggregate_report=selected_paths["aggregate_report"],
             governance_path=selected_paths["governance"],
