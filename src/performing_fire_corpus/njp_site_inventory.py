@@ -7,10 +7,11 @@ import json
 import math
 import re
 import sqlite3
+import subprocess
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 from urllib import error as urlerror
@@ -21,6 +22,11 @@ from urllib.parse import parse_qs, urlsplit
 from performing_fire_corpus.njp_center_adapters import (
     NJPCenterMainAdapter,
     NJPCenterVideoArchiveAdapter,
+)
+from performing_fire_corpus.governance import (
+    GovernanceError,
+    evaluate_source_operation,
+    validate_source_governance_registry,
 )
 from performing_fire_corpus.redaction import sanitize
 
@@ -37,7 +43,20 @@ SOURCE_MECHANISMS = {
     "njp-center-video-archive": "registered_archive_page_html",
 }
 _RUN_LABEL = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _REDIRECTS = frozenset({301, 302, 303, 307, 308})
+_REQUIRED_OPERATIONS = ("metadata_inventory", "public_retrieval", "retention")
+_LIMIT_CAPS = {
+    "max_requests": 16,
+    "max_pages": 8,
+    "max_response_bytes": 131072,
+    "aggregate_bytes": 524288,
+    "max_retries": 2,
+    "retry_after_seconds": 10.0,
+    "per_host_interval_seconds": 10.0,
+    "timeout_seconds": 30.0,
+    "elapsed_seconds": 120.0,
+}
 
 
 class NJPInventoryError(RuntimeError):
@@ -87,6 +106,10 @@ class InventoryLimits:
                 for value in float_values
             )
             or self.max_response_bytes > self.aggregate_bytes
+            or any(
+                getattr(self, name) > cap
+                for name, cap in _LIMIT_CAPS.items()
+            )
         ):
             raise NJPInventoryError("invalid_inventory_limits")
 
@@ -111,6 +134,7 @@ class MetadataSafeResponse:
     mime_type: str
     body: bytes
     declared_bytes: int | None = None
+    observed_bytes: int | None = None
     retry_after_seconds: float | None = None
     location: str | None = None
     oversized: bool = False
@@ -142,7 +166,7 @@ class _NoRedirect(urlrequest.HTTPRedirectHandler):
 
 
 class UrllibPreflightTransport:
-    """Unauthenticated GET/HEAD transport with redirects disabled."""
+    """Unauthenticated GET transport with redirects disabled."""
 
     def __init__(self) -> None:
         self._opener = urlrequest.build_opener(_NoRedirect)
@@ -188,9 +212,11 @@ class UrllibPreflightTransport:
                 and method == "GET"
             )
             body = b""
+            observed_bytes = 0
             if method == "GET" and not oversized:
-                body = opened.read(max_response_bytes + 1)
-                if len(body) > max_response_bytes:
+                body = opened.read(max_response_bytes)
+                observed_bytes = len(body)
+                if len(body) >= max_response_bytes:
                     body = b""
                     oversized = True
             retry_after: float | None = None
@@ -205,6 +231,7 @@ class UrllibPreflightTransport:
                 mime_type=mime_type,
                 body=body,
                 declared_bytes=declared_bytes,
+                observed_bytes=observed_bytes,
                 retry_after_seconds=retry_after,
                 location=headers.get("Location"),
                 oversized=oversized,
@@ -214,7 +241,7 @@ class UrllibPreflightTransport:
 def _reviewed_request(method: str, url: str) -> bool:
     if method == "GET" and url == ROBOTS_URL:
         return True
-    if method == "HEAD" and url == NJPCenterVideoArchiveAdapter.public_url:
+    if method == "GET" and url == NJPCenterVideoArchiveAdapter.public_url:
         return True
     if method != "GET":
         return False
@@ -260,9 +287,34 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _verify_exact_clean_head(repo_root: Path, expected_commit_sha: str) -> None:
+    try:
+        actual = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise NJPInventoryError("exact_head_not_verified") from error
+    if actual != expected_commit_sha or dirty:
+        raise NJPInventoryError("exact_head_not_verified")
+
+
 def _policy_snapshot(
     source_id: str,
     governance: Mapping[str, Any],
+    *,
+    observed_at: datetime,
+    required_horizon: datetime,
 ) -> dict[str, Any]:
     adapter = SOURCE_ADAPTERS[source_id]
     records = [
@@ -275,6 +327,24 @@ def _policy_snapshot(
     if len(records) != 1:
         raise NJPInventoryError("missing_source_governance")
     record = records[0]
+    operation_eligibility: dict[str, bool] = {}
+    try:
+        for operation in _REQUIRED_OPERATIONS:
+            start = evaluate_source_operation(
+                record,
+                operation,
+                now=observed_at,
+            )
+            horizon = evaluate_source_operation(
+                record,
+                operation,
+                now=required_horizon,
+            )
+            operation_eligibility[operation] = bool(
+                start["eligible"] and horizon["eligible"]
+            )
+    except GovernanceError as error:
+        raise NJPInventoryError("source_governance_invalid") from error
     return {
         "record_type": "njp_inventory_policy_snapshot",
         "schema_version": 1,
@@ -284,13 +354,19 @@ def _policy_snapshot(
         "fact_states": dict(record["fact_states"]),
         "operation_states": {
             "metadata_inventory": record["operation_states"]["metadata_inventory"],
+            "public_retrieval": record["operation_states"]["public_retrieval"],
             "retention": record["operation_states"]["retention"],
         },
-        "source_shape_state": "unreviewed",
+        "operation_eligibility": operation_eligibility,
+        "required_horizon_seconds": (
+            required_horizon - observed_at
+        ).total_seconds(),
+        "source_shape_state": "shape_bound",
+        "reviewed_shape_sha256": adapter.reviewed_shape_sha256,
         "attachment_policy": {
-            "discovery_state": "candidate_only",
-            "rights_state": "pending",
-            "allowed_probe": "head_only_after_explicit_policy_approval",
+            "discovery_state": "forbidden_in_this_run",
+            "rights_state": "not_evaluated",
+            "allowed_probe": "none",
             "retry_after_403": False,
         },
     }
@@ -428,7 +504,7 @@ def _request_fact(
         "method": method,
         "status": response.status,
         "mime_type": response.mime_type or "unknown",
-        "observed_bytes": len(response.body),
+        "observed_bytes": _observed_response_bytes(response),
         "declared_bytes": response.declared_bytes,
         "response_sha256": (
             hashlib.sha256(response.body).hexdigest() if response.body else None
@@ -447,16 +523,61 @@ def _blocker(code: str, next_safe_action: str) -> dict[str, str]:
     }
 
 
-def _classify_robots(response: MetadataSafeResponse, endpoint_url: str) -> str:
+def _response_oversized(
+    response: MetadataSafeResponse,
+    max_response_bytes: int,
+) -> bool:
+    return bool(
+        response.oversized
+        or len(response.body) > max_response_bytes
+        or _observed_response_bytes(response) > max_response_bytes
+        or (
+            response.declared_bytes is not None
+            and response.declared_bytes > max_response_bytes
+        )
+    )
+
+
+def _observed_response_bytes(response: MetadataSafeResponse) -> int:
+    if response.observed_bytes is None:
+        return len(response.body)
+    if (
+        isinstance(response.observed_bytes, bool)
+        or not isinstance(response.observed_bytes, int)
+        or response.observed_bytes < len(response.body)
+    ):
+        raise NJPInventoryError("invalid_transport_byte_count")
+    return response.observed_bytes
+
+
+def _classify_robots(
+    response: MetadataSafeResponse,
+    endpoint_url: str,
+    *,
+    max_response_bytes: int | None = None,
+) -> str:
     if response.failure_code is not None:
-        return "transport_error"
+        return (
+            response.failure_code
+            if response.failure_code
+            in {
+                "aggregate_byte_bound",
+                "elapsed_bound",
+                "request_budget_exhausted",
+            }
+            else "transport_error"
+        )
     if response.status == 429:
         return "rate_limited"
     if response.status in {401, 403}:
         return "robots_access_blocked"
     if response.url != ROBOTS_URL or response.status != 200:
         return "robots_access_blocked"
-    if response.oversized or response.mime_type not in {"text/plain", "text/robots"}:
+    if (
+        response.oversized
+        if max_response_bytes is None
+        else _response_oversized(response, max_response_bytes)
+    ) or response.mime_type not in {"text/plain", "text/robots"}:
         return "robots_ambiguous"
     try:
         text = response.body.decode("utf-8", "strict")
@@ -476,36 +597,95 @@ def _perform_request(
     url: str,
     limits: InventoryLimits,
     *,
-    sequence: int,
-    now: Callable[[], datetime],
+    deadline: float,
+    monotonic: Callable[[], float],
     sleeper: Callable[[float], None],
     requests_used: int,
+    rate_state: list[float | None],
+    remaining_aggregate_bytes: int,
 ) -> tuple[MetadataSafeResponse, int, int, list[tuple[MetadataSafeResponse, int]]]:
     attempt = 0
     attempts: list[tuple[MetadataSafeResponse, int]] = []
+    required_interval = limits.per_host_interval_seconds
+
+    def elapsed_response() -> MetadataSafeResponse:
+        return MetadataSafeResponse(
+            url=url,
+            status=598,
+            mime_type="unknown",
+            body=b"",
+            failure_code="elapsed_bound",
+        )
+
     while True:
         if requests_used >= limits.max_requests:
-            raise NJPInventoryError("request_budget_exhausted")
+            return (
+                MetadataSafeResponse(
+                    url=url,
+                    status=597,
+                    mime_type="unknown",
+                    body=b"",
+                    failure_code="request_budget_exhausted",
+                ),
+                attempt,
+                requests_used,
+                attempts,
+            )
+        if remaining_aggregate_bytes < 1:
+            return (
+                MetadataSafeResponse(
+                    url=url,
+                    status=596,
+                    mime_type="unknown",
+                    body=b"",
+                    failure_code="aggregate_byte_bound",
+                ),
+                attempt,
+                requests_used,
+                attempts,
+            )
+        current = monotonic()
+        wait_seconds = 0.0
+        if rate_state[0] is not None:
+            wait_seconds = max(
+                0.0,
+                rate_state[0] + required_interval - current,
+            )
+        if current + wait_seconds >= deadline:
+            return elapsed_response(), attempt, requests_used, attempts
+        if wait_seconds:
+            sleeper(wait_seconds)
+        current = monotonic()
+        if current >= deadline:
+            return elapsed_response(), attempt, requests_used, attempts
+        remaining = deadline - current
+        timeout_seconds = min(limits.timeout_seconds, remaining)
+        if timeout_seconds <= 0:
+            return elapsed_response(), attempt, requests_used, attempts
+        rate_state[0] = current
         attempt += 1
         requests_used += 1
         try:
             response = transport.request(
                 method,
                 url,
-                timeout_seconds=limits.timeout_seconds,
-                max_response_bytes=limits.max_response_bytes,
+                timeout_seconds=timeout_seconds,
+                max_response_bytes=min(
+                    limits.max_response_bytes,
+                    remaining_aggregate_bytes,
+                ),
             )
-        except NJPInventoryError as error:
+        except NJPInventoryError:
             failed_response = MetadataSafeResponse(
                 url=url,
                 status=599,
                 mime_type="unknown",
                 body=b"",
-                failure_code=str(error),
+                failure_code="transport_error",
             )
             attempts.append((failed_response, attempt))
             if attempt <= limits.max_retries:
-                sleeper(limits.per_host_interval_seconds)
+                required_interval = limits.per_host_interval_seconds
                 continue
             return (
                 failed_response,
@@ -514,14 +694,58 @@ def _perform_request(
                 attempts,
             )
         attempts.append((response, attempt))
+        remaining_aggregate_bytes -= _observed_response_bytes(response)
+        if monotonic() >= deadline:
+            return elapsed_response(), attempt, requests_used, attempts
         if (
-            response.status != 429
+            response.oversized
+            or response.status != 429
             or attempt > limits.max_retries
             or response.retry_after_seconds is None
             or response.retry_after_seconds > limits.retry_after_seconds
         ):
             return response, attempt, requests_used, attempts
-        sleeper(response.retry_after_seconds)
+        required_interval = max(
+            limits.per_host_interval_seconds,
+            response.retry_after_seconds,
+        )
+
+
+def _observed_archive_shape_sha256(
+    body: bytes,
+    *,
+    deadline: float,
+    monotonic: Callable[[], float],
+) -> str:
+    # Imported lazily because the stage-one module reuses this module's
+    # transport boundary. The live comparison remains an unavoidable internal
+    # step; callers cannot supply a claimed digest.
+    from performing_fire_corpus.njp_video_archive_shape import (
+        VideoArchiveShapeError,
+        _ShapeParser,
+    )
+
+    def check_deadline() -> None:
+        if monotonic() >= deadline:
+            raise VideoArchiveShapeError("elapsed_bound")
+
+    try:
+        parser = _ShapeParser(check_deadline)
+        parser.feed(body.decode("utf-8", "strict"))
+        parser.close()
+        structure = parser.finish()
+    except UnicodeDecodeError as error:
+        raise NJPInventoryError("source_shape_changed") from error
+    except VideoArchiveShapeError as error:
+        code = (
+            "elapsed_bound"
+            if str(error) == "elapsed_bound"
+            else "source_shape_changed"
+        )
+        raise NJPInventoryError(code) from error
+    if structure["json_unreadable"] or structure["summary_truncated"]:
+        raise NJPInventoryError("source_shape_changed")
+    return str(structure["structure_sha256"])
 
 
 def run_source_preflight(
@@ -530,25 +754,32 @@ def run_source_preflight(
     run_label: str,
     state_root: Path,
     governance: Mapping[str, Any],
+    commit_sha: str,
     limits: InventoryLimits,
     transport: PreflightTransport,
     now: Callable[[], datetime],
     monotonic: Callable[[], float],
     sleeper: Callable[[float], None],
+    rate_state: list[float | None],
 ) -> dict[str, Any]:
     if source_id not in SOURCE_ADAPTERS or not _RUN_LABEL.fullmatch(run_label):
         raise NJPInventoryError("invalid_inventory_identity")
     adapter = SOURCE_ADAPTERS[source_id]
-    shape_bound = source_id == "njp-center-main"
-    endpoint_url = (
-        adapter().build_request(None).url
-        if shape_bound
-        else adapter.public_url
+    endpoint_url = adapter().build_request(None).url
+    started = monotonic()
+    observed_datetime = now()
+    observed_at = _utc_text(observed_datetime)
+    required_horizon = observed_datetime + timedelta(
+        seconds=limits.elapsed_seconds
     )
-    observed_at = _utc_text(now())
     source_root = state_root / source_id
     run_id = f"njp_inventory_{run_label}_{source_id.replace('-', '_')}"
-    policy = _policy_snapshot(source_id, governance)
+    policy = _policy_snapshot(
+        source_id,
+        governance,
+        observed_at=observed_datetime,
+        required_horizon=required_horizon,
+    )
     plan = {
         "record_type": "njp_inventory_run_plan",
         "schema_version": 1,
@@ -557,16 +788,22 @@ def run_source_preflight(
         "endpoint_id": adapter.endpoint_id,
         "adapter_id": adapter.adapter_id,
         "adapter_version": adapter.adapter_version,
+        "commit_sha": commit_sha,
+        "exact_head_verified": True,
+        "reviewed_shape_sha256": adapter.reviewed_shape_sha256,
         "robots_url": ROBOTS_URL,
         "endpoint_url": endpoint_url,
         "limits": limits.as_dict(),
         "allowed_methods": (
             ["GET robots.txt", "GET mediaObjects fragments"]
-            if shape_bound
-            else ["GET robots.txt", "HEAD registered endpoint"]
+            if source_id == "njp-center-main"
+            else ["GET robots.txt", "GET Video Archive page"]
         ),
         "attachment_requests_allowed": False,
-        "catalogue_body_requests_allowed": shape_bound,
+        "catalogue_body_requests_allowed": True,
+        "live_shape_digest_comparison_required": (
+            source_id == "njp-center-video-archive"
+        ),
     }
     checkpoint = {
         "record_type": "njp_inventory_checkpoint",
@@ -576,12 +813,13 @@ def run_source_preflight(
         "aggregate_bytes": 0,
         "pages_committed": 0,
         "next_cursor": None,
+        "observed_shape_sha256": None,
         "records": [],
     }
     _write_json(source_root / "run-plan.json", plan)
     _write_json(source_root / "policy-snapshot.json", policy)
     ledger = _RunLedger(source_root / "ledger.sqlite3")
-    started = monotonic()
+    deadline = started + limits.elapsed_seconds
     try:
         checkpoint, existing = ledger.start(run_id, plan, policy, checkpoint)
         if existing is not None:
@@ -590,23 +828,50 @@ def run_source_preflight(
             return existing
         blockers: list[dict[str, str]] = []
         requests_used = int(checkpoint["requests_attempted"])
-        if checkpoint["phase"] == "initial":
+        governance_eligible = all(policy["operation_eligibility"].values())
+        if not governance_eligible:
+            blockers.append(
+                _blocker(
+                    "governance_not_authorized",
+                    "Renew the reviewed operation authority before any request.",
+                )
+            )
+        if not blockers and checkpoint["phase"] == "initial":
             response, attempt, requests_used, attempts = _perform_request(
                 transport,
                 "GET",
                 ROBOTS_URL,
                 limits,
-                sequence=1,
-                now=now,
+                deadline=deadline,
+                monotonic=monotonic,
                 sleeper=sleeper,
                 requests_used=requests_used,
+                rate_state=rate_state,
+                remaining_aggregate_bytes=(
+                    limits.aggregate_bytes - checkpoint["aggregate_bytes"]
+                ),
             )
-            robots_outcome = _classify_robots(response, endpoint_url)
+            robots_outcome = _classify_robots(
+                response,
+                endpoint_url,
+                max_response_bytes=limits.max_response_bytes,
+            )
+            attempt_bytes = sum(
+                _observed_response_bytes(attempted_response)
+                for attempted_response, _attempted_number in attempts
+            )
+            if (
+                checkpoint["aggregate_bytes"] + attempt_bytes
+                > limits.aggregate_bytes
+            ):
+                robots_outcome = "aggregate_byte_bound"
             checkpoint.update(
                 {
                     "phase": "robots_checked",
                     "requests_attempted": requests_used,
-                    "aggregate_bytes": len(response.body),
+                    "aggregate_bytes": (
+                        checkpoint["aggregate_bytes"] + attempt_bytes
+                    ),
                     "robots_outcome": robots_outcome,
                 }
             )
@@ -628,7 +893,7 @@ def run_source_preflight(
                     checkpoint,
                 )
             _write_json(source_root / "checkpoint.json", checkpoint)
-        if monotonic() - started > limits.elapsed_seconds:
+        if not blockers and monotonic() >= deadline:
             blockers.append(
                 _blocker("elapsed_bound", "Start a new reviewed bounded run.")
             )
@@ -640,7 +905,7 @@ def run_source_preflight(
                     "Review current robots behavior; do not request the source page.",
                 )
             )
-        if shape_bound and not blockers and checkpoint["phase"] == "robots_checked":
+        if not blockers and checkpoint["phase"] == "robots_checked":
             live_adapter = adapter()
             while checkpoint["phase"] == "robots_checked":
                 if checkpoint["pages_committed"] >= limits.max_pages:
@@ -660,20 +925,32 @@ def run_source_preflight(
                     )
                     break
                 request = live_adapter.build_request(checkpoint["next_cursor"])
-                sleeper(limits.per_host_interval_seconds)
                 response, attempt, requests_used, attempts = _perform_request(
                     transport,
                     request.method,
                     request.url,
                     limits,
-                    sequence=2 + checkpoint["pages_committed"],
-                    now=now,
+                    deadline=deadline,
+                    monotonic=monotonic,
                     sleeper=sleeper,
                     requests_used=requests_used,
+                    rate_state=rate_state,
+                    remaining_aggregate_bytes=(
+                        limits.aggregate_bytes - checkpoint["aggregate_bytes"]
+                    ),
                 )
                 sequence = 2 + checkpoint["pages_committed"]
                 if response.failure_code is not None:
-                    outcome = "transport_error"
+                    outcome = (
+                        response.failure_code
+                        if response.failure_code
+                        in {
+                            "aggregate_byte_bound",
+                            "elapsed_bound",
+                            "request_budget_exhausted",
+                        }
+                        else "transport_error"
+                    )
                 elif response.url != request.url or response.status in _REDIRECTS:
                     outcome = "disallowed_redirect"
                 elif response.status in {401, 403}:
@@ -682,17 +959,24 @@ def run_source_preflight(
                     outcome = "rate_limited"
                 elif response.status != 200:
                     outcome = "public_access_unconfirmed"
-                elif response.oversized:
+                elif _response_oversized(
+                    response, limits.max_response_bytes
+                ):
                     outcome = "response_oversized"
                 elif response.mime_type != "text/html":
                     outcome = "mime_mismatch"
-                elif (
-                    checkpoint["aggregate_bytes"] + len(response.body)
+                else:
+                    outcome = "public_get_available"
+                attempt_bytes = sum(
+                    _observed_response_bytes(attempted_response)
+                    for attempted_response, _attempted_number in attempts
+                )
+                if (
+                    outcome == "public_get_available"
+                    and checkpoint["aggregate_bytes"] + attempt_bytes
                     > limits.aggregate_bytes
                 ):
                     outcome = "aggregate_byte_bound"
-                else:
-                    outcome = "public_get_available"
                 for attempted_response, attempted_number in attempts:
                     ledger.commit_request(
                         run_id,
@@ -711,6 +995,7 @@ def run_source_preflight(
                         checkpoint,
                     )
                 checkpoint["requests_attempted"] = requests_used
+                checkpoint["aggregate_bytes"] += attempt_bytes
                 if outcome != "public_get_available":
                     checkpoint["access_outcome"] = outcome
                     blockers.append(
@@ -720,6 +1005,51 @@ def run_source_preflight(
                         )
                     )
                     break
+                checkpoint["access_outcome"] = "public_get_available"
+                if monotonic() >= deadline:
+                    blockers.append(
+                        _blocker(
+                            "elapsed_bound",
+                            "Start a new reviewed bounded run.",
+                        )
+                    )
+                    break
+                if source_id == "njp-center-video-archive":
+                    try:
+                        observed_shape_sha256 = (
+                            _observed_archive_shape_sha256(
+                                response.body,
+                                deadline=deadline,
+                                monotonic=monotonic,
+                            )
+                        )
+                    except NJPInventoryError as error:
+                        blocker_code = (
+                            "elapsed_bound"
+                            if str(error) == "elapsed_bound"
+                            else "source_shape_changed"
+                        )
+                        blockers.append(
+                            _blocker(
+                                blocker_code,
+                                "Review the current page shape before another inventory.",
+                            )
+                        )
+                        break
+                    checkpoint["observed_shape_sha256"] = (
+                        observed_shape_sha256
+                    )
+                    if (
+                        observed_shape_sha256
+                        != adapter.reviewed_shape_sha256
+                    ):
+                        blockers.append(
+                            _blocker(
+                                "source_shape_changed",
+                                "Review the current page shape before another inventory.",
+                            )
+                        )
+                        break
                 try:
                     page = live_adapter.parse_page(
                         response.body,
@@ -731,6 +1061,14 @@ def run_source_preflight(
                         _blocker(
                             "source_shape_changed",
                             "Review the current fragment before another inventory.",
+                        )
+                    )
+                    break
+                if monotonic() >= deadline:
+                    blockers.append(
+                        _blocker(
+                            "elapsed_bound",
+                            "Start a new reviewed bounded run.",
                         )
                     )
                     break
@@ -748,64 +1086,12 @@ def run_source_preflight(
                     break
                 checkpoint["records"].extend(page["records"])
                 checkpoint["pages_committed"] += 1
-                checkpoint["aggregate_bytes"] += len(response.body)
                 checkpoint["access_outcome"] = "public_get_available"
                 checkpoint["next_cursor"] = page["next_cursor"]
                 if page["terminal"]:
                     checkpoint["phase"] = "shape_bound_terminal"
                 _write_json(source_root / "checkpoint.json", checkpoint)
-        if not shape_bound and not blockers and checkpoint["phase"] == "robots_checked":
-            sleeper(limits.per_host_interval_seconds)
-            response, attempt, requests_used, attempts = _perform_request(
-                transport,
-                "HEAD",
-                adapter.public_url,
-                limits,
-                sequence=2,
-                now=now,
-                sleeper=sleeper,
-                requests_used=requests_used,
-            )
-            if response.failure_code is not None:
-                access_outcome = "transport_error"
-            elif response.url != adapter.public_url or response.status in _REDIRECTS:
-                access_outcome = "disallowed_redirect"
-            elif response.status in {401, 403}:
-                access_outcome = "access_forbidden"
-            elif response.status == 429:
-                access_outcome = "rate_limited"
-            elif response.status == 200:
-                access_outcome = "public_head_available"
-            else:
-                access_outcome = "public_access_unconfirmed"
-            checkpoint.update(
-                {
-                    "phase": "access_checked",
-                    "requests_attempted": requests_used,
-                    "access_outcome": access_outcome,
-                }
-            )
-            for attempted_response, attempted_number in attempts:
-                ledger.commit_request(
-                    run_id,
-                    _request_fact(
-                        attempted_response,
-                        method="HEAD",
-                        sequence=2,
-                        attempt=attempted_number,
-                        observed_at=_utc_text(now()),
-                        outcome=(
-                            access_outcome
-                            if attempted_number == attempt
-                            else "retry_scheduled"
-                        ),
-                    ),
-                    checkpoint,
-                )
-            _write_json(source_root / "checkpoint.json", checkpoint)
-        expected_access = (
-            "public_get_available" if shape_bound else "public_head_available"
-        )
+        expected_access = "public_get_available"
         if not blockers and checkpoint.get("access_outcome") != expected_access:
             access_code = str(
                 checkpoint.get("access_outcome", "public_access_unconfirmed")
@@ -820,36 +1106,6 @@ def run_source_preflight(
                     ),
                 )
             )
-        # Each policy blocker is derived from the governance record this run
-        # already loaded. Appending them unconditionally would report a source
-        # as rights-pending even after the operator recorded the decision, so a
-        # recorded approval could never take effect.
-        for code, action, satisfied in (
-            (
-                "platform_terms_pending",
-                "Review and time-bound the terms decision for metadata inventory.",
-                policy["fact_states"]["platform_terms"] == "permitted",
-            ),
-            (
-                "copyright_rights_pending",
-                "Record the lawful-basis and attachment-rights decision.",
-                policy["fact_states"]["copyright_lawful_basis"] == "permitted",
-            ),
-            (
-                "retention_pending",
-                "Approve the narrow factual metadata retention projection.",
-                policy["operation_states"]["retention"] == "approved",
-            ),
-            (
-                # The adapter shape gate is not governance-derived: it stays
-                # until an adapter is bound to a reviewed live page shape.
-                "source_shape_unreviewed",
-                "Bind the adapter to a current bounded factual page shape.",
-                shape_bound,
-            ),
-        ):
-            if not satisfied:
-                blockers.append(_blocker(code, action))
         reached_terminal = checkpoint["phase"] == "shape_bound_terminal"
         checkpoint["phase"] = "terminal"
         _write_json(source_root / "checkpoint.json", checkpoint)
@@ -859,13 +1115,19 @@ def run_source_preflight(
             "run_id": run_id,
             "source_id": source_id,
             "endpoint_id": adapter.endpoint_id,
+            "commit_sha": commit_sha,
+            "exact_head_verified": True,
+            "reviewed_shape_sha256": adapter.reviewed_shape_sha256,
+            "observed_shape_sha256": checkpoint[
+                "observed_shape_sha256"
+            ],
             "generated_at": observed_at,
             "state": (
                 "complete_for_observed_endpoint"
-                if shape_bound and reached_terminal and not blockers
+                if reached_terminal and not blockers
                 else "blocked"
             ),
-            "shape_state": "shape_bound" if shape_bound else "source_shape_unreviewed",
+            "shape_state": policy["source_shape_state"],
             "robots_state": checkpoint.get("robots_outcome", "not_checked"),
             "access_state": checkpoint.get("access_outcome", "not_checked"),
             "requests_attempted": checkpoint["requests_attempted"],
@@ -879,11 +1141,7 @@ def run_source_preflight(
             "page_mechanism": policy["page_mechanism"],
             "policy_states": {
                 "access_control": (
-                    (
-                        "current_public_metadata_observation"
-                        if shape_bound
-                        else "current_public_head_observation"
-                    )
+                    "current_public_metadata_observation"
                     if checkpoint.get("access_outcome") == expected_access
                     else "blocked_or_unconfirmed"
                 ),
@@ -894,6 +1152,9 @@ def run_source_preflight(
                 "retention": policy["operation_states"]["retention"],
                 "metadata_inventory": policy["operation_states"][
                     "metadata_inventory"
+                ],
+                "public_retrieval": policy["operation_states"][
+                    "public_retrieval"
                 ],
             },
             "blockers": blockers,
@@ -908,6 +1169,9 @@ def run_source_preflight(
 def run_njp_site_inventories(
     *,
     run_label: str,
+    commit_sha: str,
+    repo_root: str | Path,
+    source_ids: tuple[str, ...] | None = None,
     state_root: str | Path,
     aggregate_report: str | Path,
     governance_path: str | Path,
@@ -917,35 +1181,61 @@ def run_njp_site_inventories(
     monotonic: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
 ) -> dict[str, Any]:
+    selected_source_ids = (
+        tuple(SOURCE_ADAPTERS)
+        if source_ids is None
+        else source_ids
+    )
+    if (
+        _COMMIT_SHA.fullmatch(commit_sha) is None
+        or
+        not selected_source_ids
+        or len(selected_source_ids) != len(set(selected_source_ids))
+        or any(source_id not in SOURCE_ADAPTERS for source_id in selected_source_ids)
+    ):
+        raise NJPInventoryError("invalid_inventory_source_selection")
+    selected_root = Path(repo_root).resolve()
+    _verify_exact_clean_head(selected_root, commit_sha)
     selected_limits = limits or InventoryLimits()
     selected_transport = transport or UrllibPreflightTransport()
     selected_now = now or (lambda: datetime.now(UTC))
     selected_monotonic = monotonic or time.monotonic
     selected_sleeper = sleeper or time.sleep
     try:
-        governance = json.loads(Path(governance_path).read_text(encoding="utf-8"))
+        raw_governance = json.loads(
+            Path(governance_path).read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise NJPInventoryError("governance_unavailable") from error
+    try:
+        governance = validate_source_governance_registry(raw_governance)
+    except GovernanceError as error:
+        raise NJPInventoryError("source_governance_invalid") from error
+    rate_state: list[float | None] = [None]
     reports = [
         run_source_preflight(
             source_id,
             run_label=run_label,
             state_root=Path(state_root),
             governance=governance,
+            commit_sha=commit_sha,
             limits=selected_limits,
             transport=selected_transport,
             now=selected_now,
             monotonic=selected_monotonic,
             sleeper=selected_sleeper,
+            rate_state=rate_state,
         )
-        for source_id in SOURCE_ADAPTERS
+        for source_id in selected_source_ids
     ]
     aggregate = {
         "record_type": "njp_center_source_universe_gap_report",
         "schema_version": 1,
         "run_label": run_label,
+        "commit_sha": commit_sha,
+        "exact_head_verified": True,
         "generated_at": max(report["generated_at"] for report in reports),
-        "source_scope": list(SOURCE_ADAPTERS),
+        "source_scope": list(selected_source_ids),
         "whole_njp_center_universe_state": "unknown",
         "counts_are_additive": False,
         "duplicate_scope_semantics": "unknown_across_sources",
@@ -954,6 +1244,10 @@ def run_njp_site_inventories(
             {
                 "source_id": report["source_id"],
                 "endpoint_id": report["endpoint_id"],
+                "reviewed_shape_sha256": report["reviewed_shape_sha256"],
+                "observed_shape_sha256": report[
+                    "observed_shape_sha256"
+                ],
                 "state": report["state"],
                 "shape_state": report["shape_state"],
                 "robots_state": report["robots_state"],
@@ -969,8 +1263,11 @@ def run_njp_site_inventories(
             for report in reports
         ],
         "safe_scope_statement": (
-            "These are two independent endpoint proofs; their counts do not "
+            "These are independent endpoint proofs; their counts do not "
             "measure the whole NJP Center universe."
+            if len(reports) > 1
+            else "This is one endpoint proof; its count does not measure "
+            "the whole NJP Center universe."
         ),
         "attachment_bytes_requested": False,
     }

@@ -22,6 +22,15 @@ from performing_fire_corpus.njp_site_inventory import (
     InventoryLimits,
     run_njp_site_inventories,
 )
+from performing_fire_corpus.njp_video_archive_shape import (
+    review_video_archive_shape,
+)
+from performing_fire_corpus.njp_video_archive_route import (
+    CAPABILITY_MISMATCH_CODES,
+    build_video_archive_attempt_receipt,
+    route_video_archive_attempt,
+    write_video_archive_route_artifact,
+)
 from performing_fire_corpus.search_index import SearchIndexError
 from performing_fire_corpus.search_service import (
     build_corpus_index,
@@ -111,6 +120,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="run independent bounded NJP site preflights on a trusted VM",
     )
     njp_inventory.add_argument("--run-label", required=True)
+    njp_inventory.add_argument("--commit-sha", required=True)
+    njp_inventory.add_argument(
+        "--source",
+        choices=(
+            "all",
+            "njp-center-main",
+            "njp-center-video-archive",
+        ),
+        default="all",
+    )
     njp_inventory.add_argument("--state-root", required=True)
     njp_inventory.add_argument("--aggregate-report", required=True)
     njp_inventory.add_argument(
@@ -125,6 +144,38 @@ def build_parser() -> argparse.ArgumentParser:
     njp_inventory.add_argument("--rate-limit", type=float, default=1.0)
     njp_inventory.add_argument("--timeout", type=float, default=10.0)
     njp_inventory.add_argument("--max-elapsed", type=float, default=30.0)
+    archive_shape = subparsers.add_parser(
+        "review-njp-video-archive-shape",
+        help="run one content-neutral Video Archive shape review",
+    )
+    archive_shape.add_argument("--commit-sha", required=True)
+    archive_shape.add_argument("--output", required=True)
+    archive_shape.add_argument(
+        "--governance", default="config/source-governance.v1.json"
+    )
+    archive_shape.add_argument("--max-response-bytes", type=int, default=131072)
+    archive_shape.add_argument("--rate-limit", type=float, default=1.0)
+    archive_shape.add_argument("--timeout", type=float, default=10.0)
+    archive_shape.add_argument("--max-elapsed", type=float, default=30.0)
+    archive_route = subparsers.add_parser(
+        "record-njp-video-archive-attempt",
+        help="record and route one sanitized VM-first Video Archive attempt",
+    )
+    archive_route.add_argument(
+        "--lane",
+        required=True,
+        choices=("trusted-vm", "trusted-laptop"),
+    )
+    archive_route.add_argument("--report", required=True)
+    archive_route.add_argument("--plan", required=True)
+    archive_route.add_argument("--attempt-output", required=True)
+    archive_route.add_argument("--route-output", required=True)
+    archive_route.add_argument(
+        "--capability-mismatch-code",
+        choices=CAPABILITY_MISMATCH_CODES,
+    )
+    archive_route.add_argument("--capability-evidence-sha256")
+    archive_route.add_argument("--parent-vm-receipt")
     r2 = subparsers.add_parser("r2", help="R2 object-storage boundary commands")
     r2_subparsers = r2.add_subparsers(dest="r2_command", required=True)
     readiness = r2_subparsers.add_parser(
@@ -387,6 +438,96 @@ def _njp_inventory_paths(arguments: argparse.Namespace) -> dict[str, Path]:
     return selected
 
 
+def _njp_archive_shape_path(raw_path: str) -> Path:
+    root = Path.cwd().resolve()
+    candidate = Path(raw_path)
+    if (
+        candidate.is_absolute()
+        or not candidate.parts
+        or any(part in ("", ".", "..") for part in candidate.parts)
+    ):
+        raise ValueError("NJP Video Archive shape output must be repository-relative")
+    lexical = root
+    for part in candidate.parts:
+        lexical /= part
+        if lexical.is_symlink():
+            raise ValueError(
+                "NJP Video Archive shape output cannot traverse symlinks"
+            )
+    selected = lexical.resolve()
+    shape_root = (root / ".local" / "njp-video-archive-shape").resolve()
+    if (
+        selected == shape_root
+        or not selected.is_relative_to(shape_root)
+        or selected.suffix != ".json"
+    ):
+        raise ValueError(
+            "keep the NJP Video Archive shape report under "
+            ".local/njp-video-archive-shape"
+        )
+    return selected
+
+
+def _njp_archive_route_paths(arguments: argparse.Namespace) -> dict[str, Path | None]:
+    root = Path.cwd().resolve()
+    raw: dict[str, Path | None] = {
+        "report": Path(arguments.report),
+        "plan": Path(arguments.plan),
+        "attempt_output": Path(arguments.attempt_output),
+        "route_output": Path(arguments.route_output),
+        "parent_vm_receipt": (
+            None
+            if arguments.parent_vm_receipt is None
+            else Path(arguments.parent_vm_receipt)
+        ),
+    }
+    for candidate in raw.values():
+        if candidate is None:
+            continue
+        if (
+            candidate.is_absolute()
+            or not candidate.parts
+            or any(part in ("", ".", "..") for part in candidate.parts)
+        ):
+            raise ValueError(
+                "NJP Video Archive route paths must be repository-relative"
+            )
+        lexical = root
+        for part in candidate.parts:
+            lexical /= part
+            if lexical.is_symlink():
+                raise ValueError(
+                    "NJP Video Archive route paths cannot traverse symlinks"
+                )
+    selected = {
+        name: None if value is None else (root / value).resolve()
+        for name, value in raw.items()
+    }
+    route_root = (root / ".local" / "njp-center-inventory").resolve()
+    concrete = [value for value in selected.values() if value is not None]
+    if (
+        any(
+            value == route_root
+            or not value.is_relative_to(route_root)
+            or value.suffix != ".json"
+            for value in concrete
+        )
+        or len(concrete) != len(set(concrete))
+    ):
+        raise ValueError(
+            "keep distinct NJP Video Archive route artifacts under "
+            ".local/njp-center-inventory"
+        )
+    return selected
+
+
+def _read_json_mapping(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, Mapping):
+        raise ValueError("NJP Video Archive route input must be an object")
+    return dict(value)
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -434,6 +575,13 @@ def main(
         selected_paths = _njp_inventory_paths(arguments)
         result = run_njp_site_inventories(
             run_label=arguments.run_label,
+            commit_sha=arguments.commit_sha,
+            repo_root=Path.cwd(),
+            source_ids=(
+                None
+                if arguments.source == "all"
+                else (arguments.source,)
+            ),
             state_root=selected_paths["state_root"],
             aggregate_report=selected_paths["aggregate_report"],
             governance_path=selected_paths["governance"],
@@ -462,6 +610,77 @@ def main(
             )
         )
         return 0
+    elif arguments.command == "review-njp-video-archive-shape":
+        result = review_video_archive_shape(
+            commit_sha=arguments.commit_sha,
+            repo_root=Path.cwd(),
+            governance_path=arguments.governance,
+            output_path=_njp_archive_shape_path(arguments.output),
+            max_response_bytes=arguments.max_response_bytes,
+            timeout_seconds=arguments.timeout,
+            per_host_interval_seconds=arguments.rate_limit,
+            elapsed_seconds=arguments.max_elapsed,
+        )
+        print(
+            json.dumps(
+                {
+                    "status": result["state"],
+                    "blocker_codes": result["blocker_codes"],
+                    "output": arguments.output,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if result["state"] == "shape_observed" else 2
+    elif arguments.command == "record-njp-video-archive-attempt":
+        selected_paths = _njp_archive_route_paths(arguments)
+        report_path = selected_paths["report"]
+        plan_path = selected_paths["plan"]
+        attempt_output = selected_paths["attempt_output"]
+        route_output = selected_paths["route_output"]
+        if (
+            report_path is None
+            or plan_path is None
+            or attempt_output is None
+            or route_output is None
+        ):
+            raise ValueError("NJP Video Archive route paths are incomplete")
+        parent_path = selected_paths["parent_vm_receipt"]
+        parent = (
+            None
+            if parent_path is None
+            else _read_json_mapping(parent_path)
+        )
+        attempt = build_video_archive_attempt_receipt(
+            _read_json_mapping(report_path),
+            _read_json_mapping(plan_path),
+            lane=arguments.lane,
+            capability_mismatch_code=arguments.capability_mismatch_code,
+            capability_evidence_sha256=(
+                arguments.capability_evidence_sha256
+            ),
+            parent_vm_receipt=parent,
+        )
+        decision = (
+            route_video_archive_attempt(attempt)
+            if arguments.lane == "trusted-vm"
+            else route_video_archive_attempt(parent or {}, attempt)
+        )
+        write_video_archive_route_artifact(attempt_output, attempt)
+        write_video_archive_route_artifact(route_output, decision)
+        print(
+            json.dumps(
+                {
+                    "status": decision["state"],
+                    "action": decision["action"],
+                    "fallback_authorized": decision[
+                        "fallback_authorized"
+                    ],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if decision["state"] in {"complete", "queued"} else 2
     elif arguments.command == "r2" and arguments.r2_command == "readiness":
         config = load_r2_config(arguments.config)
         selected_storage = storage_client
