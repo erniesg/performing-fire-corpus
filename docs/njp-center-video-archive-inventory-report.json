@@ -1,0 +1,41 @@
+{
+  "alias_scope_semantics": "source_local_only",
+  "attachment_bytes_requested": false,
+  "commit_sha": "bda79f0ef7d098c9acea5d9845e031ed39d98e40",
+  "counts_are_additive": false,
+  "duplicate_scope_semantics": "unknown_across_sources",
+  "exact_head_verified": true,
+  "generated_at": "2026-07-27T21:10:59Z",
+  "record_type": "njp_center_source_universe_gap_report",
+  "run_label": "issue95-vm-bda79f0",
+  "safe_scope_statement": "This is one endpoint proof; its count does not measure the whole NJP Center universe.",
+  "schema_version": 1,
+  "source_scope": [
+    "njp-center-video-archive"
+  ],
+  "sources": [
+    {
+      "access_state": "public_get_available",
+      "blocker_codes": [],
+      "endpoint_id": "njp-center-video-archive-page",
+      "observed_shape_sha256": "e6f9a2911a325fb321202b5994b257ec50ae48bf91a60553f64e38cc33e8851b",
+      "observed_unique_records": 8,
+      "page_mechanism": "registered_archive_page_html",
+      "policy_states": {
+        "access_control": "current_public_metadata_observation",
+        "copyright_lawful_basis": "permitted",
+        "metadata_inventory": "approved",
+        "platform_terms": "permitted",
+        "public_retrieval": "approved",
+        "retention": "approved"
+      },
+      "reviewed_shape_sha256": "e6f9a2911a325fb321202b5994b257ec50ae48bf91a60553f64e38cc33e8851b",
+      "robots_state": "robots_allowed",
+      "shape_state": "shape_bound",
+      "source_id": "njp-center-video-archive",
+      "state": "complete_for_observed_endpoint",
+      "unvisited_remainder": null
+    }
+  ],
+  "whole_njp_center_universe_state": "unknown"
+}

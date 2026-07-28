@@ -11,11 +11,15 @@ identifier, canonical detail URL, and decoded title, and terminates on the
 first structurally valid zero-item fragment. See
 `docs/njp-center-mediaobjects-shape.md`.
 
-The separate `njp-center-video-archive` adapter remains held:
-constructing it without a reviewed source-shape binding raises
-`SourceShapeUnreviewed` before it can build a request.
+The separate `njp-center-video-archive` adapter is bound to the one-page shape
+review recorded in `docs/njp-center-video-archive-shape.md`. It retains exactly
+the eight observed same-host PDF catalogue-link URLs and their bounded anchor
+labels as factual metadata records, then terminates. It does not request any
+linked PDF, image, audio, video, caption, transcript, OCR, ASR, or transformed
+byte.
 
-Tests alone enable a private invented-fixture contract. Those fixtures use
+The generic conformance tests use a private invented-fixture contract. Those
+fixtures use
 HTML-shaped factual fields as explicit data attributes:
 stable public record identifier, record type, language, year, and a bounded
 classification enum. Text nodes and display titles are ignored. A changed or
@@ -32,12 +36,12 @@ same Korean/English display label stay two records, and a record whose label
 changes keeps one identity. Display labels themselves are prose and are not
 retained, so no title-derived alias string enters the projection.
 
-Passing these tests is not a live-source approval and does not make the
-invented fixture parser source-useful. Before a network request, the exact
-endpoint needs a bounded reviewed observation that defines the real factual
-projection, plus current robots, terms, access, authentication,
-copyright/lawful-basis, retention, rate, byte, page, retry, and elapsed-time
-decisions through the shared governance and discovery engines.
+Passing these tests is not a live-source approval. The Video Archive binding
+uses the separate live shape receipt only to define its narrow factual
+projection; a catalogue inventory still requires current robots, terms,
+access, authentication, copyright/lawful-basis, retention, rate, byte, page,
+retry, and elapsed-time decisions through the shared governance and inventory
+engines.
 
 ## Attachment boundary
 
@@ -51,7 +55,9 @@ Candidates start with `pending` rights, `acquisition_eligible = false`, and
 `retry_allowed = false`. An exact `403` observation produces an
 `access_forbidden` blocker for that exact locator. It never authorizes a
 retry, alternate route, token reuse, referer change, login, or byte request.
-No attachment bytes are requested by either metadata adapter.
+No attachment bytes are requested by either metadata adapter. The eight
+Video Archive PDF links are inventory records only; they are not attachment
+acquisition candidates.
 
 A candidate is bound to the source that observed it. One adapter cannot record
 an access outcome for the other source's candidate, so a main-site blocker
@@ -75,3 +81,6 @@ The adapter-specific tests additionally verify that:
 - missing years remain explicit unknown observations;
 - attachment candidates cannot become acquisition-eligible;
 - credentialed, signed, or off-host attachment locators fail closed.
+- the Video Archive accepts exactly eight unique same-host PDF catalogue links,
+  rejects off-host, non-PDF, duplicate, missing, or empty-title mutations, and
+  has no pagination or attachment-acquisition path.
