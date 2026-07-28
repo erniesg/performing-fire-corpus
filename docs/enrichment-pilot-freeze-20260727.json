@@ -1,0 +1,4111 @@
+{
+  "blockers": [
+    "configuration_versions_required",
+    "image_dimensions_required",
+    "image_mime_type_required",
+    "operation_authority_required",
+    "page_visual_selection_required",
+    "quality_thresholds_required",
+    "video_exact_sha256_required",
+    "video_mime_type_required",
+    "video_stratification_metadata_required"
+  ],
+  "candidate_set_state": "frozen",
+  "documents": [
+    {
+      "asset_id": "asset_njp_video_library_8cdd40af1169a36699fbfcd9",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_a4d649aa90cbbe03ebb0d50e",
+      "candidate_kind": "document",
+      "candidate_sha256": "bcd69fac5ee60e9193d4695f1cea22a3dc569e2af86f3457aa9c078756aa4a66",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105167.pdf",
+      "object_receipt_sha256": "b7041d9475709294cbbe982dbf8c1b06eaac457388fdcdd51d14aea3610509b5",
+      "object_sha256": "3dee12b22dd3ee9acd3dee92830275b855d0b8dd46a5601565072b489e905cc2",
+      "ordinal": 1,
+      "page_count": 15,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 8002830,
+      "source_id": "njp-video-library",
+      "source_record_id": "105167",
+      "storage_record_id": "105167",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_712d5dc6d350e458ca3c2a81",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_9c1b44d9eb7839da721c1408",
+      "candidate_kind": "document",
+      "candidate_sha256": "e72460a10e9ba15aab2680609b4a932429fb78aa9b5071f55e00827a5f235dcb",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105153.pdf",
+      "object_receipt_sha256": "67dc040b44aac9e8b5364abb93af11046a54aa618f2ee18e843853e4f6c5bc87",
+      "object_sha256": "1ee3cff57e7c5aebf203b6ddbf38f6458a333b02f5140fe9be1f5aff72ab80ee",
+      "ordinal": 2,
+      "page_count": 10,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 294871,
+      "source_id": "njp-video-library",
+      "source_record_id": "105153",
+      "storage_record_id": "105153",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_d1442c1338c98c0bae44010f",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_9cb66a9336e902773b2f8d3a",
+      "candidate_kind": "document",
+      "candidate_sha256": "afecfca0b1754c26a52ac0cb75b4382fa8e842803a31a92e679812967a624865",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105144.pdf",
+      "object_receipt_sha256": "dd312c095b85a944b5ec1d23c1e7f1994c4d5323f244f013486e4925445e9a34",
+      "object_sha256": "a59d0416fc5333d3e479f5d06c56be5685a2c0115d0ac5d09328007bc859f218",
+      "ordinal": 3,
+      "page_count": 7,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4963967,
+      "source_id": "njp-video-library",
+      "source_record_id": "105144",
+      "storage_record_id": "105144",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_0a0398497f1d90062c6adaa6",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_16e523193f75657c9b888eb4",
+      "candidate_kind": "document",
+      "candidate_sha256": "af3954caaa03572275d8e960ec7bac08df204c29268bd4bcfe87a4e90eb78842",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105126.pdf",
+      "object_receipt_sha256": "b346a4213b25f450bd40c6ff25e757bee3cdedb09b9b2fe0ef7d9a3a729c8bc1",
+      "object_sha256": "798198f15ed4124ba59ba2a71f6c2a7ce9443f288a96d30cb78de0d4720e5168",
+      "ordinal": 4,
+      "page_count": 14,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 9652925,
+      "source_id": "njp-video-library",
+      "source_record_id": "105126",
+      "storage_record_id": "105126",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_c894f9323a0cba01e78fc8ad",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_1246c0c0933cafc5a12d76ce",
+      "candidate_kind": "document",
+      "candidate_sha256": "74ac1b8549ea4e9ba9eb6dcc09429e8945aa587b08f3161c0e5703b5558a415e",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105182.pdf",
+      "object_receipt_sha256": "a14f5fa5499abe3786bfbb883683935c876b1996631c1519a101d1c4f2bfef7b",
+      "object_sha256": "84e798e0a3b4ee0ab6ff1f78a59889a265cbd6ade52e1b9d0008667867f132f3",
+      "ordinal": 5,
+      "page_count": 13,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 11341994,
+      "source_id": "njp-video-library",
+      "source_record_id": "105182",
+      "storage_record_id": "105182",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_6280a192ba6b5caf507940a4",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_f213a3dffcd9387809f99339",
+      "candidate_kind": "document",
+      "candidate_sha256": "48fdb8519050112baa48946806093e6f49428cc1b34726a9441314b247068b86",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105161.pdf",
+      "object_receipt_sha256": "95fc5dd96e9438f6fb11810b48e9c9d77c067b2ba43e64318a26ce622335c1e4",
+      "object_sha256": "799a0a0ff9b4078b2c220d360c1db51ab4612d6dc1762b7023773e5573a7ecb5",
+      "ordinal": 6,
+      "page_count": 36,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 23911190,
+      "source_id": "njp-video-library",
+      "source_record_id": "105161",
+      "storage_record_id": "105161",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_a1269d0bc1fae6f78d63de4b",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_21be0c5857cac010184c6627",
+      "candidate_kind": "document",
+      "candidate_sha256": "20c5054be318f5b45422f5b32ddad4b78da63dd981be8d44e68d2ace9e0897c0",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105173.pdf",
+      "object_receipt_sha256": "ee99834ce4bd9b45406e9c9d5a941b763304206f9801899eb567df5be0758e49",
+      "object_sha256": "a8d04b9285b4d6d807c3854fd6a4791070ef1c72ab45d88bca3145b8c1f02ed3",
+      "ordinal": 7,
+      "page_count": 8,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 5127791,
+      "source_id": "njp-video-library",
+      "source_record_id": "105173",
+      "storage_record_id": "105173",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_ce232de4e1109157ca782b4a",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_17fdc6b841258cbbe4eda4ff",
+      "candidate_kind": "document",
+      "candidate_sha256": "c9dd1594279e6da51222d8a8298330237cda5ae3b11eef5aedb6e1bc53257883",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105152.pdf",
+      "object_receipt_sha256": "51887cc23dcd53116344c0ecea4488a587666b7f661e7bbadd3f212a6b9a0505",
+      "object_sha256": "73a3a6c34c9e20d88e37b1eca9e4d643a6381915014c4e387e86cc0450a69a89",
+      "ordinal": 8,
+      "page_count": 18,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3929249,
+      "source_id": "njp-video-library",
+      "source_record_id": "105152",
+      "storage_record_id": "105152",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_dd3304d7057e4b1e8f43b61d",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_8e845e44921e13d9c048924d",
+      "candidate_kind": "document",
+      "candidate_sha256": "02650be1810a4102cc9865ef2958d031233359c358bd259594f61550c33496c0",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105166.pdf",
+      "object_receipt_sha256": "41d5e2f38adfaf2f35762d974e38fd6ea1241a12316c47afbb9e966715a436bb",
+      "object_sha256": "c82a187a2e76af104b7ad7b0c319d697b6aa263da466d2bfe48c90d75517d36d",
+      "ordinal": 9,
+      "page_count": 5,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2510457,
+      "source_id": "njp-video-library",
+      "source_record_id": "105166",
+      "storage_record_id": "105166",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_1d218ca349b4bd2fa1da17c9",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_7529934adec3fcf9c4149a3d",
+      "candidate_kind": "document",
+      "candidate_sha256": "2c4c500b68d63f9184aa691e6531af2b94f9bc5aa25ade30e7ceee2b0221e476",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105194.pdf",
+      "object_receipt_sha256": "023202d078494c880ee7d3f4a35ba69fa9af90277210543abd1553768dd327c8",
+      "object_sha256": "20e6fec09fe99befe8d0a367ca5a2084d57fa6f7639534f1f312961446e5dcc5",
+      "ordinal": 10,
+      "page_count": 28,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 19594132,
+      "source_id": "njp-video-library",
+      "source_record_id": "105194",
+      "storage_record_id": "105194",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_c352e96c1d725e075f794d2a",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_5c9eba1b640fb00e8c1071bb",
+      "candidate_kind": "document",
+      "candidate_sha256": "b3e0f7acbb37a918a6e4def98c7dcbe07fe07bb91d156d70f7e6d62d87e42d0b",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105187.pdf",
+      "object_receipt_sha256": "50ae7ba2381acc5af70d07c2acb7348220d2e8597f93e9521d6ac3e1fb482234",
+      "object_sha256": "2440ae9a02c5a28e27ea91fe5e2eee6632fa76480f84b412a7283e1d80d822fb",
+      "ordinal": 11,
+      "page_count": 10,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 207711,
+      "source_id": "njp-video-library",
+      "source_record_id": "105187",
+      "storage_record_id": "105187",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_6eadf342120be5377b414ba8",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_b70fefcde2eb7314b64a870a",
+      "candidate_kind": "document",
+      "candidate_sha256": "0591f6997e39cc43f4fb2df820acf66c369931f9a446510b970fbbe3d7786913",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105138.pdf",
+      "object_receipt_sha256": "c4a2b4e92c56010965b0cd2dd20fd16c819fc0d1b6836c0864c0ab08f549ffbb",
+      "object_sha256": "91a22790839ac77ad3e663110d2b1945d1ba23d9b70e1093681d063f3f6251e3",
+      "ordinal": 12,
+      "page_count": 7,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4725231,
+      "source_id": "njp-video-library",
+      "source_record_id": "105138",
+      "storage_record_id": "105138",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_77cf13c2190a580c295d577a",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_3bc0d17ce87324074033bf5f",
+      "candidate_kind": "document",
+      "candidate_sha256": "c24951637f0093051d29c35ba63d577dcd5ef47fa70890055d74ebfdeab084e9",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105196.pdf",
+      "object_receipt_sha256": "49ddcb2eb4b9e2ee447fc621ad3a74ef3f9fb35ae5774797109e422b07ba7990",
+      "object_sha256": "430239df8adafcebfcfd9d7ec0f3bede1b0c30f7fb352629784bdbd1fbf83a3e",
+      "ordinal": 13,
+      "page_count": 15,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 10590520,
+      "source_id": "njp-video-library",
+      "source_record_id": "105196",
+      "storage_record_id": "105196",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_decbe422b9960edfc7afd8cf",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_0ddbb9d80d6d6402900ebabd",
+      "candidate_kind": "document",
+      "candidate_sha256": "e7eb846946b326d3b8472011501620a4f5ef2d3a2015edfa7c5a917962bc1f12",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105172.pdf",
+      "object_receipt_sha256": "89d283fc65b0f30ea2587efc3c424ff7c6e5b1c594a33b5cae69994e59093acf",
+      "object_sha256": "2ef0083727602e2f3e0ffbc371fe3cc226cfee36bd856d2108a7da0faba5db5b",
+      "ordinal": 14,
+      "page_count": 7,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4959022,
+      "source_id": "njp-video-library",
+      "source_record_id": "105172",
+      "storage_record_id": "105172",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_5c3721f26b2e3afac0e40820",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_36f6c2d7206aec8784b14249",
+      "candidate_kind": "document",
+      "candidate_sha256": "5db30ec050eeb8c7caeeaf8ed1c9295b276f994a4524325f0c46f1d743e4372b",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105127.pdf",
+      "object_receipt_sha256": "e54362d00bbe2e850a2480681db36a3175688c5fe5f74c3640eaaf02ea90499f",
+      "object_sha256": "13567fb90959785a3c3978b70b258492fe722a5d27cd3b1761f27e6a7735f458",
+      "ordinal": 15,
+      "page_count": 4,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1387807,
+      "source_id": "njp-video-library",
+      "source_record_id": "105127",
+      "storage_record_id": "105127",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_7ab538776b3a2f1dbd85f569",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_e7fc9ae5bee781be78abe9d1",
+      "candidate_kind": "document",
+      "candidate_sha256": "71d0f55274205eae65fc7128693f73869673786fd9e54f2a05539cb9fbd3de28",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105158.pdf",
+      "object_receipt_sha256": "193aecf12598919d3225c3591f74fc28101aeee91f54c7ee94fd1e5b3d678ace",
+      "object_sha256": "1c913bb28a46ce0f2f2246ac7c0c4d5e85a8b30c05a39498a51457a6c071e131",
+      "ordinal": 16,
+      "page_count": 20,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 12002184,
+      "source_id": "njp-video-library",
+      "source_record_id": "105158",
+      "storage_record_id": "105158",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_959fdc0462a2fa1c713727b9",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_a126bfa54ae0c16958b60169",
+      "candidate_kind": "document",
+      "candidate_sha256": "281419e93fac580dd33287204a406482e946e2a21420c00db706b38ffbd0e527",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105160.pdf",
+      "object_receipt_sha256": "35a853408674da85627820e06e8599982b5339d03fa409a9407acb54751efe1d",
+      "object_sha256": "49e03125b24594318dab9de273f72b43090987012100203ba6081db984221c0d",
+      "ordinal": 17,
+      "page_count": 30,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 20720874,
+      "source_id": "njp-video-library",
+      "source_record_id": "105160",
+      "storage_record_id": "105160",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_509cc2d1e93e699c069499f8",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_6fa1a450923892789ebea4e7",
+      "candidate_kind": "document",
+      "candidate_sha256": "fd7ea108ebe416f6d3cd907744d4d65f7b093c2f7d8ee8f46f4678ecf5c894ee",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105192.pdf",
+      "object_receipt_sha256": "7ee1c6b2379c808141cab1048a291bc9bb88c9c3d91acd1f03e7d63321e8b933",
+      "object_sha256": "3b3fa6bee84bf14ce43f7e206746d5032848a834c783f9470ffec19117139dfe",
+      "ordinal": 18,
+      "page_count": 20,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 12129027,
+      "source_id": "njp-video-library",
+      "source_record_id": "105192",
+      "storage_record_id": "105192",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_bf5af756213d575b2d4ec885",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_0469e6966ed2131f9bdd83a2",
+      "candidate_kind": "document",
+      "candidate_sha256": "f738df36628993b92b060cbf6e1709ba1070d14dddaa8460d4256832c6dd5d60",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105186.pdf",
+      "object_receipt_sha256": "10c3811ab2c2f27af780615d793fadc234896981fa3a9c4b5327c21166a44e97",
+      "object_sha256": "9016b0062ab10abca2f0dfac7e48ffb752f3a7da932731f43033d397a30a5f9c",
+      "ordinal": 19,
+      "page_count": 15,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 9993078,
+      "source_id": "njp-video-library",
+      "source_record_id": "105186",
+      "storage_record_id": "105186",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b8a1f46117ad4604a7e4135f",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_6748198e0cee43d4b274c379",
+      "candidate_kind": "document",
+      "candidate_sha256": "f983e1be10c453a98312da635350ecf464f2ab97aa23e265f45e92bfe1498b32",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105176.pdf",
+      "object_receipt_sha256": "5d51c3985e355caea3b377ad9f8d7b30203988c8d7c56e8b3be0dd13007c91b9",
+      "object_sha256": "aa42a21186218398ada67b9ed80213c0ccb21c3430614acdd17229ec185312d0",
+      "ordinal": 20,
+      "page_count": 12,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 8525140,
+      "source_id": "njp-video-library",
+      "source_record_id": "105176",
+      "storage_record_id": "105176",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_18da76462b68ebad7c938690",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_b05e06816fae5903cf073ea9",
+      "candidate_kind": "document",
+      "candidate_sha256": "a5bcb91bcd3530caac11be04955fcce5edececef363bacedadf86a91189f2443",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105132.pdf",
+      "object_receipt_sha256": "aca6c0e0ead361eaf71456c8fbd615ea4b3349fcfb2e8e301a5e5ffd746c964d",
+      "object_sha256": "0494be00dd28354dfd39174d6be3de42319c489a57a3a251c9d72e116ed9d9c9",
+      "ordinal": 21,
+      "page_count": 22,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 16429937,
+      "source_id": "njp-video-library",
+      "source_record_id": "105132",
+      "storage_record_id": "105132",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b6a6783fa69861d3ea1830ae",
+      "blockers": [
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_2b7a28ede3176fd2710398a0",
+      "candidate_kind": "document",
+      "candidate_sha256": "e1c278e230dd158656d32cccf5a13b580c88d4301c6ddd83918ad3a48ca331e7",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njpvideo/pdf/105146.pdf",
+      "object_receipt_sha256": "085a90aaf71558c85b0a245b2194705547a6a13ea58e11e65e93339f33cad64c",
+      "object_sha256": "d454bcbc9c25ce266ac08cda33e20af77be6ff9dcf4881f4f7602de680abcf81",
+      "ordinal": 22,
+      "page_count": 6,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4122966,
+      "source_id": "njp-video-library",
+      "source_record_id": "105146",
+      "storage_record_id": "105146",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_6dbb9964c3f45c262542e083",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_3b4db7d42ad187eb1e0e8019",
+      "candidate_kind": "document",
+      "candidate_sha256": "5733b4e1330ca74651ee3188ce79b759a8f46f1b4592361f5509df87f9ebd288",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/04-gN8WZoNniyY9DrxjWqDCznKiIERhq7rMB4hxQQ7v.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "0494be00dd28354dfd39174d6be3de42319c489a57a3a251c9d72e116ed9d9c9",
+      "ordinal": 23,
+      "page_count": 22,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 16429937,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_dbde9929a19810ca",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_86003c0900be7406a5c726a3",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_fab457a0c389d449c022fcf5",
+      "candidate_kind": "document",
+      "candidate_sha256": "5319eab0edd50e65f5870dd140a9b23dde7fe35342a63731fe2154476a2e03be",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/01-nP2DybQ0TFmSh9eNcZzZKmynjUwmscuyvGvsuLYk.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "cc44968d846758bf3a2fc82728b49e09ea6a76ec462199c9c910d7c287acd113",
+      "ordinal": 24,
+      "page_count": 57,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 336810,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_d18cd88b5b6add92",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_8f22e5556b69e939ff0ae264",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_3e796ab44dbc8b09483d29c0",
+      "candidate_kind": "document",
+      "candidate_sha256": "7baa99c2379799c13a484a46df9121dec2ed3c081d565beeae9c0cc9e7c0a134",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/07-l9zFW9PbqkNDZ8q6scB7sxYb9Zyskwu0lI642fmR.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "73a3a6c34c9e20d88e37b1eca9e4d643a6381915014c4e387e86cc0450a69a89",
+      "ordinal": 25,
+      "page_count": 18,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 3929249,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_70f9a92f7c70db86",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_051325e3a53bfd2a9c35022f",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_29fce86287dca174d6089369",
+      "candidate_kind": "document",
+      "candidate_sha256": "b8bd4a26e7933bd9bf979c6af1b71a2fab52318961ffa9fe0684a7a3f0889069",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/03-UvYwlfIrmuTEL0FdV51ZqGUCSaPLOKIHIEdAGo2S.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "3dee12b22dd3ee9acd3dee92830275b855d0b8dd46a5601565072b489e905cc2",
+      "ordinal": 26,
+      "page_count": 15,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 8002830,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_cd7203aebaf8e8b3",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_797db8c01235d001f9bb5cb4",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_2dc8e57f064d2b847549acec",
+      "candidate_kind": "document",
+      "candidate_sha256": "00bd120480368a00ef5406969d6e72c8d42bfc6e829be961dc0fce670be66496",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/08-vmj5McpYVr00xmC0dm7IDdnA4FuY1zv3liXTKhx6.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "c24c39a865d37fa3c0ff318c60c56fbf05197fa2985bf1c67c94766691d300f5",
+      "ordinal": 27,
+      "page_count": 14,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 3212621,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_bc596d78dac796c8",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_e91ab557858ffd969d52e04a",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_aa3d703e6ae7c4daa717e141",
+      "candidate_kind": "document",
+      "candidate_sha256": "3b3ab8abef753697de53eb576945a873063ee94e062254d0f633036873f6bd3f",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/06-gMss7qoi91FwAenTFAatNjqenBRCQ8Q8xykKYKVT.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "101a4a1312727102bc68bda27c451f3eb060e6596f1ff4bb0813036c5dd6cb18",
+      "ordinal": 28,
+      "page_count": 15,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 15445216,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_18a35f029e7c4249",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_4804e440479298fc0e63be73",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_e7369d30b5d40b7e4bf2ad45",
+      "candidate_kind": "document",
+      "candidate_sha256": "aa784035bfa337031a16bd01dfc86639f65f9333322521ee4ffaee20970bc497",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/05-4R8TzZ9SQmaggmLQesJFItZbqxGC7cghDcZZ0hgY.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "620b4e9c09583657d9f261d3fe2a5d421aced03e307d2bf9af6fd49565843a07",
+      "ordinal": 29,
+      "page_count": 15,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 12552391,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_717d408848db94e4",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_center_video_archive_621a0aff515c7112248f90a1",
+      "blockers": [
+        "exact_object_receipt_required",
+        "operation_authority_required"
+      ],
+      "candidate_id": "document_candidate_9c2b33721d7cf88794f11b65",
+      "candidate_kind": "document",
+      "candidate_sha256": "fc8c5c8a39aca761e87fb1051ed6a7531a02affd39105d54b5b386bfb06709c4",
+      "control_role": "negative_control",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": "application/pdf",
+      "object_key": "njp-center/videoarchive/02-APgfnKRo8eL0DdvbZRcIUOtmxrnv4GPeRFqTpfUx.pdf",
+      "object_receipt_sha256": null,
+      "object_sha256": "7c98fa5f96b10ccc4acae8b78679f0806aa563af614b6f1017c4220e82929e47",
+      "ordinal": 30,
+      "page_count": 15,
+      "selection_rationale_code": "archive_control_hash_rank",
+      "size_bytes": 6353095,
+      "source_id": "njp-center-video-archive",
+      "source_record_id": "archive_pdf_00c115769dc12277",
+      "storage_record_id": null,
+      "width_pixels": null
+    }
+  ],
+  "execution_contract": {
+    "authority_issue": 92,
+    "candidate_kinds_separate": [
+      "human_caption",
+      "image_text_triage",
+      "local_machine_asr",
+      "machine_image_ocr",
+      "machine_pdf_ocr",
+      "native_pdf_text",
+      "platform_machine_asr"
+    ],
+    "concurrency_limit": 1,
+    "configuration_state": "pending_version_pin",
+    "quality_threshold_state": "pending_human_review",
+    "review_mode": "exact_hash_source_beside_output",
+    "stop_conditions": [
+      "cleanup_failure",
+      "input_digest_mismatch",
+      "missing_current_authority",
+      "output_conflict",
+      "provenance_drift",
+      "review_surface_mismatch",
+      "unbounded_cache_or_output"
+    ],
+    "tool_boundary": "local_offline_only",
+    "transformation_authorized": false
+  },
+  "execution_state": "held",
+  "freeze_id": "enrichment_pilot_freeze_977611c51c8485bb0c7c6711",
+  "freeze_label": "njp_enrichment_pilot_20260727",
+  "images": [
+    {
+      "asset_id": "asset_njp_video_library_aa4df374a64b9522eae01395",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_8decc99275c490c48b567d5c",
+      "candidate_kind": "image",
+      "candidate_sha256": "0bca793ac27eeba5c5fd89f1e3c0828ea9b4e2939e19e1bca28c8a04d0381646",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106213/Proxy_106213.jpg",
+      "object_receipt_sha256": "5d7b59d12dc4cdfa08f5e784613cd05dda34961335ea7aa5499fbc9097503b22",
+      "object_sha256": "4ddf886b016df09b81240a06c12185037f6a71fd6c50203e4b698e80dd97a6dc",
+      "ordinal": 1,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3037425,
+      "source_id": "njp-video-library",
+      "source_record_id": "485",
+      "storage_record_id": "106213",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_04c0ebe9d68ff1adede58d75",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_c03973eb6930c7fa12ba1375",
+      "candidate_kind": "image",
+      "candidate_sha256": "cd88297fde8cc9b158e5c6895db3d45f965bc243d34dea4c7e3190268b086a6d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106412/Proxy_106412.jpg",
+      "object_receipt_sha256": "c9368294b551415eecc05edf455f224320e7004df983efb360af007884f3a68a",
+      "object_sha256": "212dd5a91a8ca54f5670b570c67f6ca1e8d4fb08f515df397514a510f406fa50",
+      "ordinal": 2,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1146061,
+      "source_id": "njp-video-library",
+      "source_record_id": "611",
+      "storage_record_id": "106412",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_c5e7d4bfbcbc1791c7d93f70",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_1db250d059d7b9730f66290c",
+      "candidate_kind": "image",
+      "candidate_sha256": "594c56e0c33c10d79fb619d98f5e95858955ef8f91df5117eba4f8825904bd17",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106230/Proxy_106230.jpg",
+      "object_receipt_sha256": "23e2ba7a9192231087dd28969b8fa9d1e0b7dc23f4a6601115db0d13ed283328",
+      "object_sha256": "ce9c5dad2aefe7e092ddd7321772ad160bfd13c6d30a233943cfd0b1f2e9f82f",
+      "ordinal": 3,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1923604,
+      "source_id": "njp-video-library",
+      "source_record_id": "501",
+      "storage_record_id": "106230",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_73d7b7d13e823f76887c0adf",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_0a7457d9cb177a93a1f146ab",
+      "candidate_kind": "image",
+      "candidate_sha256": "9c30d5f0a4f70bf4c60f397426282798ad1a430652a12256c66e54dcf6b6425a",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106484/Proxy_106484.jpg",
+      "object_receipt_sha256": "0eafae8780f6c8c85a592787a2652f55474ec1c2e79363fbdffb65edc949bf88",
+      "object_sha256": "4188192e8fe44872d9dd665d508b3668c31911a36bc68a696906c98aa4956503",
+      "ordinal": 4,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4321161,
+      "source_id": "njp-video-library",
+      "source_record_id": "656",
+      "storage_record_id": "106484",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_e3f6b86e88f417be99006d4c",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_64194b55fd7f162087501ef5",
+      "candidate_kind": "image",
+      "candidate_sha256": "4c82080edea3ff1f3d93b3990bdc0235d70ae2a26e3ce4a7be6f9f67924f103c",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106244/Proxy_106244.jpg",
+      "object_receipt_sha256": "2bec08807cbe7fcf5e34f8fa4dea794d8ac7998e57389595b665ede5c41c2ebb",
+      "object_sha256": "11c39b07f34f8efb3939f60a4635ac4f3e082048d71e8e071948b685ab6c13b6",
+      "ordinal": 5,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3804978,
+      "source_id": "njp-video-library",
+      "source_record_id": "514",
+      "storage_record_id": "106244",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_f9eb77c228d97742a3f2e855",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_983b14aa30d8a40dd6b27aa9",
+      "candidate_kind": "image",
+      "candidate_sha256": "64e031cd4fe9a08340544d603c8652eaffca1ec67759fd3898513ba492598c88",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106204/Proxy_106204.jpg",
+      "object_receipt_sha256": "fa4b88aaf437bfbd924aed003fd4a9f9fdba554811e57310c614704a779320f9",
+      "object_sha256": "cfd8731e363e678ed71994159f82f5511a41ba83ebec25ff65d282efba8fa42d",
+      "ordinal": 6,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1910431,
+      "source_id": "njp-video-library",
+      "source_record_id": "477",
+      "storage_record_id": "106204",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_cd79100e1b00e976c3e7a01b",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_389ed00910a3a53a98dbdacc",
+      "candidate_kind": "image",
+      "candidate_sha256": "77062904a18a1c8ac8ccfd53a04ae04124e341dd47a6d4041d215d565a92acde",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106422/Proxy_106422.jpg",
+      "object_receipt_sha256": "7827beb53ed3e8bde009cc7cc099c0a1b6672536f564fbe94e912d84c34eed8c",
+      "object_sha256": "5669b263806ecc109a808435beaec4f7f156262da2d8ffd31c8c159936a560b0",
+      "ordinal": 7,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1741254,
+      "source_id": "njp-video-library",
+      "source_record_id": "620",
+      "storage_record_id": "106422",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_4e3f6fc9b8d88063522f3519",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_dadc6925028319de0df99754",
+      "candidate_kind": "image",
+      "candidate_sha256": "d9b0fe4381cd869ec59d7cc3762c9ab2d5ed58d7135b80cc693bf43fc981d00a",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106216/Proxy_106216.jpg",
+      "object_receipt_sha256": "14e7b9f93cb1b97d9bd7761773edc082d440340ffa09a3ea6b2931cbe283c168",
+      "object_sha256": "a8abd8aebaaddecb087fc5d1cd5a0abf5726dd6725e252d59e638084d6f09397",
+      "ordinal": 8,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4486307,
+      "source_id": "njp-video-library",
+      "source_record_id": "488",
+      "storage_record_id": "106216",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b5b3c072ca2951a88cefa21d",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_e4f8502d5f31a7927482c305",
+      "candidate_kind": "image",
+      "candidate_sha256": "6e3e81ed27e309e11a425cec5a83ac70c0ff25e22bde3d1cbeefdf44e8d1a3be",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106424/Proxy_106424.jpg",
+      "object_receipt_sha256": "c7647b360cf929797c3309b8987fff55e75d292f3809229fbc8957aeef1b1314",
+      "object_sha256": "acc9751a33d6a8b82d0f6162275ab7bafa2a57f78c1ffef3ef28f33d0c08fdb9",
+      "ordinal": 9,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 928424,
+      "source_id": "njp-video-library",
+      "source_record_id": "621",
+      "storage_record_id": "106424",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_a42e1632ee6f8d905fe2edb8",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_959eff0f340a34a12aa9f4ff",
+      "candidate_kind": "image",
+      "candidate_sha256": "487a27a65414b4d7c17d04e70678c44a0c651bbc7330c38e62defd9202585f77",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106417/Proxy_106417.jpg",
+      "object_receipt_sha256": "c6f3de9cbc19a27d711d8d5b3120be8f110f4998df1a9da690d0959df843e91d",
+      "object_sha256": "ffae6dcdeffa780a0c6f04e175a3f791e729bedaf286f982269059dafacf4973",
+      "ordinal": 10,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 992480,
+      "source_id": "njp-video-library",
+      "source_record_id": "615",
+      "storage_record_id": "106417",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_f90a389b8eb85f001824046b",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_6d811be969c3a5cf34a64520",
+      "candidate_kind": "image",
+      "candidate_sha256": "8413cede4aa5d47dc9aaaef1fd5fb23063b7a4e487fd71d6a48d93f75f65e2cd",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106316/Proxy_106316.jpg",
+      "object_receipt_sha256": "14d2bf6f32bfb38c4d14de4071ba6d48ba027cbd355c76334ce06874092748ad",
+      "object_sha256": "2f1d6a320226e39f193101661501d895f63d9eb020b5ad749db260f6952b69e3",
+      "ordinal": 11,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2266484,
+      "source_id": "njp-video-library",
+      "source_record_id": "557",
+      "storage_record_id": "106316",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_cdb964ebc75ebb601c99f8e7",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_290c44cca34631e992c51ae0",
+      "candidate_kind": "image",
+      "candidate_sha256": "1f09ebe17caf6c770ac68719b40edce98c066cbf856770a9e744e03d24df6097",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106366/Proxy_106366.jpg",
+      "object_receipt_sha256": "6e4c54093c9aa6bf39731f4c09da9197ee2ab42bb6a5830f466c66e6a39fdde8",
+      "object_sha256": "d5826dc1fb6e6ff86fdf7feda7e29160fa31105fd47dd8412763d76c3cff3501",
+      "ordinal": 12,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1616544,
+      "source_id": "njp-video-library",
+      "source_record_id": "588",
+      "storage_record_id": "106366",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_57ddc3629aa4f348ee898e9a",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_f92ae532d7637206aa7301bc",
+      "candidate_kind": "image",
+      "candidate_sha256": "905e72160e7d04d8b300776622cddc9bf7f46b92a3632fc75e949ec54f06456a",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106466/Proxy_106466.jpg",
+      "object_receipt_sha256": "74a3b6fcfdf2cc854e2b142418d6af6bd4d2e912346ea8f24828951798b7c5be",
+      "object_sha256": "7cfcb3835b1f630f0ba7e2b4d1b2f70938b0282fb5e5bd0253729b071dad872e",
+      "ordinal": 13,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1330758,
+      "source_id": "njp-video-library",
+      "source_record_id": "650",
+      "storage_record_id": "106466",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_9ee13e80e95fa68a430af88e",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_df933d444b39d94e3a167147",
+      "candidate_kind": "image",
+      "candidate_sha256": "cc35eea17e6436228e34a1c2e9d19a47088a27c516871bfd84403a1c5fae4fde",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106350/Proxy_106350.jpg",
+      "object_receipt_sha256": "2a9fc520631bd2db687f6079da4060da9b028c3710a5e94928b91ec3bb068ac0",
+      "object_sha256": "3c0fa382939bf71c8032616d59b8d4b566f66710b35c855bbb7935060ffb64a2",
+      "ordinal": 14,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3752309,
+      "source_id": "njp-video-library",
+      "source_record_id": "574",
+      "storage_record_id": "106350",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_011d9b89c761454e1e86ddb5",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_b9929b290c3632a1fb1d6050",
+      "candidate_kind": "image",
+      "candidate_sha256": "0ec9717e43fac9af7721664ca98e8a7b1a7a385fcce50133b9efb977d5404c72",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106395/Proxy_106395.jpg",
+      "object_receipt_sha256": "ba5b984f8280e824e00cd48856b4fc0848a35c479f1ef68c2b64c3747762b6b8",
+      "object_sha256": "7dcfb1e2266961a0760dd9dd5660b63052289c70023220cd693f5df2385f5ca2",
+      "ordinal": 15,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 846765,
+      "source_id": "njp-video-library",
+      "source_record_id": "606",
+      "storage_record_id": "106395",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_df9e3520ac7697d4f6d65f0f",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_e2823b4eda6805628d5b8d73",
+      "candidate_kind": "image",
+      "candidate_sha256": "c93b92bf604cb3ec7d040c17a05c6f103d0ed0abdda892a7871a3308c98b6213",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106222/Proxy_106222.jpg",
+      "object_receipt_sha256": "873b5721e1e20fa7a9f60c48ab864067cc883d9e21d3b00fb6d377557ab634d0",
+      "object_sha256": "702ada9c7c46e919198c8c3d4a740c296256274d8ede838efae89e52d19fd98d",
+      "ordinal": 16,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2672360,
+      "source_id": "njp-video-library",
+      "source_record_id": "493",
+      "storage_record_id": "106222",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_68c49094a77f6b4cd296f375",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_899aeffb662e720ed7023565",
+      "candidate_kind": "image",
+      "candidate_sha256": "4c2a3498b3e0acf77401fb0de8c60f619c4f309fd2eb757e2a8e8bfd1e4fdac6",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106198/Proxy_106198.jpg",
+      "object_receipt_sha256": "6b851ed2f67f991e238bd7eb8c26d4746acd23e0695711394e008f429485515b",
+      "object_sha256": "6c8d4d511d4fc7ba546a20039e8e957e6b1c8a9fb8eda3e15319cb4e43cf9792",
+      "ordinal": 17,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4746109,
+      "source_id": "njp-video-library",
+      "source_record_id": "473",
+      "storage_record_id": "106198",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_adc12e6b62474214da8cac9b",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_f6c2d07de656922f7f6398b3",
+      "candidate_kind": "image",
+      "candidate_sha256": "18a75b9bb259f3785038afcde6211d9946d9dc974269b5756a7eb6b5b818b576",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106180/Proxy_106180.jpg",
+      "object_receipt_sha256": "d3b8412ebd97a8ca2d5ae3bfdce6d4617231e86960ba1edb33ff9e5ae05ac18e",
+      "object_sha256": "ed4b1cb9910fddcffa85a3bd2b8fe0c89cdaa3e09ac1eddb1f98d9f528db7f48",
+      "ordinal": 18,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 4280996,
+      "source_id": "njp-video-library",
+      "source_record_id": "456",
+      "storage_record_id": "106180",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_255cd2a73c12e78f544b2beb",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_24add7f77a3d3cad09eeca63",
+      "candidate_kind": "image",
+      "candidate_sha256": "76c4552071f876cea95c8818f65c6bedbf8d139dfd9370e8e49c50eb58692b7b",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106465/Proxy_106465.jpg",
+      "object_receipt_sha256": "f94d4daf4985063808b4d7aa7a690838733fe662d7a52c5f627d1d8d3d7bf53c",
+      "object_sha256": "ce408b769d98f659ed989a3ce7f0acaee4be41cf479d7fd5c5df98408c252bec",
+      "ordinal": 19,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3670934,
+      "source_id": "njp-video-library",
+      "source_record_id": "649",
+      "storage_record_id": "106465",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_f9558551f49cbe85d4d22d57",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_5bed2c89550776b21e0a95f2",
+      "candidate_kind": "image",
+      "candidate_sha256": "fecc64b262fc6ef38a6f71e185575d8775e6557c23096b714a7c6039e2f8b02d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106442/Proxy_106442.jpg",
+      "object_receipt_sha256": "dfaa8fce8500dfc9c35ffa64b4cd6cb1cb5c5310f6f07c73ab776fe7cc662fd4",
+      "object_sha256": "0e629dd9cbab0c44d814178e774ff33cfe139f0bad21731759e9e11ac542c637",
+      "ordinal": 20,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 639629,
+      "source_id": "njp-video-library",
+      "source_record_id": "633",
+      "storage_record_id": "106442",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_9cc9f6169f7f245c3839c0cf",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_d0cad4da96affb191fe8ab1d",
+      "candidate_kind": "image",
+      "candidate_sha256": "8d28cb422846d359188a70a9611e35ddafc62ce5d5d1179f9f7738ffdf5d4060",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106306/Proxy_106306.jpg",
+      "object_receipt_sha256": "a97aff9a3eb41a588c07394cd6c76c5fe8a32f547f662aeef0056b7eb6503bd2",
+      "object_sha256": "5d5d5bb62317b6b9f80f7bb3889ec85d0e5495d824bdd3273292fd9c763f47e3",
+      "ordinal": 21,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2909385,
+      "source_id": "njp-video-library",
+      "source_record_id": "552",
+      "storage_record_id": "106306",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_7f4a7c6dae6250d3c7ed5337",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_6d1f84aba0d21362521cc9a5",
+      "candidate_kind": "image",
+      "candidate_sha256": "a3b37d2457c4bd1e2766ecf95f2c8d40eba7f8ab14c38e6eace4b8dc4fe672be",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106280/Proxy_106280.jpg",
+      "object_receipt_sha256": "4fba0758d8c6d1c135d5d582ffeb6c33b79b25b096cc63016b8c01d5bd104cec",
+      "object_sha256": "8af8f938a59c84821b05c77fbba6ffa1cb9607362eb4c6e1f6b565aede4432e7",
+      "ordinal": 22,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 766214,
+      "source_id": "njp-video-library",
+      "source_record_id": "536",
+      "storage_record_id": "106280",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_e9c3e2a6b7d29463a82a3a2c",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_8060f60cd90b2f05c4d36bf0",
+      "candidate_kind": "image",
+      "candidate_sha256": "7e3eda43c123ec930d9b72496b8741bab97d9f4f913604f946f2950535073cc4",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106416/Proxy_106416.jpg",
+      "object_receipt_sha256": "e976f13f6640863a28b1412ff2e86d77c3fad6005fbae3523132877528567914",
+      "object_sha256": "3869b6bfba845e338bc7d4c7178b19247ab104ba6bc5810234c8162a2f935412",
+      "ordinal": 23,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 858937,
+      "source_id": "njp-video-library",
+      "source_record_id": "614",
+      "storage_record_id": "106416",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_7abd86700c4a2b9d332c8403",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_0c2c3a15636806f3a2c437ba",
+      "candidate_kind": "image",
+      "candidate_sha256": "7685154bd4081045c4646f16a3145b22b66fb92263c564d2f9a514526017146b",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106223/Proxy_106223.jpg",
+      "object_receipt_sha256": "5de5a801b1413081b42f24551419109a5c79278161a6e9982973302ac0169453",
+      "object_sha256": "c8142e6adce46129b49f12a15db456c7087db700608257c56536f7e7789af180",
+      "ordinal": 24,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2935459,
+      "source_id": "njp-video-library",
+      "source_record_id": "494",
+      "storage_record_id": "106223",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_64bc92b838814a85a18b3e4b",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_d359aa5e24cd3b640c4cc3a4",
+      "candidate_kind": "image",
+      "candidate_sha256": "6502235b5a347f7973e4d07e616a4519287179d92fc9e73a057d87fa8f2b7dcc",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106462/Proxy_106462.jpg",
+      "object_receipt_sha256": "90fa5d545dc50482fb3c07cd10a0cfee3e4c67335a99f904b1a47c287e49a910",
+      "object_sha256": "3399b368fce340ff07dbbb96ac67fededc545d163dfe34c4d92fe29f88186bfb",
+      "ordinal": 25,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 1585812,
+      "source_id": "njp-video-library",
+      "source_record_id": "647",
+      "storage_record_id": "106462",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b3d89ece3eac60c022a4ce49",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_6edf018a5675e71e44dfbf40",
+      "candidate_kind": "image",
+      "candidate_sha256": "901f59490203d7bb9f72dc01a656815895d1c9f3e7a638123bcf8f60b115ab92",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106302/Proxy_106302.jpg",
+      "object_receipt_sha256": "5d91fc829c226e9f42e1a70bce3fe6488c215196e8eba995af41eb0f8367803c",
+      "object_sha256": "d6b8792ddf4f42c3de7cfd5e1a2e997b4b80462cdfc61cb2aba516a5c8b7427f",
+      "ordinal": 26,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2994912,
+      "source_id": "njp-video-library",
+      "source_record_id": "548",
+      "storage_record_id": "106302",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_3b165e02652357335fe84572",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_7c52dfbe36a0225451b6fce7",
+      "candidate_kind": "image",
+      "candidate_sha256": "0c4a94f7bc4f2cfc9c953939c718c9afb7cf3188b968a1bee3765512454b604d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106315/Proxy_106315.jpg",
+      "object_receipt_sha256": "e737abdbb118973b5535fc0020b41f4f784d0cab76d19a6e8c9492169e8d3edc",
+      "object_sha256": "7b8f48ce7c527dce100cbeb621c3a2500940a492afdaf0d07bd5aba46d6ebf14",
+      "ordinal": 27,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 802433,
+      "source_id": "njp-video-library",
+      "source_record_id": "556",
+      "storage_record_id": "106315",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_3baf00bd737074622a58cea3",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_3f9c9435474b1073df847916",
+      "candidate_kind": "image",
+      "candidate_sha256": "30000422bc6723d5373fbaae7b03dcda873d5ff3e6b186c71bc65c2767884575",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106284/Proxy_106284.jpg",
+      "object_receipt_sha256": "66d01d7d80a2699bb8467e0d5e060adee4c50aa2d4e9eb74cf17ed21c156b906",
+      "object_sha256": "354de85bae7cb35ebbed81e152bbfe55d9a686e67be343736b22a2f7f5284bdd",
+      "ordinal": 28,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2576276,
+      "source_id": "njp-video-library",
+      "source_record_id": "538",
+      "storage_record_id": "106284",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_1b4a7cc9f2ecacf8532f8f0c",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_75857500ec0c352ae3cc5314",
+      "candidate_kind": "image",
+      "candidate_sha256": "ecf1d213d55ab761310c10ea794fc0cfbdb16f17195a212773f81c384c709d17",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106299/Proxy_106299.jpg",
+      "object_receipt_sha256": "e482fccf0a80a7bf1eadf88e5f3007bab4732045ab8e6b526afe45cf63577f25",
+      "object_sha256": "ddb500605d77b512e7bf7ea82c5d537e2b435bf4f76ca4f3614b2bc539881465",
+      "ordinal": 29,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 3452521,
+      "source_id": "njp-video-library",
+      "source_record_id": "545",
+      "storage_record_id": "106299",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_4949a789c1072c10d91a34af",
+      "blockers": [
+        "dimensions_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "image_candidate_289a56f90196b387aa3e9b0a",
+      "candidate_kind": "image",
+      "candidate_sha256": "e8d2672a217e896fa34689d3a1e3b86315282b7f730abc71fe6c1e3e7b3b32e2",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/image/106192/Proxy_106192.jpg",
+      "object_receipt_sha256": "2c8767e460e66d9c28fb65c593c85d83d503c6ef1616560bc215fcecdb32259d",
+      "object_sha256": "711328d2b609220be49245355010c33202b7c4282e687bd6f1e2fb5742bdd261",
+      "ordinal": 30,
+      "page_count": null,
+      "selection_rationale_code": "stable_hash_rank",
+      "size_bytes": 2719401,
+      "source_id": "njp-video-library",
+      "source_record_id": "467",
+      "storage_record_id": "106192",
+      "width_pixels": null
+    }
+  ],
+  "linkage_clusters": [
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_f4440691ab4fae126a99306d",
+      "cluster_candidate_sha256": "d77e1bd5536ebc030fcbeba2fad23d2ea4b0b7e12282d14a7733c062c569f45f",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_917e709aeaaf6037d982a90a",
+          "metadata_snapshot_sha256": "f3bcffec1d06417bb8836ef6e2cf2d878e371b7324fea5d3a380e874b2b49e32",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "16",
+          "title_fingerprint_sha256": "c652ee574c9a7410481962655faa75abd1c2da4651ab80a426f9515f5abc61e6"
+        },
+        {
+          "asset_id": "asset_njp_video_library_581394f456fd12b274a16b58",
+          "metadata_snapshot_sha256": "e5452cb86cb861599662ef66b0b6c615c3e6ac68ce212bb3c0b735654efc47c2",
+          "object_receipt_sha256": "5fe79b01b7543a5c8384f0768fdc7e8781265680d7c04e4f13635996bb73ea1c",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1148",
+          "title_fingerprint_sha256": "088aca084d8dfd94bff5685e196403fe0e293a7a5d5e24244b962fc5e5f39728"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 1,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 750
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_ae4cf59fb628725b02d79be0",
+      "cluster_candidate_sha256": "6d1eb2171e36de117489c1404b7fe8f412b7c381c5746b350873bed0cdef032a",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_84d44412afe17962cc89478b",
+          "metadata_snapshot_sha256": "3b8a7bef50d1521ba1ae7fcbe677fe23da0e1e0855040984dfd6b695746c231a",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "4",
+          "title_fingerprint_sha256": "fa0f315bd97855bb45f0690143b244c86dc8a76d8076cb3d8ae39c657017fcca"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_e10d85459408235bd4e66521",
+          "metadata_snapshot_sha256": "1840e40b755ac4fc73a758c1f9d3fc23b8a63dd846e326ce3cf52d4f2964303e",
+          "object_receipt_sha256": "1840e40b755ac4fc73a758c1f9d3fc23b8a63dd846e326ce3cf52d4f2964303e",
+          "object_sha256": "ec3979228f576c76b7e4d3f00ea03c99ed0b42cbb3ea41a80bff0ce1556ffa61",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "pCF6x3fnv64",
+          "title_fingerprint_sha256": "f98d7c2cdd9e0b3d0c5d3ca8049fd72897f7188d2c106a1ab1fed83343cd8f89"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 2,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 833
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_2af77812d0659d96b3330002",
+      "cluster_candidate_sha256": "1886fca5efbb41019c9f32e4bea4644cc55fb5bbc32cd7593310e277a9a0c5a6",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_7838d09da7ae845a508d77ed",
+          "metadata_snapshot_sha256": "34a6fb38fcecb5bc86510d274d03a676b12e843624d82f5a3eba8fa3e524bbbf",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1290",
+          "title_fingerprint_sha256": "5d291ec83df0b5e12f96dd3dde2e65aed56cb2d11824f5939db6e5250c96a619"
+        },
+        {
+          "asset_id": "asset_njp_video_library_481b8bd9314a69b6f0f495f6",
+          "metadata_snapshot_sha256": "c91fc7fc877a71f068e38565e84a090919164de9dfb06d4ec9e21c1bb4d9432c",
+          "object_receipt_sha256": "2a4b195b57ba608662a82aab9059cb386c4ca94247a077cc39b3142f5836f641",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1196",
+          "title_fingerprint_sha256": "bf2baf57db244ddae2b872fa85ce3d4a8f12953189f999cfd128ddd0400cae23"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 3,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_14516095a39780f9b99fe358",
+      "cluster_candidate_sha256": "92fe1813c7b2dc275b4261d90e7b4dc3ac54d03abba9b8acfe927b9cfdb60b04",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_video_library_6b84422012ce7f83309a8ec1",
+          "metadata_snapshot_sha256": "9476157988ad82da8b85352d9ef5d6dab48e7bbc8de500059a47b486f641649e",
+          "object_receipt_sha256": "d911f27049bfabd44a456df77ac23ee09be223f6b34d8dca0b2afb4b23bce454",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1134",
+          "title_fingerprint_sha256": "088aca084d8dfd94bff5685e196403fe0e293a7a5d5e24244b962fc5e5f39728"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_da2127d4f97ba4c9b2efaefd",
+          "metadata_snapshot_sha256": "70129740348af100cb0d38fe7ae4d0e387ef4348cc65975a386f96ea3a554ad2",
+          "object_receipt_sha256": "70129740348af100cb0d38fe7ae4d0e387ef4348cc65975a386f96ea3a554ad2",
+          "object_sha256": "f7a1fe56f0f4e067413a82a7097775848db52b1b566e4d340d7a71424cbebd89",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "9IubSKLvq-E",
+          "title_fingerprint_sha256": "bb78af59e6af379484eb74cb9b2ab051ea38512fe3cea1901fd68e48bdfac946"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 4,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 500
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_bbbdb6166bbb7263771206c8",
+      "cluster_candidate_sha256": "4cb1c372dd3fe7b123dc74ba477f82eb587e04a6a4135316c241922cc5a59d9b",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_c6778a8d766231a10d165cae",
+          "metadata_snapshot_sha256": "d935dd1de524ef6283d4309def5135e5b78ed76a7441e722dc1c03a99ffda118",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_415",
+          "title_fingerprint_sha256": "95801438bc6b3941c800637f85596359825c45abf4cb21b1917b93a6f5189890"
+        },
+        {
+          "asset_id": "asset_njp_video_library_4ef9adfd105f843a3483c1ae",
+          "metadata_snapshot_sha256": "b8698d8f085e582bc9fa7a22adad331e2f823f5e7da4f0562524f7d65fcd7971",
+          "object_receipt_sha256": "b14589f6dc92ef22d99818c97eb84e5fabe4a6c862ca78fc541020371bf8beae",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "878",
+          "title_fingerprint_sha256": "f30eb5cd058a3cb2ada1c6008166dbe5ed302a0b98090714e1982eb43b966f49"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 5,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_d4ebaf15c94e09986010542d",
+      "cluster_candidate_sha256": "a6956aa6fa4dac53d60d4c99d499faf969f8f17d0795a9ffecea6b2e6214bf91",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_20e092f440ee3c3fc27ab670",
+          "metadata_snapshot_sha256": "e0fa6b135611feb80f1819de5708b27e255f9dbc2ecf3c4de996306c723aae9e",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1056",
+          "title_fingerprint_sha256": "404d22b21c8b45cb52c53ec0fb60788dceaa66d90a3f650564fb273e08a2eeb1"
+        },
+        {
+          "asset_id": "asset_njp_video_library_cf194685321fd2ef2ca14203",
+          "metadata_snapshot_sha256": "f8407e66a7161d9f1733d3b2f2664abfce927872c2f720bbc48c7757bbe9e255",
+          "object_receipt_sha256": "282ea78c26191e42bef7481241f12e698b6cfca257831e801bc6710b44265d7f",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1042",
+          "title_fingerprint_sha256": "b2586528863b26d1ee73a432e3cd8680e37c05ab6ea6812ffedd8cc3a3a66b09"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 6,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_eec600a4c431f1a102b68c86",
+      "cluster_candidate_sha256": "c15ad3e607de7520ebb0771b13d8bbe67c9221777e7a0e92d1ac0cdea16befa7",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_43e77fb0f3e7a37e9e9ae739",
+          "metadata_snapshot_sha256": "38dbbad55504fac7f85441388fe5e91f92e8d9a9c31de599cd7e782d1f4d0cf5",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1111",
+          "title_fingerprint_sha256": "5d291ec83df0b5e12f96dd3dde2e65aed56cb2d11824f5939db6e5250c96a619"
+        },
+        {
+          "asset_id": "asset_njp_video_library_dfb48dfc034774fb7eca0312",
+          "metadata_snapshot_sha256": "f73211695c374a26ca611823e3b68568d821f374de419bf4fc81ba7dcb75f037",
+          "object_receipt_sha256": "6a22875f6b4dd105480e2f4a2dfe594861878fb0ae0352f269e1eab5060fc8cd",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1177",
+          "title_fingerprint_sha256": "bf2baf57db244ddae2b872fa85ce3d4a8f12953189f999cfd128ddd0400cae23"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 7,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_605963fffe64987cc2d41944",
+      "cluster_candidate_sha256": "94ec959da4134ae79778cb3ee0c1156505bfe00661a7c37c366d29675f5033d5",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_65e3fd5edfc0d2eb86357f83",
+          "metadata_snapshot_sha256": "8a8b601fbd8f6795ca38b69cf17712d4a45e76f80fb8a051cbad0d140b5f0b13",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1112",
+          "title_fingerprint_sha256": "c86a1723812dc2b465be66075780ac38a516446f326737c711c34b2339f21d51"
+        },
+        {
+          "asset_id": "asset_njp_video_library_6782c5246ee1d1ffb14070de",
+          "metadata_snapshot_sha256": "4278412c221367c965daf5ca78992715c05fdbc6a7814dfb8fc3f5886813da52",
+          "object_receipt_sha256": "4cf3f422a19a602e94b20ad4a3a6cdf162601b53b303e3b9925df506362639b5",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "914",
+          "title_fingerprint_sha256": "a9e708ba5e4969de5a5e796016c2ed17a1837603ac1c5e7fca66400ebcf71d3a"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 8,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_046831e4a34996822b405480",
+      "cluster_candidate_sha256": "eeec4002e7aa7a8a5907799c35679c779316039df1d63bc77de20138891b93f8",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_66d96b87cdd149463dc5a950",
+          "metadata_snapshot_sha256": "10b9eed3399e8aa5cbbae114b4264a21d63cfc496241ab1f9a296a097e9155ea",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_2272",
+          "title_fingerprint_sha256": "16c75be6bc3c1aa439a5e8b2c4e43f47651679d028a4866fad8667fb34ab6406"
+        },
+        {
+          "asset_id": "asset_njp_video_library_2ea912fb4d2eb1c438216b75",
+          "metadata_snapshot_sha256": "4ed3b2a3f9c2344331bda5b6ed4e1ed0d7cba2bb2b4bbf605c382f6531ce2ff3",
+          "object_receipt_sha256": "51a221249312178465be7ef6a44deb874abe5dd32321be55edfd8dbc794b57d5",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "993",
+          "title_fingerprint_sha256": "5ebbe8eda8f1357b059b562955b81ee23eef3f4435298ba3ea0eb639f81512e6"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 9,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "strong_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_5c3bead6555250e90b725c77",
+      "cluster_candidate_sha256": "dbd9750b382346612cdc7d80642c89451a765dcb140421b8eafb473f995896a3",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_789c02e4e48c16e492772d71",
+          "metadata_snapshot_sha256": "397a1c8b4a878057cbafbca9a12ba96f93e2259cdc84860e8f5b6ecb65f5473f",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_2015",
+          "title_fingerprint_sha256": "76c186feadd57433a727148660699478c665031fd381443ad4927140fb2dac8d"
+        },
+        {
+          "asset_id": "asset_njp_video_library_bcbcedfac8a7ac23e5b1b072",
+          "metadata_snapshot_sha256": "225f0c89363e7c64d5009795a4ba9dc8be0cb129ce584ae9273a1f7e8dd49ed0",
+          "object_receipt_sha256": "495fe55d6546fe833011fb163871baa73fe4227106d9f8ab99cda430c76c4a43",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1122",
+          "title_fingerprint_sha256": "499313eaae3323ae969da46a6139913e8bd74e2199362b1d22931765f3d240de"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 10,
+      "relationship_candidate": "probable_match",
+      "review_state": "unreviewed",
+      "similarity_milli": 1000
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_542ae338319316a807aa2fc1",
+      "cluster_candidate_sha256": "12e4eed0a71fbe710fc27f0201686726ef2229144a1ededda5bbead1681e79a6",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_7bb179474ca2b3b6e098eebe",
+          "metadata_snapshot_sha256": "1c3bdd6c3c811b2a779a457e8c7f9473ed19316681705ce9106a62d4e51cf93f",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "28",
+          "title_fingerprint_sha256": "0f79679a7db4990173904e9ae640f4230cd01b4e1a82c8da33b27e123bff4ac8"
+        },
+        {
+          "asset_id": "asset_njp_center_video_archive_80c579dae7f78cb3c37d886c",
+          "metadata_snapshot_sha256": "bbcd901fa844ad57a7601522d32e1daad9c025c77a47de5415afc5451f62ef39",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1584",
+          "title_fingerprint_sha256": "d6c58007d44b374249cf0a7168d1b3755c144daac158f7287314a007f1491c75"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 11,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 250
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_06456c5856b10e23b9fd5e54",
+      "cluster_candidate_sha256": "9b3cf7fcafc5b5e453c397ff4092857e67d9329d2f9385ab933fec96767d7b1e",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_f2c3e2566a2673ef75522ab8",
+          "metadata_snapshot_sha256": "b681c7c8b8865b09272ad5b9ead369a40d652672c4daca0dfa62fc0bd66d9c0d",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "33",
+          "title_fingerprint_sha256": "dc5017c3f5a07e459f2e3bc13aef4942b0836eea38e3e0ec60640b9fdcc266aa"
+        },
+        {
+          "asset_id": "asset_njp_video_library_0f3c7109c9f457638b84fbc9",
+          "metadata_snapshot_sha256": "ee535d910eaeacccef10c37b908b50abff23cdd8b364a11ae5f5ccc5ab1fd4b4",
+          "object_receipt_sha256": "ee10d9d02c9549c01619281cc9dbd3d26471a64bbf2b4ab6767601bffa5c55dd",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1076",
+          "title_fingerprint_sha256": "9eabbd7b605f59bd6f7fb3f793300c9eb58d7b9a357972af99813df9047267c6"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 12,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 286
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_5886dd6766204097dc7e1306",
+      "cluster_candidate_sha256": "d5560b357267b12c09883411c23338b636469a0b17698ee58c86dbd4ad6745a0",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_d1e80541d4c5b1b6f8552e4a",
+          "metadata_snapshot_sha256": "6b44e198a93ce299017b9186c109dcc16330f304661c8061d7f5e80281e40b94",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "11",
+          "title_fingerprint_sha256": "541c0c27cbe481547d00ba607fd4de7c760446e67565a734a4d6360e08460ff6"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_ba27a321f38332fc25b5d0af",
+          "metadata_snapshot_sha256": "0dd83ffd8c7c22b73109d2fc2c71c89aa5130bb78e065a9da42bc2a4b953cb1b",
+          "object_receipt_sha256": "0dd83ffd8c7c22b73109d2fc2c71c89aa5130bb78e065a9da42bc2a4b953cb1b",
+          "object_sha256": "e9e7ed09415e5d662000dcd17fcacdfea7d6b5480ec3bc6a4cdef5994090209b",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "jHcmbKWRCjs",
+          "title_fingerprint_sha256": "60a6a771799175004918dc4e26532c702fef2692218a17cdc2d6f4d522d07123"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 13,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 462
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_9a8e2df58b48da5cbadee87a",
+      "cluster_candidate_sha256": "a91c32bb588783eaa28e9f0117e64e841d6bea2a384f8addd087ac460a90d9d1",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_dc3e0726c7887b755a28dc2e",
+          "metadata_snapshot_sha256": "2b86f6630cf61019fc839cf6b440a84b59b1f7f6252a7ad369886f09fd016863",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_195",
+          "title_fingerprint_sha256": "40d429036aa736fab3d005cf151f98ad442c9e8d59a51df368bde95b3cda28e5"
+        },
+        {
+          "asset_id": "asset_njp_video_library_b3274fa7f6cdb55d5bfcaf8f",
+          "metadata_snapshot_sha256": "62d0fef183873d20878ee894013aa13b4f8a17261e2b79f76daee55ee8e6a9b5",
+          "object_receipt_sha256": "dff0948c5a1eac8754afbb8517c38a786eaac3f64192e31ae234cff242f75419",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1121",
+          "title_fingerprint_sha256": "9c8e5f5c3f01c27e3c9109eb48b9dd93ff652df7cc73f4c4ae4325d7d75186fe"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 14,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 467
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_51f2f01985b79c5995d02e80",
+      "cluster_candidate_sha256": "2c712724552a5fa95449b1d63c9e960ffd974bfe842994d10ff8da152342ec2e",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_64ac36c8c5a58446f687ba01",
+          "metadata_snapshot_sha256": "2609b34b655bacc63d99620bc0618e33b3ceec28193a2bb6b2ffb427ded7f78e",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_795",
+          "title_fingerprint_sha256": "c17d7b307e114ad7252dc0d4a08a6a4bf1e77ec58915b85a5314e7aac0b7842b"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_9fff7ef47e8a0950c2a4bd0c",
+          "metadata_snapshot_sha256": "7c3d6d80d6d6242d345a3162e8de691ae474c37ad044cd480914408089f59324",
+          "object_receipt_sha256": "7c3d6d80d6d6242d345a3162e8de691ae474c37ad044cd480914408089f59324",
+          "object_sha256": "456385856f4256a69445576608f6ef2afe91ebca274602468bab162c2992a184",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "nqSZqZLHz6g",
+          "title_fingerprint_sha256": "42dd152226d7bf0e098e0a527796b282ea94741725deb52e4d37adeaafe41cfa"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 15,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 375
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_ab4a63a3dcffc9cd5d25fa08",
+      "cluster_candidate_sha256": "9dbdfaa75405a024dce35bd0f882bd45016acff50e23aba27e2e6e99f6c8036e",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_video_library_49bd7118c4c8d512630096ff",
+          "metadata_snapshot_sha256": "0610eb7449cff25644b0e5cd5d6fc0caa0b70e6cec36cfefd9d11c8846d4b237",
+          "object_receipt_sha256": "7bed5167bcf5d53f829e2316bc862c9a29e070f0231c179e1ae846d680cc2377",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "804",
+          "title_fingerprint_sha256": "5dc23d327edd763a439e7cddda8ce69193ded6b0689419c842c949b08ae35653"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_db8a86c08f90364ba3d397a4",
+          "metadata_snapshot_sha256": "10a6ed49178f0e466fdb6e22e0abcc1fbedff5fc13e0a0e7553dc2b305d6f740",
+          "object_receipt_sha256": "10a6ed49178f0e466fdb6e22e0abcc1fbedff5fc13e0a0e7553dc2b305d6f740",
+          "object_sha256": "1ccf15f560e56440bd789f1eff6ec7f5d43c0d6cb61d41ed86134ce58e39dc7d",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "PDNJOWl8dSM",
+          "title_fingerprint_sha256": "fbcb1346b8f2c256b852e84ca89f57e63efb0810cdcc9c4c9d4a9037beaf2a14"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 16,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 444
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_5544270b36d9a4bbdb325ffa",
+      "cluster_candidate_sha256": "fcc1072b5743d9c63cb2843ea84115c1b16f0b15effd2231c2a63972cdc930e9",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_d3bdee4583133e0ec4f33741",
+          "metadata_snapshot_sha256": "dddf5ac9f11306db19bbacb98d6dfeec9f4b5f557c2eb3d3a5f0767552bea802",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "29",
+          "title_fingerprint_sha256": "4ff3ac7856c0400854db4a723f716fc3f144d976a77fafaab1ccdd57b72d78b8"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_6e30c56db58050d6e5417f0c",
+          "metadata_snapshot_sha256": "fa874886efe69d8ffa63805800491bed46eacee487e323d46669d47fc3527e3d",
+          "object_receipt_sha256": "fa874886efe69d8ffa63805800491bed46eacee487e323d46669d47fc3527e3d",
+          "object_sha256": "78c7783149765305940cf02a32ead26ef83ef39891324a6710a49c6103d7581f",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "nKsMish2Ziw",
+          "title_fingerprint_sha256": "cbbdaa499e865277958e8e4cec56b8bd5de8ed3bcaeeab0e64736dc200b1287c"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 17,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 462
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_80e8507bc953004ade798bb5",
+      "cluster_candidate_sha256": "ef0d59486019f7193597b95d4ef2fd87026d76bfe38252f34815f759a976a842",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_1ea77835fd4b3d5092adaddd",
+          "metadata_snapshot_sha256": "c47b9c5f3d1ecec28013f8295d007ab5845ae3f3c017a0f4a5e84cf2f890417c",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_2259",
+          "title_fingerprint_sha256": "c6a17556bd484b8227a41bc5b61a263362bdaeff53ba81a2e7662160c90cff1e"
+        },
+        {
+          "asset_id": "asset_njp_video_library_66338c3c8952671fe15882c6",
+          "metadata_snapshot_sha256": "b9068b1e8c827b6e15e4db376cdbc89dcbe9ec856a98a65b696594ad933dd796",
+          "object_receipt_sha256": "87fd58484a72df5cadaebd86bfdcc188b759f9803232325a9ba7de4da1f0882f",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1053",
+          "title_fingerprint_sha256": "65734d2391248f870fdaaa4feb11a6b50cc54ec3d0b405edf77b4e329bf93f88"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 18,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 462
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_a6837dc6aec3f8ae9c7ce23c",
+      "cluster_candidate_sha256": "a86dc2fcf4c6281945016fedba7be85e98802bb8816c2e646cdd8e2b43e80f41",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_ba607455ebb58d22e0cc5b77",
+          "metadata_snapshot_sha256": "ffb1b701068e874ad4ee1ea95e27bafa950aec198df00be226e865d4400d7c6a",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_392",
+          "title_fingerprint_sha256": "00d340cfabe5ccd7f32952de2cb8799c167f37277f93f0495fb7849ac1cb0816"
+        },
+        {
+          "asset_id": "asset_njp_video_library_017e68e990d29ed00af32fcf",
+          "metadata_snapshot_sha256": "07f199233ac5fda0525ba8747d4c00d9ab6123ce65f2710aa0d7e4176408fcda",
+          "object_receipt_sha256": "86f7ba9bdb4e7730ea2195895503e69fa4466b383845bb1479453d9e94d87a34",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1005",
+          "title_fingerprint_sha256": "c99c62850173b88c3d2c6ad45baca19f186e3926fc92f400c7b6f5683b2a1342"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 19,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 462
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "ambiguous_metadata_match",
+      "cluster_candidate_id": "linkage_candidate_1f3119499004eb5c0e89e7fe",
+      "cluster_candidate_sha256": "def05aeb10b89e12522d3f2432b4742708f208d0c0caf54db1ab23204c605221",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_ac3104a87007be92bcb7162d",
+          "metadata_snapshot_sha256": "183f04fb3d3c299edd4b7566338b015c5dd07a8b7db45a3481e2716bf486d213",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "10",
+          "title_fingerprint_sha256": "d6ed4ab78642d8dc527d0ea5304ffe3251350a16906cd3af4d44a6eca7fb23fb"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_20f97694fa42a592ff15bb8d",
+          "metadata_snapshot_sha256": "b5d69706550ed9968b4f0ee9d045fce95d487375add93ba6662271da0ac080d0",
+          "object_receipt_sha256": "b5d69706550ed9968b4f0ee9d045fce95d487375add93ba6662271da0ac080d0",
+          "object_sha256": "c28436c42b88eadf338ac0c52a6176f0b5c3b548a35efaa48d4d1e0be9885ecd",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "KdYeXiZiE2g",
+          "title_fingerprint_sha256": "90242fdd6e008ad0e247e358afdc254549a2e46dc4fb3dc67eabc979a2bed71b"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 20,
+      "relationship_candidate": "needs_review",
+      "review_state": "unreviewed",
+      "similarity_milli": 462
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_18e061f37ae7a03a916391a9",
+      "cluster_candidate_sha256": "19083a6eb3a056f69810af9065a45174fcc513304e213724edb0b258ab958dfd",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_34e05f1106dc7a0c56565ccd",
+          "metadata_snapshot_sha256": "6d1117e811cf4e7e034412ffa1cfb91b6a6f3dc3fb588709a55259267e7808d0",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "14",
+          "title_fingerprint_sha256": "6ebc5a5f90f3e6144d6f4e808ad68e71264644f41d7c204c8fc9ab855e91d07c"
+        },
+        {
+          "asset_id": "asset_njp_center_video_archive_01107e9d04743474d7538561",
+          "metadata_snapshot_sha256": "3eca0308283c02f15f2fd40a8e2913935538ed8451441df5530cb52869ddc50b",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_2158",
+          "title_fingerprint_sha256": "09ca2024143bfb3b680b866bd16b44dddd65d613bb6d2ce1b6ad9af3f590af90"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 21,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_6d04c749d2477f516ca8463f",
+      "cluster_candidate_sha256": "3abecbb3627d1a5e3c63896126ebf86d733f9c34e315f991a2af8f5b60ca9a53",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_952bf40a20e7cabdb5b3aafa",
+          "metadata_snapshot_sha256": "6188a2bb91c4aebf6c91aa01f7f6b22d76b79b55a5e8e8f3639c7d5197380160",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "17",
+          "title_fingerprint_sha256": "734885ebaa7469221fc9328ec83d46d36ac563c73f9eba054b1fee06e47fb63b"
+        },
+        {
+          "asset_id": "asset_njp_video_library_068d21af508de2e2db0fc3f3",
+          "metadata_snapshot_sha256": "9d23b2990b85b4a64bb2a8e25a3dc090a488dc4ba9bcfccc81b1933c1cfc7a7e",
+          "object_receipt_sha256": "26e57205c71ab3514532cd34ee02cc36d0232379e85d8aa8cece8ef891e0b348",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1189",
+          "title_fingerprint_sha256": "e8b36d70fba50d53fe28d0565b52532fc563c3b4726cb6ac43ac9bc4b7134ff4"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 22,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_cd58bedcf707b9e9a574c11c",
+      "cluster_candidate_sha256": "67bd247c739acb8f0e64c10943b06b271566b9ad045fd50d37f83062e720cc22",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_be71d4daf2b2c34cd184cb94",
+          "metadata_snapshot_sha256": "a3fd7eafdd4fa80026f4a9e884100ee66ef9b038e51e6369beba8bed4422a373",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "34",
+          "title_fingerprint_sha256": "593cb6e9f631eb5bad575134f3dc31d29ebe6e31329b717d56b36938a345a0d7"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_1fdb6626eb6cbaba3b76cc4b",
+          "metadata_snapshot_sha256": "d69e356405288269f35dc7f6d21caba0f6283ab011f71d80f265671456a3ad5f",
+          "object_receipt_sha256": "d69e356405288269f35dc7f6d21caba0f6283ab011f71d80f265671456a3ad5f",
+          "object_sha256": "64e915314653e3805d11d5cf791d42e664547cf0c0ae8cd0d3d36e82db268ce4",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "Ql32-rt4bm4",
+          "title_fingerprint_sha256": "23b4b8d81df9f077e44a25d725a9702d75b5761b1dd15df1e7bc07e757ca7d20"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 23,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_1587818c575e4a6ad8a43bed",
+      "cluster_candidate_sha256": "427c64404a8679b3a4378f7374979ce9df0d00e0afac26fc6daedd4cbd424c18",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_00f728f28a147ae18180ab74",
+          "metadata_snapshot_sha256": "b66cabc3393eb97f2915e20f78f064720deb34703c538927e47c58cd09853806",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_264",
+          "title_fingerprint_sha256": "30ce15c6c97141ad923f094ddc5241abbf2789980a1b2040db85f4ef36a8f827"
+        },
+        {
+          "asset_id": "asset_njp_video_library_0383ebf863febfdbbdaf9218",
+          "metadata_snapshot_sha256": "f6de8142d7e5bd14e6087ad746dd39e59e7b876cb29071a55504a6f9d0b8e5f4",
+          "object_receipt_sha256": "121b4e2c79119c4b8d45b096820cbf963077b03f72c57d60aa791bba29e936d0",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "940",
+          "title_fingerprint_sha256": "f93ca70bdf871dbc33a2aa46fb053534094402e49ee0d4efe171d9782dbc7b3a"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 24,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_561a23d8c2cbd5676f4c820b",
+      "cluster_candidate_sha256": "30d624f6c1192d20a61421dc3c099c7c3f366a4b1c45239684025385ed3e8cca",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_02033d909832bfcb899cae00",
+          "metadata_snapshot_sha256": "4cfb1c0d0290e7481b7a2bb1589900de0e8704c4eb3a6487c0d9d132c8838a3e",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1188",
+          "title_fingerprint_sha256": "7e741dde6a581ddd5e5bc56c57575a2712b08c7526aba7b608dfc3e752d4c87a"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_1ad78d14315bf893bf5eb7ab",
+          "metadata_snapshot_sha256": "572d7d02f7581511e20f51549c2665ca67241fa019d294f2ad70b797572465ba",
+          "object_receipt_sha256": "572d7d02f7581511e20f51549c2665ca67241fa019d294f2ad70b797572465ba",
+          "object_sha256": "a8d85900a80c43ecc37d6e15376d839818132b5b51bd0ed956b8b099d9514319",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "PhS0NLEdQKM",
+          "title_fingerprint_sha256": "5d893996eda3305b0f04288a1a570e9e9faac933c81299c1fdf298fa0ba5f257"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 25,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_9ff74d0f393a33ebb113723a",
+      "cluster_candidate_sha256": "9e13f37bea6c375edbde44b60d0b936644d1a83052923bf9f042d1c342b316bd",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_video_library_0835673081d12943f7dd0336",
+          "metadata_snapshot_sha256": "b89fcbb949273fbdb5a1366992dc7482bf6a54aa4686aec6e1e272d4e68f0f92",
+          "object_receipt_sha256": "1cd301cbb35b4e10dc700b85b05ccc0dc4ad5c1824a15f4ffca07fb510fea9d8",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1088",
+          "title_fingerprint_sha256": "c802228a276b84c09ad10b4a64aea6f93449c72be6e1d14ac710748835a292c8"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_2161e09bcb6365f794e117c1",
+          "metadata_snapshot_sha256": "78674c0ff5b9da7a0929b6f4ffb761320dcd6498b38ecc444c7083bfcfb4d0ac",
+          "object_receipt_sha256": "78674c0ff5b9da7a0929b6f4ffb761320dcd6498b38ecc444c7083bfcfb4d0ac",
+          "object_sha256": "79c8b09f95a24891d1ba5ac2bc88e2c6ea8be0fc444228249b5d44da47c173b1",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "uTEJjKeolls",
+          "title_fingerprint_sha256": "ffbb46c89bd199982aaf9fdde6e23e74085382f015824823fa85aabbca428cb0"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 26,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_b2e5320bf6a97fd5af752f25",
+      "cluster_candidate_sha256": "93793b9b61b89722ea69a265a80cc7126a151d2e6105e05ebda925f2cc768de2",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_01a1f937c12fe2bd0b95136e",
+          "metadata_snapshot_sha256": "95509c5c149e62619442e18a4efd79cfdb678deec724ec77b9dd2f1d0efa4d79",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_1385",
+          "title_fingerprint_sha256": "8312caf8e351ed2d97360a24b90ceb63868e875db5fd0c05c2c0b528423d92bc"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_131bf41883146fe7d092399c",
+          "metadata_snapshot_sha256": "703dc8f64bbbc172ba4ded47fc3dd7a051b74179c94da7f25ba17e2b11a8e6b6",
+          "object_receipt_sha256": "703dc8f64bbbc172ba4ded47fc3dd7a051b74179c94da7f25ba17e2b11a8e6b6",
+          "object_sha256": "1ab36bd4b3d20db6fddd48629ecc7f1d3d43ee4c7fcacdad6f9657f6b24ed170",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "THBT64kFVL0",
+          "title_fingerprint_sha256": "35e9c3c31b040b0fa7f7d15e751ef727e4b6df024d65f98ad7f15ab5af3f2489"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 27,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_a1f6e9853dfe0447fda99142",
+      "cluster_candidate_sha256": "37a1d9ff169365103d1573985462aba830d30d7615cdc0ec7cd64c6ac67db943",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_0f8171598d7ff34add9ebf98",
+          "metadata_snapshot_sha256": "75ef2067fe7cd5acb66783a5ce1e2c3709844a9991c47c829cd855c06a5539a1",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "21",
+          "title_fingerprint_sha256": "6f43196325839e32ea0fd65d86fdb28c0b5ba21b6cc3f85ad3688abab2273c42"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_045efda6b78ce6075b7b397d",
+          "metadata_snapshot_sha256": "65bc1ff4b202ae770f61e018de03a649e7f877e6b35e4ecb1a00b6faaaf97ebb",
+          "object_receipt_sha256": "65bc1ff4b202ae770f61e018de03a649e7f877e6b35e4ecb1a00b6faaaf97ebb",
+          "object_sha256": "3f08b32e08a90180c74b44bafb58381c057c9066cc298e9f94b435ce96702f87",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "llHKlgtkGEU",
+          "title_fingerprint_sha256": "6153ed4a0c1af2e3d320890437b1db911cf2bc3192ec9ab3e9bd0ca408efc27a"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 28,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_973530a39835ab704d190dd8",
+      "cluster_candidate_sha256": "4017f620897d1d6012a2f0b28a77a8458fd7304d92623222e578857a12f70836",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_main_1645283a9dfc344b6b06f8b7",
+          "metadata_snapshot_sha256": "406d2c3df08bf55e8f49289c800b57f402867295015a2d9a640e581ac4fa1db7",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-main",
+          "source_record_id": "13",
+          "title_fingerprint_sha256": "5dbe61b3f560f1336b0be137e44a202677391768692f85d855e82189ab5026a2"
+        },
+        {
+          "asset_id": "asset_njp_video_library_00d601c2b19240bdad6ea6c0",
+          "metadata_snapshot_sha256": "232eac79bfac2078a9056ca33598d165c3d50bc9d76bd44724f3bb3fce579184",
+          "object_receipt_sha256": "fe997df84dd7ea19a093483434a1525cd6eef6ec5bfbb1bbe40acb270941410e",
+          "object_sha256": null,
+          "source_id": "njp-video-library",
+          "source_record_id": "1149",
+          "title_fingerprint_sha256": "3312fd3e1b4058d7d8ab9b816caa4768038e83d83fc65ee138160200f949f039"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 29,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    },
+    {
+      "blockers": [
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "human_review_required"
+      ],
+      "candidate_class": "negative_control",
+      "cluster_candidate_id": "linkage_candidate_657e06492ca87f8f68f9ff32",
+      "cluster_candidate_sha256": "6e62f7e2b9f663a1d9805d7003d0c908d051085162f172f473296e9219851aca",
+      "evidence_classes": [
+        "normalized_title_similarity"
+      ],
+      "members": [
+        {
+          "asset_id": "asset_njp_center_video_archive_040faf860068833a491101a0",
+          "metadata_snapshot_sha256": "d96ba5545cbac2058c0fca0c6bb1fc5f014773f46a12be2cacf2a4f836fb5e28",
+          "object_receipt_sha256": null,
+          "object_sha256": null,
+          "source_id": "njp-center-video-archive",
+          "source_record_id": "archive_row_376",
+          "title_fingerprint_sha256": "e555c6f33db8748d5fa8bcf4afdf24a73ea5f1144983697f886a48c63355850f"
+        },
+        {
+          "asset_id": "asset_njp_youtube_official_2d0a28b6b8b58889193d3166",
+          "metadata_snapshot_sha256": "54129ebae181ce1babc79d9b195ba1deeb0838bc01983106ed8c13dc6f983b8b",
+          "object_receipt_sha256": "54129ebae181ce1babc79d9b195ba1deeb0838bc01983106ed8c13dc6f983b8b",
+          "object_sha256": "a999dd1753635b6c0fc30be41cc52f2691e4f2f50f24ce9bd576e5022ccd2bdd",
+          "source_id": "njp-youtube-official",
+          "source_record_id": "cCJNPLFGcDU",
+          "title_fingerprint_sha256": "c3f319c7cef5939939a1b06189eadc07547b7279cab3a0c2f6842e7b2996862c"
+        }
+      ],
+      "merge_authorized": false,
+      "ordinal": 30,
+      "relationship_candidate": "not_same_control",
+      "review_state": "unreviewed",
+      "similarity_milli": 0
+    }
+  ],
+  "manifest_sha256": "f5cc7607dbe1f98c96d9b6fe9216c7bfde1701e99c0214c57635eb0e9aabf3a3",
+  "page_slots": [
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_a4d649aa90cbbe03ebb0d50e",
+      "ordinal": 1,
+      "page_number": 15,
+      "page_slot_id": "page_slot_1782244a8875982fb5ae4588",
+      "page_slot_sha256": "eea6b606e9bb4083c81e2b742af5f9a77b2d86eca70ae5ea82ce3c4bbb11f2b6",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_9c1b44d9eb7839da721c1408",
+      "ordinal": 2,
+      "page_number": 3,
+      "page_slot_id": "page_slot_26097188fddd930de501c21d",
+      "page_slot_sha256": "c8b34bdf23c07725e390f3770eca2c1e5a1683b7ff9fd1cea022429c8a6e4ff7",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_9cb66a9336e902773b2f8d3a",
+      "ordinal": 3,
+      "page_number": 2,
+      "page_slot_id": "page_slot_e5c9cb8bc467d57e3129c11c",
+      "page_slot_sha256": "07f344ca1a632096bee756f149ef77a8bb752eab693b8a33b568c9185c5bfed5",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_16e523193f75657c9b888eb4",
+      "ordinal": 4,
+      "page_number": 12,
+      "page_slot_id": "page_slot_ee0b35caa53899596cad6d05",
+      "page_slot_sha256": "bcdd2de2e1a55ad72409b819e8f97787dee1a14d49a827378b65e24396abd7b0",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_1246c0c0933cafc5a12d76ce",
+      "ordinal": 5,
+      "page_number": 6,
+      "page_slot_id": "page_slot_8fc8208e3e08523043d01765",
+      "page_slot_sha256": "def2e35e56606146af56c2f53ec39bba42ecbe0b7e239f56aaea8ffabad93dc6",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_f213a3dffcd9387809f99339",
+      "ordinal": 6,
+      "page_number": 34,
+      "page_slot_id": "page_slot_2d219ac43e70c338d10744ed",
+      "page_slot_sha256": "bc03dadd7b7aa58a5099f9b89c19a51682c8123df217b5e2ee77881fc01c218c",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_21be0c5857cac010184c6627",
+      "ordinal": 7,
+      "page_number": 4,
+      "page_slot_id": "page_slot_6f8b8676a6ef71c9561d20fd",
+      "page_slot_sha256": "f25bff47fe899f465c24888524695eed21a028734ff5e6b8e75b7a385f73958d",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_17fdc6b841258cbbe4eda4ff",
+      "ordinal": 8,
+      "page_number": 6,
+      "page_slot_id": "page_slot_9f0c20472eaeedfea67e0777",
+      "page_slot_sha256": "32f133d44a8f8715d63c4c9e5b59f8460e73fcafb1fa7125d16989d034b83cb6",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_8e845e44921e13d9c048924d",
+      "ordinal": 9,
+      "page_number": 1,
+      "page_slot_id": "page_slot_f6a652041e80c69ba4b2c6d9",
+      "page_slot_sha256": "9852a528493f8738f937dc400ba4fb39be5ebac6745f7a667a1ce3962f230fb3",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_7529934adec3fcf9c4149a3d",
+      "ordinal": 10,
+      "page_number": 4,
+      "page_slot_id": "page_slot_10d08202d686e813ab7e1ff8",
+      "page_slot_sha256": "8b8a628a31d1b6421dad4fe19718231c0d35855052b86ab69fca5c7d0cce981b",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_5c9eba1b640fb00e8c1071bb",
+      "ordinal": 11,
+      "page_number": 9,
+      "page_slot_id": "page_slot_5a2e5dbeb43f9cbb2a0a9666",
+      "page_slot_sha256": "b9da0bccd54082866e412a8e5e640d436fdd28c557cc417d61101089f105d12d",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_b70fefcde2eb7314b64a870a",
+      "ordinal": 12,
+      "page_number": 2,
+      "page_slot_id": "page_slot_e38ec84572d52a033b3fc406",
+      "page_slot_sha256": "b605cb6949dc5126d09abcb46d00f3872dde650224add5ca690ab70938d7e354",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_3bc0d17ce87324074033bf5f",
+      "ordinal": 13,
+      "page_number": 14,
+      "page_slot_id": "page_slot_04417afcafe5a763b4ceb450",
+      "page_slot_sha256": "9ddb76df8de04509c2c04b3c3636e08abbc1b428f11173a41c8f670c38608c4e",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_0ddbb9d80d6d6402900ebabd",
+      "ordinal": 14,
+      "page_number": 1,
+      "page_slot_id": "page_slot_3cdef1c4ee2aa9917d74f989",
+      "page_slot_sha256": "95850366a940ff1bd98e313d3315561a8489741916562d6230fe8e9c09dfb1f2",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_36f6c2d7206aec8784b14249",
+      "ordinal": 15,
+      "page_number": 1,
+      "page_slot_id": "page_slot_6181bb5e1f0a8f99f65ca3d0",
+      "page_slot_sha256": "14f7466e4a94fce4d089a9db64d583cd8bdc1cb3f50544d377afb0e3ed40d39a",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_e7fc9ae5bee781be78abe9d1",
+      "ordinal": 16,
+      "page_number": 11,
+      "page_slot_id": "page_slot_5898ab71cbfa6dfdd929bc62",
+      "page_slot_sha256": "8ae1f95d75a511c564fef57d81c5b774ef7df1e56f1a58d3f3bd1bc0fbfaceba",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_a126bfa54ae0c16958b60169",
+      "ordinal": 17,
+      "page_number": 10,
+      "page_slot_id": "page_slot_869300ce4c9c06ef4a5efc8a",
+      "page_slot_sha256": "2bd13aaecb801f21f7813b6e753950ae71d42cfd3cf4fd91c34fcbf6bdf188dd",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_6fa1a450923892789ebea4e7",
+      "ordinal": 18,
+      "page_number": 19,
+      "page_slot_id": "page_slot_29dc65a92262fb139642d4fd",
+      "page_slot_sha256": "d416835a3b191d76b64a3fab2639ca590bf550779dfdeb1710f9d2efbcb8972d",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_0469e6966ed2131f9bdd83a2",
+      "ordinal": 19,
+      "page_number": 10,
+      "page_slot_id": "page_slot_1ae747cdf5c5180e700cfaf2",
+      "page_slot_sha256": "fe8b4f2ff1ecffc90fa38a2696da75cfa9dc0f7b8d92b391f07c6cfb82f55a1e",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_6748198e0cee43d4b274c379",
+      "ordinal": 20,
+      "page_number": 12,
+      "page_slot_id": "page_slot_84d956beb1572fe33492a035",
+      "page_slot_sha256": "a5de4a41f7a6f70c1faceb968fff2fe58b1b552eaa46828163e1c930ef2ed305",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_b05e06816fae5903cf073ea9",
+      "ordinal": 21,
+      "page_number": 6,
+      "page_slot_id": "page_slot_c0c8d208cb1feb315dab2648",
+      "page_slot_sha256": "59f7e3d2128e0dc0bc72f8a831ca88ca6652dfe59a2bce6c82dbf3c4139c4931",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_2b7a28ede3176fd2710398a0",
+      "ordinal": 22,
+      "page_number": 6,
+      "page_slot_id": "page_slot_d696bca122e314dbc3af3c17",
+      "page_slot_sha256": "5b055450467c0007f67b23f517d30e6def621daa88d9209c24c22a1c23ce2148",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_3b4db7d42ad187eb1e0e8019",
+      "ordinal": 23,
+      "page_number": 17,
+      "page_slot_id": "page_slot_94f8058904e0e75df007aa87",
+      "page_slot_sha256": "4a4bb25d897987ab9a8087f10ee90ade34ff54639683553bd52c4cbf150ea880",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_fab457a0c389d449c022fcf5",
+      "ordinal": 24,
+      "page_number": 11,
+      "page_slot_id": "page_slot_07134e7a0eae7d8970cb86a0",
+      "page_slot_sha256": "32666458182349f59b4d854544a42ac2641b71fe5367339e16938f3d9f57ccd3",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_3e796ab44dbc8b09483d29c0",
+      "ordinal": 25,
+      "page_number": 16,
+      "page_slot_id": "page_slot_d3a7a611fa16fcaeb453eb36",
+      "page_slot_sha256": "3d7779fb5b8cff5cdde2b79039cf6dee003865aaaa344cc55a0ff1823357a152",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_29fce86287dca174d6089369",
+      "ordinal": 26,
+      "page_number": 14,
+      "page_slot_id": "page_slot_8f61cb9082eaab556b9bcdaa",
+      "page_slot_sha256": "8a6ede6b670314f854d0dc91ad00b2e82fde9370754c7ca8f709cc77b881ef70",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_2dc8e57f064d2b847549acec",
+      "ordinal": 27,
+      "page_number": 14,
+      "page_slot_id": "page_slot_0b859b2ee45d3161c9b686fb",
+      "page_slot_sha256": "cf5f651a8e23c7f25a6e4984d376c1a2b355ddc664286ff79c095500c99cfa20",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_aa3d703e6ae7c4daa717e141",
+      "ordinal": 28,
+      "page_number": 8,
+      "page_slot_id": "page_slot_2dcda3b6b9ed6c0769d4651c",
+      "page_slot_sha256": "2558bc16defca16944791129a24fe2b8aa913d4c5ca29cd806aead2c815dad09",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_e7369d30b5d40b7e4bf2ad45",
+      "ordinal": 29,
+      "page_number": 4,
+      "page_slot_id": "page_slot_cb032571e8bab53bf2e9c6e8",
+      "page_slot_sha256": "5a9622037efc758c2109fd1cb69f3c85a03205f4dff307c93af54f7665e296db",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    },
+    {
+      "blockers": [
+        "operation_authority_required",
+        "source_page_digest_required",
+        "visual_stratification_required"
+      ],
+      "document_candidate_id": "document_candidate_9c2b33721d7cf88794f11b65",
+      "ordinal": 30,
+      "page_number": 8,
+      "page_slot_id": "page_slot_3504abc288a03219f8b1afa6",
+      "page_slot_sha256": "1a4319d4b0062e471cb5fc22cf9f7eacc0397b3855f496b1d2f06af45cf827cc",
+      "selection_state": "frozen_metadata_only",
+      "source_page_sha256": null
+    }
+  ],
+  "quotas": {
+    "document_sources": {
+      "njp-center-video-archive": 8,
+      "njp-video-library": 22
+    },
+    "documents": 30,
+    "images": 30,
+    "linkage_classes": {
+      "ambiguous_metadata_match": 10,
+      "negative_control": 10,
+      "strong_metadata_match": 10
+    },
+    "linkage_clusters": 30,
+    "page_slots": 30,
+    "video_sources": {
+      "njp-video-library": 15,
+      "njp-youtube-official": 15
+    },
+    "videos": 30
+  },
+  "record_type": "enrichment_pilot_freeze",
+  "schema_version": 1,
+  "selection_policy_version": "metadata_only_pilot_freeze_v1",
+  "source_snapshots": [
+    {
+      "source_manifest_id": "archive_pdf_acquisition",
+      "source_manifest_sha256": "21eefa011c0fc505b0889402a5d22b624e0661f8b81274cc7bc63e4eb5d72d1a"
+    },
+    {
+      "source_manifest_id": "njp_archive_rows",
+      "source_manifest_sha256": "c996fc440e9bbe399bc8ab350ddb6aa1a9783ea624b3eccdf3474472589e88a3"
+    },
+    {
+      "source_manifest_id": "njp_catalogue",
+      "source_manifest_sha256": "f2ce5ad70033ded115d2b97b3253c7da5d81366e9b193078014d01892bd194e1"
+    },
+    {
+      "source_manifest_id": "njp_center_catalogue",
+      "source_manifest_sha256": "04f893d8b813ab6d3fad1cb220d7510648570c3004fb0ad89ce42c220bc10a85"
+    },
+    {
+      "source_manifest_id": "njp_image_acquisition",
+      "source_manifest_sha256": "6ca2c903c9a5b7295b1e703d69212746dcfeefbb8eb463c2c84c820dacbe8ccc"
+    },
+    {
+      "source_manifest_id": "njp_pdf_acquisition",
+      "source_manifest_sha256": "c3b846892617b98011c7af83b16d70cffb339315ac312fd28acd8206971d97a3"
+    },
+    {
+      "source_manifest_id": "njp_raw_completeness",
+      "source_manifest_sha256": "572b04fc384ba2d21a64c7a33518ca2f5dffe51e42898d921709f59d389a6e81"
+    },
+    {
+      "source_manifest_id": "pdf_page_counts",
+      "source_manifest_sha256": "f204f285dd04988b3f73a1db21e7b81ad3b625c43734d46098d0ea85b797fd7e"
+    },
+    {
+      "source_manifest_id": "youtube_media_completeness",
+      "source_manifest_sha256": "29b0f9d6be272b4941318dc4d340ffed2ed08f56582e9bf0b567402bfbf3dc56"
+    }
+  ],
+  "videos": [
+    {
+      "asset_id": "asset_njp_video_library_3277b3e8ebfb98db29089fc7",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_8b80af859faab3f607cd7f9e",
+      "candidate_kind": "video",
+      "candidate_sha256": "d2a95a8db79e288023e944d57c5bdccd85f7ff424d328355ee7162f3e5d0e4f8",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109419/low_proxy_109419.mp4",
+      "object_receipt_sha256": "d8d1adfd1ca02560910ff91c6a8765fe63d242a406547713706ab83a3f1b7997",
+      "object_sha256": null,
+      "ordinal": 1,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 145646225,
+      "source_id": "njp-video-library",
+      "source_record_id": "1002",
+      "storage_record_id": "109419",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b646ccf0b33fcb33ecd827fc",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_14f876a0a995149c03ad4bb1",
+      "candidate_kind": "video",
+      "candidate_sha256": "6c9cc5e7d182e00de6638f3116e6e0a14733b48016197ec5f5f3530df5f730ee",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109921/low_proxy_109921.mp4",
+      "object_receipt_sha256": "e9fbafdd5c114064fabb90ac0bce8de33a6758810251c25e7712644346a4b5b8",
+      "object_sha256": null,
+      "ordinal": 2,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 45999838,
+      "source_id": "njp-video-library",
+      "source_record_id": "1169",
+      "storage_record_id": "109921",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_6ca765782536c635d0b9419c",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_dbef4cd4bc09318bf711c5db",
+      "candidate_kind": "video",
+      "candidate_sha256": "b773c17e1f9b98fbf327bb3a000597efc457e2bcda97452c616b9cdd7de38e39",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107285/low_proxy_107285.mp4",
+      "object_receipt_sha256": "ca3fcafe73a50d21410064a30c58bbd60f65f4d9118041f4c71044627a02003f",
+      "object_sha256": null,
+      "ordinal": 3,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 278492261,
+      "source_id": "njp-video-library",
+      "source_record_id": "856",
+      "storage_record_id": "107285",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_b930f02d7e15b4119ebcb35e",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_e6ec439a66f41f870ed48ac3",
+      "candidate_kind": "video",
+      "candidate_sha256": "71572f80f4c413487080cd42712e5caab15db2743f0d670c51f908076c158940",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109934/low_proxy_109934.mp4",
+      "object_receipt_sha256": "1d51f36ffc5b8bd869c947278bd3c58a0fefbbab175dc95496e99b7c8bfcfaae",
+      "object_sha256": null,
+      "ordinal": 4,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 10871279,
+      "source_id": "njp-video-library",
+      "source_record_id": "1182",
+      "storage_record_id": "109934",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_9e10292c411e009b5573970a",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_ce58c2a6fda701f4e5760129",
+      "candidate_kind": "video",
+      "candidate_sha256": "565ffe0b9bdb615c9078f357b8391f0175b16cca01fda7f8acea8d740bf75bd9",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107260/low_proxy_107260.mp4",
+      "object_receipt_sha256": "ca94544bd0be3ac65870bacc0453cb81401d467f2a273a15f061a92769ac5038",
+      "object_sha256": null,
+      "ordinal": 5,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 382032759,
+      "source_id": "njp-video-library",
+      "source_record_id": "831",
+      "storage_record_id": "107260",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_adcb627b875deb4123bde5c9",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_ee969b8a666c8409b9f6194e",
+      "candidate_kind": "video",
+      "candidate_sha256": "fad1f4c64991007bdc967d6de3a80b021f312bf22ee8ce862d8a1c6b0b901f2d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107309/low_proxy_107309.mp4",
+      "object_receipt_sha256": "f8b354321d69235bc234a72e91eaae3d3b831b7c8de3fe8373e9b5a493ba3614",
+      "object_sha256": null,
+      "ordinal": 6,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 75836566,
+      "source_id": "njp-video-library",
+      "source_record_id": "876",
+      "storage_record_id": "107309",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_60be596e3160765c565bb2b9",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_91cdc2deab16d5510758350e",
+      "candidate_kind": "video",
+      "candidate_sha256": "1d7e22042fd210f655fe335ca9e500e72c9ffa1900693b69abea592062d64c93",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109403/low_proxy_109403.mp4",
+      "object_receipt_sha256": "800c522e767eba7588209c4bbfb27d76a290e61dc5d876b9b1b6b7c414545db3",
+      "object_sha256": null,
+      "ordinal": 7,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 189014975,
+      "source_id": "njp-video-library",
+      "source_record_id": "987",
+      "storage_record_id": "109403",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_31e1cdb66108f0252b805b78",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_75dd183241a6b3b000d9a914",
+      "candidate_kind": "video",
+      "candidate_sha256": "37ab8b66cf6ae17d94749be0864aa56e413c3f07f53e6297e4980154353d523f",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109721/proxy_109721.mp4",
+      "object_receipt_sha256": "ff122c6d5d2867c927cfb69decb6439c4d6184255b15cf0c0914e507b12dfcbc",
+      "object_sha256": null,
+      "ordinal": 8,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 59876445,
+      "source_id": "njp-video-library",
+      "source_record_id": "1034",
+      "storage_record_id": "109721",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_a6270507b1030168b97dd7db",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_8e5b6ab11f78154f618f8551",
+      "candidate_kind": "video",
+      "candidate_sha256": "df73046bab5ae5c559c556d7574a73a624e84cb65c157720e4bde9e8704e92d7",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109726/low_proxy_109726.mp4",
+      "object_receipt_sha256": "951515fb1e9986ee5689bff04e5a5770bc922ba6c99dc3aa375362581deef274",
+      "object_sha256": null,
+      "ordinal": 9,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 71493301,
+      "source_id": "njp-video-library",
+      "source_record_id": "1038",
+      "storage_record_id": "109726",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_07c76a1702298aacf12c38e9",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_084c24113c1a7f2ca0b1fe92",
+      "candidate_kind": "video",
+      "candidate_sha256": "e9c696512a4357cbd85fb32d2ff784b819202c06d8d3155b96f3d2078759d41d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107278/low_proxy_107278.mp4",
+      "object_receipt_sha256": "c060387cbee38b3107ac516a803e26820089a645e043c910b4716632bbb15575",
+      "object_sha256": null,
+      "ordinal": 10,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 284960927,
+      "source_id": "njp-video-library",
+      "source_record_id": "850",
+      "storage_record_id": "107278",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_a3a0a0c198a9cb22a1abc1ce",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_edf7eb56c2155474b59724cc",
+      "candidate_kind": "video",
+      "candidate_sha256": "384d93a9b4047f2272cc50435b59821111c5acaae71e25d4488405f9a7407562",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109770/low_proxy_109770.mp4",
+      "object_receipt_sha256": "62b553ea8c9c861d362890c0dd9b5140e781c954a73b90878d7e4f6ba2afffec",
+      "object_sha256": null,
+      "ordinal": 11,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 18175946,
+      "source_id": "njp-video-library",
+      "source_record_id": "1083",
+      "storage_record_id": "109770",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_8c9f53004e742a49cc7abca0",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_372ca54f02f6fda9342f76bd",
+      "candidate_kind": "video",
+      "candidate_sha256": "919830701eac912099222aa7dbde996316e78e764d01bef5d877488914705a9d",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109713/low_proxy_109713.mp4",
+      "object_receipt_sha256": "86551423d86c0fb7b803c0921ed9c608aa258964dd875b01dcffa656180248e5",
+      "object_sha256": null,
+      "ordinal": 12,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 30761293,
+      "source_id": "njp-video-library",
+      "source_record_id": "1025",
+      "storage_record_id": "109713",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_d358a267c6a9f8648aea1adb",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_729d40a6af82570cf6894fe2",
+      "candidate_kind": "video",
+      "candidate_sha256": "53b675320d1dd70fb37c35fa9cac7736e1045de62b2d62329d68afccdcafe746",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107438/low_proxy_107438.mp4",
+      "object_receipt_sha256": "00d64214daf049d4a39ab63edb56eafbad81a93816e47135ed48762a7eab2c2b",
+      "object_sha256": null,
+      "ordinal": 13,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 51632234,
+      "source_id": "njp-video-library",
+      "source_record_id": "938",
+      "storage_record_id": "107438",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_fb0e165f93580eb9e915fd30",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_62d5941bf5bed8e6690a3b17",
+      "candidate_kind": "video",
+      "candidate_sha256": "dac45560c2a802c7c4c33f10a6056117da23146227bef729d55547cc2002fbb6",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/107261/low_proxy_107261.mp4",
+      "object_receipt_sha256": "b176b645f0ee41c12369321de8ef365d163b85c5f7d5f62ac36c833cc3f77071",
+      "object_sha256": null,
+      "ordinal": 14,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 274128680,
+      "source_id": "njp-video-library",
+      "source_record_id": "830",
+      "storage_record_id": "107261",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_video_library_e379d777789d153b095fec70",
+      "blockers": [
+        "duration_required",
+        "exact_sha256_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_9a08e7cbd39ea5d8fb088493",
+      "candidate_kind": "video",
+      "candidate_sha256": "c58b10d39a7e6640f93269ec1e6c946e0ec0a193ba90b3ce67e4c2a3b8912e13",
+      "control_role": "primary",
+      "duration_seconds": null,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "njpvideo/media/109717/low_proxy_109717.mp4",
+      "object_receipt_sha256": "9e66f06ed5e469eab0012ef8c0e0205740c502af9b49e251356e1bce91a37f71",
+      "object_sha256": null,
+      "ordinal": 15,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 39868575,
+      "source_id": "njp-video-library",
+      "source_record_id": "1030",
+      "storage_record_id": "109717",
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_3b5806a49022a4067614bc56",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_debc585ddefef088bbb1ebc6",
+      "candidate_kind": "video",
+      "candidate_sha256": "87dd64462f302a5483d8aa3e8f1f41d41076a5560ea982bc4f6867e3aab7dcb2",
+      "control_role": "primary",
+      "duration_seconds": 334,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/hf6DSwkkXnk/hf6DSwkkXnk.mp4",
+      "object_receipt_sha256": "204b689705459c46d54d14d83cb131f09b9134b326824d55e92a07ca4e819388",
+      "object_sha256": "b8cd9997a76a0bd109a4b2de3dcf6fdd9ff9ebc900b9995e877affc1f7052a41",
+      "ordinal": 16,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 19530004,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "hf6DSwkkXnk",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_ba27a321f38332fc25b5d0af",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_6e109f6fdaf2c9b246d71c5c",
+      "candidate_kind": "video",
+      "candidate_sha256": "1b891a4698c509ac24943d98421d76d7a424ae94504734d3af5a54054486fb75",
+      "control_role": "primary",
+      "duration_seconds": 578,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/jHcmbKWRCjs/jHcmbKWRCjs.mp4",
+      "object_receipt_sha256": "0dd83ffd8c7c22b73109d2fc2c71c89aa5130bb78e065a9da42bc2a4b953cb1b",
+      "object_sha256": "e9e7ed09415e5d662000dcd17fcacdfea7d6b5480ec3bc6a4cdef5994090209b",
+      "ordinal": 17,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 36502219,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "jHcmbKWRCjs",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_0e6853ccc1a3542435c0494c",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_f58beb2125fe9bf35a5ffe20",
+      "candidate_kind": "video",
+      "candidate_sha256": "4eb1bb439cc216d8dd9db1dbc7bf04e97ab70215df6144bb51a7e81f640f58a8",
+      "control_role": "primary",
+      "duration_seconds": 364,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/Ww3lhSsUPRQ/Ww3lhSsUPRQ.mp4",
+      "object_receipt_sha256": "76c3dd7bea230dc3441e7719823069da3167657363b8964bb232f48da0f8eed9",
+      "object_sha256": "2a48a0ec0ff85f04ef389101380be2b3c9de513cbebb3de794c65eac1f8aaf06",
+      "ordinal": 18,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 18236856,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "Ww3lhSsUPRQ",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_44d503f7bcbf0d3595227a8b",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_b1aed0a8eb34271bcfeebc5a",
+      "candidate_kind": "video",
+      "candidate_sha256": "0b7c7028d0f07eddb82465ec26384bf378c374363dda6c6f36a80ee88637c8c1",
+      "control_role": "primary",
+      "duration_seconds": 67,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/ISzlvvOT6dY/ISzlvvOT6dY.mp4",
+      "object_receipt_sha256": "851d080abb774edb23cd98b5f6b3077da2a885e3daf83e960e2280ca9d49f5a9",
+      "object_sha256": "e55719d319f84ea0ed5b23fe7ce32dc7f3ee9d1808c92df765655e6c02eda691",
+      "ordinal": 19,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 4798723,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "ISzlvvOT6dY",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_22c8ff7c6add07a12d828eac",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_c637581c52b3cd9ded042ad3",
+      "candidate_kind": "video",
+      "candidate_sha256": "a2e0de8df2719462508171b110d3fae51b290c14798d02756ba732e373bb8561",
+      "control_role": "primary",
+      "duration_seconds": 143,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/Ge5kfKJeqmg/Ge5kfKJeqmg.mp4",
+      "object_receipt_sha256": "6071f113507f105dd1110252d6e0339e604b84edacacb8a4b2531ad5f269790c",
+      "object_sha256": "1ae929b3d8d93f45d03ed099c995d9502a53faede6f3f3d5a247f46044439c58",
+      "ordinal": 20,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 6501900,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "Ge5kfKJeqmg",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_a32c4caf1cea9f5ec6eac420",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_3ff3ef47906e3550706fb560",
+      "candidate_kind": "video",
+      "candidate_sha256": "76c744b32d59304220ef79bd65355389273e37c65bbd6ec58290ca2e74fe65c6",
+      "control_role": "primary",
+      "duration_seconds": 310,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/GBXPLKFHEe4/GBXPLKFHEe4.mp4",
+      "object_receipt_sha256": "b6b5896c2a3d22444e4940cb79b52b41135df70fd4dc20452470af725b908a92",
+      "object_sha256": "c26e14a94382ff770d6d27dde3471f6e00750c19cc06308d29f68a8a37354c72",
+      "ordinal": 21,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 12044815,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "GBXPLKFHEe4",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_d166c185e04086e34f55e72d",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_4e198bac0df11b6034c34644",
+      "candidate_kind": "video",
+      "candidate_sha256": "6e3b35398c0d7dbe73598df39c8fda9c5d25301b6e5c0c166faa24935221ad93",
+      "control_role": "primary",
+      "duration_seconds": 87,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/Le12uH_zm04/Le12uH_zm04.mp4",
+      "object_receipt_sha256": "1ecc4a10d37fe1d5cc032975fb75f94d7761a23d19364aa634dbc644b2d841c8",
+      "object_sha256": "5e62ccb687e154b2d63cbcf36a389c7e62fcdc7dedd619ff04e2a3a1ea660d51",
+      "ordinal": 22,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 4254504,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "Le12uH_zm04",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_54aacb58910579680fbf8af5",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_015b1bd87014a6106b285850",
+      "candidate_kind": "video",
+      "candidate_sha256": "0f92fcbbb1f26b7b7bacc9a6b3c22ed0ba1454ab63fd9e23764d05e23a562570",
+      "control_role": "primary",
+      "duration_seconds": 62,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/AW1UOtcPOLU/AW1UOtcPOLU.mp4",
+      "object_receipt_sha256": "29053cf5c6219458ee463168b6d1def6767350fb39a7cf881754175c315b2c2b",
+      "object_sha256": "7a98aa5b699704381fbd5591230d81ba5806c95f2d7458302156718039fcae23",
+      "ordinal": 23,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 3711789,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "AW1UOtcPOLU",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_0d5edd33e96a9242056934da",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_89f386ac3d5b645029ca32ce",
+      "candidate_kind": "video",
+      "candidate_sha256": "59cce012baccb9d607216acc891643aab511fd921680af1e399ffc55fa38e3ed",
+      "control_role": "primary",
+      "duration_seconds": 515,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/tM3gpSmcVnM/tM3gpSmcVnM.mp4",
+      "object_receipt_sha256": "d6076a8995d1372150599ed26779f8cd502817f06b65b125240dfe8bf5116f97",
+      "object_sha256": "3558ab81ebaa8f1cdfcf9b71cb112e7fc48da7a06ffd50d33d64f989727af0a1",
+      "ordinal": 24,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 21598744,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "tM3gpSmcVnM",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_5c3ad37dcadd9819996cae3c",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_106acbb52c7722fffc87e788",
+      "candidate_kind": "video",
+      "candidate_sha256": "40ef7db26dacd02bc3ad6edbf86680025c030ae24c78d5b644ca77267f9fa5ca",
+      "control_role": "primary",
+      "duration_seconds": 3301,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/_cbS4Vxqggc/_cbS4Vxqggc.mp4",
+      "object_receipt_sha256": "cbad7b3dbf37c5a5ab2c3be7739613d16375856d39162d30e085d22ef012cb38",
+      "object_sha256": "58d1d2d67dc99bd23b0f3d7ed9fa25c404abf02e8b34eafa2e25a16a90d02e36",
+      "ordinal": 25,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 112278650,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "_cbS4Vxqggc",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_07ed8c435be1f43ab3e6d4d6",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_21fcd7f2626e2fd200e0f1b6",
+      "candidate_kind": "video",
+      "candidate_sha256": "10b9b73adc41fdae35c017d2407f5fd0ebeb7333c848507375af7f9cf79d9008",
+      "control_role": "primary",
+      "duration_seconds": 67,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/5M4jCRFxuhI/5M4jCRFxuhI.mp4",
+      "object_receipt_sha256": "0c386b4cbcfdd6309127a8c278574d2002c43784476cba3a72df6687f051e0b9",
+      "object_sha256": "d3047986dacbb73f278e5ef642d8759e837c043422c896b98d0a820566d79ebe",
+      "ordinal": 26,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 3631422,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "5M4jCRFxuhI",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_8c0c1cb14592f457f35f7941",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_bd64efbb5745d74bb14222fc",
+      "candidate_kind": "video",
+      "candidate_sha256": "a5a588df49a9b54ee14b450936aacc45a763e581638095d752b2de4353ff5cb4",
+      "control_role": "primary",
+      "duration_seconds": 60,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/EUElgHWlp0w/EUElgHWlp0w.mp4",
+      "object_receipt_sha256": "0fcc5692e7ce8d609c3f109f11b06275d2989c23c2ab2391b61d084b7ca0345c",
+      "object_sha256": "3a31b5b1a26ed7ca1d0002d3300ea0760f076c638a79d55d7e1df3a0c310be9e",
+      "ordinal": 27,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 2705308,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "EUElgHWlp0w",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_f56bb11da9d12520749cd617",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_ecba8d771b3d25f77ac769c2",
+      "candidate_kind": "video",
+      "candidate_sha256": "424b8c214faebd67d572670ad0db5e21dc23c22968e8248fce4ab1f24a9268ef",
+      "control_role": "primary",
+      "duration_seconds": 202,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/ojp8W1kCw5s/ojp8W1kCw5s.mp4",
+      "object_receipt_sha256": "47771b666fb976129d0a5570367f67961604ef2e5a24928781133d65dc600db4",
+      "object_sha256": "44858b054324a94537838f0d847185d9bb3edbb2a944edbfbb1dc98eb996b58b",
+      "ordinal": 28,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 14746476,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "ojp8W1kCw5s",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_045efda6b78ce6075b7b397d",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_e1a1102da2ad0eb0cb4bae99",
+      "candidate_kind": "video",
+      "candidate_sha256": "46452cb023bc82d0eea0a2b73f14b6b0519bf31327b2e57997ffab308f3f2f7d",
+      "control_role": "primary",
+      "duration_seconds": 213,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/llHKlgtkGEU/llHKlgtkGEU.mp4",
+      "object_receipt_sha256": "65bc1ff4b202ae770f61e018de03a649e7f877e6b35e4ecb1a00b6faaaf97ebb",
+      "object_sha256": "3f08b32e08a90180c74b44bafb58381c057c9066cc298e9f94b435ce96702f87",
+      "ordinal": 29,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 11888045,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "llHKlgtkGEU",
+      "storage_record_id": null,
+      "width_pixels": null
+    },
+    {
+      "asset_id": "asset_njp_youtube_official_b7237aa778f9f750ee591975",
+      "blockers": [
+        "mime_type_required",
+        "operation_authority_required",
+        "stratification_metadata_required"
+      ],
+      "candidate_id": "video_candidate_c62b989d4ae24ee5032107ac",
+      "candidate_kind": "video",
+      "candidate_sha256": "29cb558b3795f05b67a149868005a4f4091e49ac6e54a7d2777ea24733c7b6a8",
+      "control_role": "primary",
+      "duration_seconds": 1392,
+      "execution_state": "held",
+      "height_pixels": null,
+      "mime_type": null,
+      "object_key": "youtube/media/dlBTCuUhH-M/dlBTCuUhH-M.mp4",
+      "object_receipt_sha256": "2f5331ab8607a04b75635267c28a7a8aa3965622648db2ed2449447f4a28eae1",
+      "object_sha256": "58669a39f5a4631d1f511f6e6e3ad367403947cb3577664e984e6d9d9892f6fd",
+      "ordinal": 30,
+      "page_count": null,
+      "selection_rationale_code": "balanced_source_hash_rank",
+      "size_bytes": 75569534,
+      "source_id": "njp-youtube-official",
+      "source_record_id": "dlBTCuUhH-M",
+      "storage_record_id": null,
+      "width_pixels": null
+    }
+  ]
+}

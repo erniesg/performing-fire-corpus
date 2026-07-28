@@ -1,0 +1,494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://performing-fire-corpus.invalid/schemas/v1/pilot-freeze-manifest.json",
+  "title": "Content-free enrichment pilot freeze v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "freeze_id",
+    "freeze_label",
+    "selection_policy_version",
+    "candidate_set_state",
+    "execution_state",
+    "source_snapshots",
+    "quotas",
+    "execution_contract",
+    "videos",
+    "documents",
+    "page_slots",
+    "images",
+    "linkage_clusters",
+    "blockers",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "enrichment_pilot_freeze"},
+    "freeze_id": {
+      "type": "string",
+      "pattern": "^enrichment_pilot_freeze_[0-9a-f]{24}$"
+    },
+    "freeze_label": {"$ref": "#/$defs/label"},
+    "selection_policy_version": {
+      "const": "metadata_only_pilot_freeze_v1"
+    },
+    "candidate_set_state": {"const": "frozen"},
+    "execution_state": {"const": "held"},
+    "source_snapshots": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/sourceSnapshot"}
+    },
+    "quotas": {"$ref": "#/$defs/quotas"},
+    "execution_contract": {"$ref": "#/$defs/executionContract"},
+    "videos": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/assetCandidate"}
+    },
+    "documents": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/assetCandidate"}
+    },
+    "page_slots": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/pageSlot"}
+    },
+    "images": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/assetCandidate"}
+    },
+    "linkage_clusters": {
+      "type": "array",
+      "minItems": 30,
+      "maxItems": 30,
+      "items": {"$ref": "#/$defs/linkageCandidate"}
+    },
+    "blockers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/blocker"}
+    },
+    "manifest_sha256": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nullableHash": {
+      "anyOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/hash"}
+      ]
+    },
+    "label": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "sourceId": {
+      "enum": [
+        "njp-center-main",
+        "njp-center-video-archive",
+        "njp-video-library",
+        "njp-youtube-official"
+      ]
+    },
+    "sourceRecordId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "objectKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:\\.\\.|//))[A-Za-z0-9._/-]+$"
+    },
+    "blocker": {
+      "enum": [
+        "configuration_versions_required",
+        "dimensions_required",
+        "document_page_inventory_required",
+        "duration_required",
+        "exact_content_equivalence_required",
+        "exact_object_receipt_required",
+        "exact_sha256_required",
+        "human_review_required",
+        "image_dimensions_required",
+        "image_mime_type_required",
+        "mime_type_required",
+        "operation_authority_required",
+        "page_count_required",
+        "page_inventory_required",
+        "page_visual_selection_required",
+        "quality_thresholds_required",
+        "source_page_digest_required",
+        "stratification_metadata_required",
+        "video_exact_sha256_required",
+        "video_mime_type_required",
+        "video_stratification_metadata_required",
+        "visual_stratification_required"
+      ]
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_manifest_id", "source_manifest_sha256"],
+      "properties": {
+        "source_manifest_id": {"$ref": "#/$defs/label"},
+        "source_manifest_sha256": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "quotas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "videos",
+        "video_sources",
+        "documents",
+        "document_sources",
+        "page_slots",
+        "images",
+        "linkage_clusters",
+        "linkage_classes"
+      ],
+      "properties": {
+        "videos": {"const": 30},
+        "video_sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["njp-video-library", "njp-youtube-official"],
+          "properties": {
+            "njp-video-library": {"const": 15},
+            "njp-youtube-official": {"const": 15}
+          }
+        },
+        "documents": {"const": 30},
+        "document_sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "njp-center-video-archive",
+            "njp-video-library"
+          ],
+          "properties": {
+            "njp-center-video-archive": {"const": 8},
+            "njp-video-library": {"const": 22}
+          }
+        },
+        "page_slots": {"const": 30},
+        "images": {"const": 30},
+        "linkage_clusters": {"const": 30},
+        "linkage_classes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ambiguous_metadata_match",
+            "negative_control",
+            "strong_metadata_match"
+          ],
+          "properties": {
+            "ambiguous_metadata_match": {"const": 10},
+            "negative_control": {"const": 10},
+            "strong_metadata_match": {"const": 10}
+          }
+        }
+      }
+    },
+    "executionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_issue",
+        "tool_boundary",
+        "concurrency_limit",
+        "review_mode",
+        "transformation_authorized",
+        "candidate_kinds_separate",
+        "configuration_state",
+        "quality_threshold_state",
+        "stop_conditions"
+      ],
+      "properties": {
+        "authority_issue": {"const": 92},
+        "tool_boundary": {"const": "local_offline_only"},
+        "concurrency_limit": {"const": 1},
+        "review_mode": {"const": "exact_hash_source_beside_output"},
+        "transformation_authorized": {"const": false},
+        "candidate_kinds_separate": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "human_caption",
+              "image_text_triage",
+              "local_machine_asr",
+              "machine_image_ocr",
+              "machine_pdf_ocr",
+              "native_pdf_text",
+              "platform_machine_asr"
+            ]
+          }
+        },
+        "configuration_state": {"const": "pending_version_pin"},
+        "quality_threshold_state": {"const": "pending_human_review"},
+        "stop_conditions": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "cleanup_failure",
+              "input_digest_mismatch",
+              "missing_current_authority",
+              "output_conflict",
+              "provenance_drift",
+              "review_surface_mismatch",
+              "unbounded_cache_or_output"
+            ]
+          }
+        }
+      }
+    },
+    "assetCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "candidate_sha256",
+        "candidate_kind",
+        "ordinal",
+        "source_id",
+        "asset_id",
+        "source_record_id",
+        "storage_record_id",
+        "object_key",
+        "object_sha256",
+        "object_receipt_sha256",
+        "size_bytes",
+        "mime_type",
+        "duration_seconds",
+        "page_count",
+        "width_pixels",
+        "height_pixels",
+        "control_role",
+        "selection_rationale_code",
+        "execution_state",
+        "blockers"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^(?:video|document|image)_candidate_[0-9a-f]{24}$"
+        },
+        "candidate_sha256": {"$ref": "#/$defs/hash"},
+        "candidate_kind": {"enum": ["video", "document", "image"]},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 30},
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "asset_id": {
+          "type": "string",
+          "pattern": "^asset_[a-z0-9_]+_[0-9a-f]{24}$"
+        },
+        "source_record_id": {"$ref": "#/$defs/sourceRecordId"},
+        "storage_record_id": {
+          "anyOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/sourceRecordId"}
+          ]
+        },
+        "object_key": {"$ref": "#/$defs/objectKey"},
+        "object_sha256": {"$ref": "#/$defs/nullableHash"},
+        "object_receipt_sha256": {"$ref": "#/$defs/nullableHash"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "mime_type": {
+          "anyOf": [
+            {"type": "null"},
+            {"enum": ["application/pdf", "image/jpeg", "video/mp4"]}
+          ]
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "page_count": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "width_pixels": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "height_pixels": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "control_role": {"enum": ["primary", "negative_control"]},
+        "selection_rationale_code": {
+          "enum": [
+            "archive_control_hash_rank",
+            "balanced_source_hash_rank",
+            "stable_hash_rank"
+          ]
+        },
+        "execution_state": {"const": "held"},
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/blocker"}
+        }
+      }
+    },
+    "pageSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_slot_id",
+        "page_slot_sha256",
+        "ordinal",
+        "document_candidate_id",
+        "page_number",
+        "source_page_sha256",
+        "selection_state",
+        "blockers"
+      ],
+      "properties": {
+        "page_slot_id": {
+          "type": "string",
+          "pattern": "^page_slot_[0-9a-f]{24}$"
+        },
+        "page_slot_sha256": {"$ref": "#/$defs/hash"},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 30},
+        "document_candidate_id": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "string",
+              "pattern": "^document_candidate_[0-9a-f]{24}$"
+            }
+          ]
+        },
+        "page_number": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "integer", "minimum": 1}
+          ]
+        },
+        "source_page_sha256": {"type": "null"},
+        "selection_state": {
+          "enum": ["frozen_metadata_only", "pending_page_inventory"]
+        },
+        "blockers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/blocker"}
+        }
+      }
+    },
+    "linkageMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "asset_id",
+        "source_record_id",
+        "metadata_snapshot_sha256",
+        "title_fingerprint_sha256",
+        "object_receipt_sha256",
+        "object_sha256"
+      ],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/sourceId"},
+        "asset_id": {
+          "type": "string",
+          "pattern": "^asset_[a-z0-9_]+_[0-9a-f]{24}$"
+        },
+        "source_record_id": {"$ref": "#/$defs/sourceRecordId"},
+        "metadata_snapshot_sha256": {"$ref": "#/$defs/hash"},
+        "title_fingerprint_sha256": {"$ref": "#/$defs/hash"},
+        "object_receipt_sha256": {"$ref": "#/$defs/nullableHash"},
+        "object_sha256": {"$ref": "#/$defs/nullableHash"}
+      }
+    },
+    "linkageCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cluster_candidate_id",
+        "cluster_candidate_sha256",
+        "ordinal",
+        "candidate_class",
+        "relationship_candidate",
+        "similarity_milli",
+        "evidence_classes",
+        "members",
+        "review_state",
+        "merge_authorized",
+        "blockers"
+      ],
+      "properties": {
+        "cluster_candidate_id": {
+          "type": "string",
+          "pattern": "^linkage_candidate_[0-9a-f]{24}$"
+        },
+        "cluster_candidate_sha256": {"$ref": "#/$defs/hash"},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 30},
+        "candidate_class": {
+          "enum": [
+            "ambiguous_metadata_match",
+            "negative_control",
+            "strong_metadata_match"
+          ]
+        },
+        "relationship_candidate": {
+          "enum": ["needs_review", "not_same_control", "probable_match"]
+        },
+        "similarity_milli": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "evidence_classes": {
+          "const": ["normalized_title_similarity"]
+        },
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/linkageMember"}
+        },
+        "review_state": {"const": "unreviewed"},
+        "merge_authorized": {"const": false},
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/blocker"}
+        }
+      }
+    }
+  }
+}
