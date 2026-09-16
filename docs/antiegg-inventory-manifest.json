@@ -1,0 +1,66 @@
+{
+  "assets": [
+    {
+      "asset_id": "asset_antiegg_fluxus_25502",
+      "media_type": "text/html",
+      "metadata": {
+        "inventory_status": "blocked"
+      },
+      "public_url": "https://antiegg.kr/25502/",
+      "record_type": "asset",
+      "schema_version": 1,
+      "source_id": "source_antiegg_fluxus"
+    }
+  ],
+  "blocker": {
+    "code": "response_oversized",
+    "next_safe_action": "keep the metadata response within the configured byte bound"
+  },
+  "manifest_type": "public_metadata_inventory",
+  "record_counts": {
+    "assets": 1,
+    "blockers": 1,
+    "jobs": 1,
+    "requests": 2
+  },
+  "requests": [
+    {
+      "byte_count": 168,
+      "mime_type": "text/plain",
+      "public_url": "https://antiegg.kr/robots.txt",
+      "recorded_at": "2026-07-26T15:45:20Z",
+      "response_sha256": "9e9d7afdc935dd5b9234e1b8ee11f004873e01b0a59df821da6dde2df42ed58f",
+      "retry_outcome": "not_retried",
+      "status": 200
+    },
+    {
+      "byte_count": 262145,
+      "mime_type": "text/html",
+      "public_url": "https://antiegg.kr/25502/",
+      "recorded_at": "2026-07-26T15:45:21Z",
+      "response_sha256": null,
+      "retry_outcome": "not_retried",
+      "status": 200
+    }
+  ],
+  "result": "blocked",
+  "robots_observation": {
+    "catalogue_allowed": true,
+    "outcome": "allowed",
+    "status": 200
+  },
+  "schema_version": 1,
+  "source": {
+    "metadata": {
+      "adapter": "antiegg-fluxus"
+    },
+    "public_url": "https://antiegg.kr/25502/",
+    "record_type": "source",
+    "schema_version": 1,
+    "source_id": "source_antiegg_fluxus",
+    "source_kind": "article"
+  },
+  "state_counts": {
+    "blocked": 1
+  }
+}
