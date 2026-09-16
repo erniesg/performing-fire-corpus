@@ -13,14 +13,22 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import time
 
 import boto3
 from botocore.config import Config
 
-YT_DLP = pathlib.Path(
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+LAPTOP_YT_DLP = pathlib.Path(
     "/Users/erniesg/.pyenv/versions/3.12.8/envs/innovasian/bin/yt-dlp"
+)
+YT_DLP = pathlib.Path(
+    os.environ.get("YT_DLP")
+    or (str(LAPTOP_YT_DLP) if LAPTOP_YT_DLP.exists() else None)
+    or shutil.which("yt-dlp")
+    or "yt-dlp"
 )
 FORMAT = "18/best[ext=mp4][height<=480][acodec!=none][vcodec!=none]"
 PART_SIZE = 16 * 1024 * 1024
@@ -35,10 +43,8 @@ parser.add_argument("--dry-run", action="store_true")
 parser.add_argument("--rate-limit", type=float, default=3.0)
 args = parser.parse_args()
 
-env_path = pathlib.Path(
-    "/Users/erniesg/code/erniesg/performing-fire-corpus/.env.live"
-)
-for line in env_path.read_text().splitlines():
+env_path = REPO_ROOT / ".env.live"
+for line in (env_path.read_text() if env_path.exists() else "").splitlines():
     line = line.split("#", 1)[0].strip()
     if "=" in line:
         key, value = line.split("=", 1)

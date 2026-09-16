@@ -20,9 +20,9 @@ import time
 
 from youtube_transcript_api import YouTubeTranscriptApi
 
-LIST = pathlib.Path("/Users/erniesg/code/erniesg/performing-fire-corpus/.local/youtube/yt-videos.tsv")
-OUT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else
-                   "/Users/erniesg/code/erniesg/performing-fire-corpus/.local/youtube")
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+LIST = REPO_ROOT / ".local/youtube/yt-videos.tsv"
+OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else REPO_ROOT / ".local/youtube"
 TX = OUT / "transcripts"
 TX.mkdir(parents=True, exist_ok=True)
 
@@ -113,7 +113,7 @@ for m in manifest:
 print(f"\ntranscripts={len(manifest)}/{len(videos)}  failures={len(failures)}  kinds={kinds}")
 print(f"total chars: {sum(m.get('chars',0) for m in manifest):,}")
 
-env = pathlib.Path("/Users/erniesg/code/erniesg/performing-fire-corpus/.env.live")
+env = REPO_ROOT / ".env.live"
 if env.exists():
     for line in env.read_text().splitlines():
         line = line.split("#")[0].strip()
@@ -129,9 +129,11 @@ try:
     bucket = os.environ.get("R2_BUCKET") or os.environ["ANVIL_R2_BUCKET"]
     n = 0
     for f in sorted(TX.glob("*.json")):
+        body = f.read_bytes()
+        kind = json.loads(body).get("_meta", {}).get("transcript_kind", "machine_asr")
         s3.put_object(Bucket=bucket, Key=f"youtube/transcripts/{f.name}",
-                      Body=f.read_bytes(), ContentType="application/json",
-                      Metadata={"transcript-kind": "machine_asr", "source": "youtube",
+                      Body=body, ContentType="application/json",
+                      Metadata={"transcript-kind": kind, "source": "youtube",
                                 "authenticated": "false"})
         n += 1
     body = (OUT / "youtube-transcripts-manifest.json").read_bytes()
