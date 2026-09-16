@@ -25,7 +25,10 @@ import sys
 import time
 import urllib.request
 
-UA = "performing-fire-corpus/1.0 (research; hello@ernie.sg)"
+UA = os.environ.get(
+    "CORPUS_USER_AGENT",
+    "performing-fire-corpus/1.0 (research; +https://github.com/erniesg/performing-fire-corpus)",
+)
 PART = 16 * 1024 * 1024
 RATE_LIMIT = 1.0
 

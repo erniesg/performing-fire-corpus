@@ -21,19 +21,14 @@ import boto3
 from botocore.config import Config
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-LAPTOP_YT_DLP = pathlib.Path(
-    "/Users/erniesg/.pyenv/versions/3.12.8/envs/innovasian/bin/yt-dlp"
-)
-YT_DLP = pathlib.Path(
-    os.environ.get("YT_DLP")
-    or (str(LAPTOP_YT_DLP) if LAPTOP_YT_DLP.exists() else None)
-    or shutil.which("yt-dlp")
-    or "yt-dlp"
-)
+YT_DLP = pathlib.Path(os.environ.get("YT_DLP") or shutil.which("yt-dlp") or "yt-dlp")
 FORMAT = "18/best[ext=mp4][height<=480][acodec!=none][vcodec!=none]"
 PART_SIZE = 16 * 1024 * 1024
 PREFIX = "youtube/media"
-UA = "performing-fire-corpus/1.0 (research; hello@ernie.sg)"
+UA = os.environ.get(
+    "CORPUS_USER_AGENT",
+    "performing-fire-corpus/1.0 (research; +https://github.com/erniesg/performing-fire-corpus)",
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--videos", required=True)
